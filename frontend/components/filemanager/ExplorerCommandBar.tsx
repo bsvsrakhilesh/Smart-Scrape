@@ -81,9 +81,6 @@ export default function ExplorerCommandBar({
   onDensityChange,
   onQuickFilter,
 }: Props) {
-  const normalizedLayout: LayoutKind = layout ?? "large";
-  // Optional alias used only where you truly need 'list' to behave as 'details'
-  const effectiveLayout = normalizedLayout === "list" ? "details" : normalizedLayout;
 
   const setLayout = (next: LayoutKind) => {
     // prefer explicit layout change

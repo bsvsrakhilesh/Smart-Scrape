@@ -1022,14 +1022,11 @@ const handleRenameById = async (id: string, nextName: string) => {
           {/* Secondary command row (Up, New, Upload, Sort, View toggle) */}
           <div className="mb-4">
             <ExplorerCommandBar
-              // 4-view segmented control (List is an alias to Details)
-              layout={layout as any} // our control accepts 'list' too; page still uses 'details'
+              layout={layout as any}
               onLayoutChange={(next) => {
-                const normalized = next === 'list' ? 'details' : next;
-                setLayout(normalized as Layout);
-                setPage(1);
-              }}
-            
+              setLayout(next as Layout);
+              setPage(1);
+              }}            
               onNew={handleNewFolder}
               onUpload={() => setShowUpload(true)}
               sortKey={sortKey}

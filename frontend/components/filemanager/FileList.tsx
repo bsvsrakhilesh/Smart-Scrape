@@ -684,41 +684,70 @@ useEffect(() => {
     );
   };
 
-  const renderListHeader = () => (
-  <div className="fm-list-header">
-    <div className="w-[36px]" />
-    <span>Name</span>
-  </div>
-  );
-
-  // list rows ignore column chooser and just render icon + title
-  const renderListRow = (f: FileItem) => {
-  const isSel = selectedIds.has(f.id);
+  const renderCompactList = () => {
   return (
     <div
-      key={`list-${f.id}`}
-      data-row
-      data-id={f.id}
-      className="fm-row grid grid-cols-[36px_1fr] items-center gap-2 px-3 py-2 rounded-lg cursor-default"
-      data-selected={isSel ? 'true' : 'false'}
+      className="fm-list-compact"
+      role="list"
       onClick={(e) => {
-        if (e.shiftKey) toggleSelect(f.id, true, true);
-        else if (e.metaKey || e.ctrlKey) toggleSelect(f.id, !isSel, false);
-        else toggleSelect(f.id, true, false);
-      }}
-      onDoubleClick={() => onPreview?.(f)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setRowMenu({ x: e.clientX, y: e.clientY, file: f });
+        if (!(e.target as HTMLElement).closest('[data-row]')) setSelectedIds(new Set());
       }}
     >
-    <div className="min-w-0">
-      <div className="px-1">{renderIcon(f, 24)}</div>
-      <div className="fm-list-name">{fileDisplayName(f)}</div>
+      {sorted.map((f) => {
+        const isSel = selectedIds.has(f.id);
+        const sizeLabel = (f as any).size ? ` • ${formatBytes((f as any).size)}` : '';
+        const updatedLabel = (f as any).updatedAt ? ` • ${new Date((f as any).updatedAt).toLocaleString()}` : '';
+
+        return (
+          <div
+            key={f.id}
+            data-row
+            data-id={f.id}
+            className={[
+              'fm-list-item',
+              isSel ? 'fm-row--selected' : '',
+              (f as any).mimeType === 'folder' ? 'fm-row--folder' : 'fm-row--file',
+            ].join(' ')}
+            onMouseDown={(e) => {
+              if (e.shiftKey) toggleSelect(f.id, true, true);
+              else if (e.ctrlKey || e.metaKey) toggleSelect(f.id, false, false);
+              else setSelectedIds(new Set([f.id]));
+            }}
+            onDoubleClick={() => onPreview?.(f)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setRowMenu({ x: e.clientX, y: e.clientY, file: f });
+            }}
+          >
+            <div className="fm-list-item__left">
+              <div className="fm-thumb">{renderIcon(f, 20)}</div>
+              <div className="min-w-0">
+                <div className="fm-list-name truncate">{fileDisplayName(f)}</div>
+                <div className="fm-list-subtle">
+                  {(f as any).mimeType || '—'}{sizeLabel}{updatedLabel}
+                </div>
+              </div>
+            </div>
+
+            <div className="fm-list-item__right">
+              {(f as any).tags?.length ? (
+                <div className="fm-tags">
+                  {(f as any).tags.slice(0, 3).map((t: string) => (
+                    <span key={t} className="fm-chip fm-chip--subtle">{t}</span>
+                  ))}
+                  {(f as any).tags.length > 3 && (
+                    <span className="fm-chip fm-chip--subtle">+{(f as any).tags.length - 3}</span>
+                  )}
+                </div>
+              ) : null}
+
+            </div>
+          </div>
+        );
+      })}
     </div>
-    </div>
-    );
-  };
+  );
+ };
 
   const renderIcon = (f: FileItem, size = 24) => {
   const t = ((f as any).mimeType || '').toLowerCase();
@@ -1034,15 +1063,12 @@ useEffect(() => {
             </div>
           </div>
         )}
-        {viewMode === 'list' && (
-          <div data-view="list" className="fm-list-wrap">
-            {renderListHeader()}
-            <div>
-              {sorted.slice(0, renderCount).map((f) => renderListRow(f))}
-            </div>
-          </div>
-        )}
-        {viewMode !== 'details' && renderGridCards(viewMode as 'large' | 'tiles' | 'list')}
+        {/* Render either the compact list (list view) or the grid (only for 'large'|'tiles') */}
+        {viewMode === 'list'
+          ? renderCompactList()
+          : viewMode === 'large' || viewMode === 'tiles'
+          ? renderGridCards(viewMode as 'large' | 'tiles')
+          : null}
 
         {/* Marquee overlay */}
         {marquee && (

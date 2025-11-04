@@ -1,0 +1,100 @@
+services:
+  db:
+    image: postgres:16
+    container_name: smartscrape_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: SmartScrape
+    env_file:
+      - ./backend/.env
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d SmartScrape"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: smartscrape_redis
+    ports: ["6379:6379"]
+
+  backend:
+    image: node:20-alpine
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: base   # use the base image (chromium + deps)
+    container_name: smartscrape_backend
+    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npx prisma generate && npm run dev"
+    working_dir: /app
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      # File storage inside container (persisted via volume)
+      FILE_STORAGE_DIR: /data
+      # Talk to AI Tagger over the compose network
+      TAGGER_PY_URL: http://ai-tagger:7071
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - backend_storage:/data
+      - ./backend/.env:/app/.env:ro
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    container_name: smartscrape_frontend
+    working_dir: /app
+    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && VITE_API_URL=http://backend:4000 npm run dev -- --host --port 3000"
+    environment:
+      CHOKIDAR_USEPOLLING: "1"   # file watching in Docker on Mac/Win
+      VITE_WATCH_INTERVAL: "300"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  ai-tagger:
+    build:
+      context: ./ai-tagger
+      dockerfile: Dockerfile
+    container_name: smartscrape_ai_tagger
+    environment:
+      PORT: 7071
+      REDIS_URL: redis://redis:6379/0
+      # OPENAI_API_KEY: your_key_if_using_llm
+    ports:
+      - "7071:7071"
+    depends_on:
+      - redis
+    command: uvicorn app:app --host 0.0.0.0 --port 7071
+
+  ai-tagger-worker:
+    build:
+      context: ./ai-tagger
+      dockerfile: Dockerfile
+    container_name: smartscrape_ai_tagger_worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=2"
+
+volumes:
+  db_data:
+  backend_node_modules:
+  frontend_node_modules:
+  backend_storage:

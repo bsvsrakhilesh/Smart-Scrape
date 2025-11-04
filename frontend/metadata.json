@@ -1,0 +1,5 @@
+{
+  "name": "Smart Scrape",
+  "description": "An intelligent tool that uses AI-powered search to find and collect relevant URLs from specific websites based on user-provided keywords. Users can select from the search results and export them to a CSV file.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,122 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum SourceKind {
+  URL
+  FILE
+}
+
+model Url {
+  id          Int      @id @default(autoincrement())
+  url         String   @unique
+  title       String
+  snippet     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  isFavorited Boolean  @default(false)
+  notes       String?
+  tags        String[] @default([])
+  contentHash   String?
+  taggerVersion String?
+  tagsMeta      Json?
+
+  notebookSources NotebookSource[] @relation("UrlNotebookSources")
+}
+
+model StoredFile {
+  id             String   @id
+  fileName       String
+  mimeType       String
+  size           Int
+  description    String?
+  uploaderName   String
+  uploaderId     String?
+  tags           String[] @default([])
+  visibility     String   @default("private")
+  downloads      Int      @default(0)
+  favoritesCount Int      @default(0)
+  isFavorited    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  deletedAt   DateTime?  
+  @@index([deletedAt]) 
+  storagePath    String // absolute path to file on disk
+  folderId       String?
+  folder         Folder?  @relation(fields: [folderId], references: [id])
+  contentHash   String?
+  taggerVersion String?
+  tagsMeta      Json?
+
+  notebookSources NotebookSource[] @relation("FileNotebookSources")
+}
+
+model Folder {
+  id        String       @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    Folder?      @relation("FolderToFolder", fields: [parentId], references: [id])
+  children  Folder[]     @relation("FolderToFolder")
+  files     StoredFile[]
+  createdAt DateTime     @default(now())
+  deletedAt   DateTime?
+  @@index([deletedAt])
+}
+
+model Notebook {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sources NotebookSource[]
+  notes   Note[]
+}
+
+model NotebookSource {
+  id         String     @id @default(cuid())
+  notebook   Notebook   @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  notebookId String
+  kind       SourceKind
+
+  // Match your existing ID types:
+  url   Url? @relation("UrlNotebookSources", fields: [urlId], references: [id])
+  urlId Int?
+
+  file   StoredFile? @relation("FileNotebookSources", fields: [fileId], references: [id])
+  fileId String?
+
+  chunks    SourceChunk[]
+  createdAt DateTime      @default(now())
+
+  @@unique([notebookId, urlId])
+  @@unique([notebookId, fileId])
+}
+
+model SourceChunk {
+  id        String         @id @default(cuid())
+  source    NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId  String
+  idx       Int
+  text      String
+  tokens    Int
+  createdAt DateTime       @default(now())
+
+  @@unique([sourceId, idx])
+}
+
+model Note {
+  id         String   @id @default(cuid())
+  notebook   Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  notebookId String
+  title      String?
+  content    String
+  citations  Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}

@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+celery
+redis
+keybert
+sentence-transformers
+yake
+trafilatura
+pdfminer.six
+python-docx
+spacy
+# optional OCR
+pdf2image
+pytesseract
+openai>=1.0.0
+python-multipart
+requests

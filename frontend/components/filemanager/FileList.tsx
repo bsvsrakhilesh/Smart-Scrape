@@ -273,6 +273,7 @@ useEffect(() => {
     // ALWAYS emit a real array (never undefined)
     onSelectionChange?.(Array.from(next));
   };
+  
 
   /** ---------- rename ---------- */
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -973,6 +974,32 @@ const renderListRow = (f: FileItem) => {
     [selectedFiles]
   );
 
+  /** ---------- progressive rendering for large lists ---------- */
+    const [renderCount, setRenderCount] = useState(() => {
+       return sorted.length > 600 ? 300 : sorted.length;
+     });
+   
+     useEffect(() => {
+       if (sorted.length <= 600) {
+         setRenderCount(sorted.length);
+         return;
+       }
+       let cancelled = false;
+       // Start from a modest chunk, then stream additional rows
+       setRenderCount(300);
+       const step = () => {
+         if (cancelled) return;
+         setRenderCount((c) => {
+           if (c >= sorted.length) return c;
+           const next = Math.min(sorted.length, c + 300);
+           if (next < sorted.length) requestAnimationFrame(step);
+           return next;
+         });
+       };
+       requestAnimationFrame(step);
+       return () => { cancelled = true; };
+    }, [sorted]);
+
   /** ---------- render ---------- */
   return (
     <div
@@ -1003,7 +1030,7 @@ const renderListRow = (f: FileItem) => {
           <>
             {renderHeader()}
             <div>
-              {sorted.map((f) => renderRow(f))}
+              {sorted.slice(0, renderCount).map((f) => renderRow(f))}
             </div>
           </>
         )}
@@ -1011,7 +1038,7 @@ const renderListRow = (f: FileItem) => {
           <>
             {renderListHeader()}
             <div>
-              {sorted.map((f) => renderListRow(f))}
+              {sorted.slice(0, renderCount).map((f) => renderListRow(f))}
             </div>
           </>
         )}

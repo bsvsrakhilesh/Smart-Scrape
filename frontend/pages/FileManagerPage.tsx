@@ -26,7 +26,7 @@ const getLS = <T,>(k: string, v: T) => {
 };
 const setLS = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
-type Layout = 'large' | 'icons' | 'details' | 'List';
+type Layout = 'large' | 'icons' | 'details' | 'list';
 type SortKey = 'name' | 'date' | 'type' | 'size';
 type SortDir = 'asc' | 'desc';
 
@@ -108,6 +108,18 @@ export default function FileManagerPage() {
 
   const [density, setDensity] = useState<'comfortable' | 'compact'>(() => getLS('fm:density', 'comfortable'));
   useEffect(() => setLS('fm:density', density), [density]);
+
+  // ---------- hotkeys overlay ----------
+  const [showHotkeys, setShowHotkeys] = useState(false);
+
+  useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === '?') setShowHotkeys(v => !v);
+    if (e.key === 'Escape') setShowHotkeys(false);
+  };
+  window.addEventListener('keydown', onKey);
+  return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // folders / breadcrumb
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(undefined);
@@ -999,6 +1011,10 @@ const handleRenameById = async (id: string, nextName: string) => {
                 }}
                 onSearchSubmit={(q) => { setFilters({ ...filters, query: q }); setPage(1); }}
                 initialSearch={filters.query}
+                getChildren={async (id) => {
+                const rows = await listFolders(id ?? undefined);
+                return rows.map(r => ({ id: r.id, name: r.name }));
+                 }}
               />
             </div>
           </div>
@@ -1067,8 +1083,41 @@ const handleRenameById = async (id: string, nextName: string) => {
               <div className="m-4 p-3 rounded bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200">{error}</div>
             )}
             {!isLoading && !error && allFiles.length === 0 && (
-              <div className="p-10 text-center text-sm opacity-70">No files found. Try adjusting filters or upload using the top “Upload”.</div>
-            )}
+            <div className="fm-empty">
+              {/* subtle illustration card using your surface/border/shadow tokens */}
+              <div
+                aria-hidden
+                className="h-24 w-36 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] shadow-[var(--shadow-soft)] mb-3"
+              />
+          
+              <h3>This folder is feeling a little empty</h3>
+              <p>Create a new folder, upload files, or drag & drop from your desktop.</p>
+          
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleNewFolder}
+                >
+                  New folder
+                </button>
+          
+                <button
+                  type="button"
+                  className="fm-btn"
+                  onClick={() => setShowUpload(true)}
+                  title="Upload files"
+                >
+                  Upload files
+                </button>
+              </div>
+          
+              <div className="mt-3 text-xs text-[hsl(var(--muted-foreground))]">          
+              Tip: You can paste files with <kbd>Ctrl</kbd>+<kbd>V</kbd> after copying.
+              </div>
+            </div>
+          )}
+
             {clipboard && (
               <div className="mb-3 rounded-lg border bg-amber-50 dark:bg-amber-900/30 p-3 text-sm flex items-center justify-between">
                 <span>
@@ -1208,6 +1257,8 @@ const handleRenameById = async (id: string, nextName: string) => {
               selectedCount={selected.length}
               totalCount={total}
               totalSize={totalBytes}
+              filteredCount={allFiles.length}
+              selectedSize={selected.reduce((acc, f) => acc + (((f as any).size) || 0), 0)}
             />
           </motion.div>
         </section>
@@ -1298,6 +1349,23 @@ const handleRenameById = async (id: string, nextName: string) => {
           <AdvancedFileUpload onUploaded={handleUploaded} folderId={currentFolderId} />
         </Modal>
       </motion.div>
+      {showHotkeys && (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="bg-[hsl(var(--popover))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl p-6 w-[460px] max-w-[90%]">
+          <h2 className="text-lg font-semibold mb-3">Keyboard Shortcuts</h2>
+          <div className="grid grid-cols-2 gap-y-2 text-sm">
+            <div><kbd className="kbd">Enter</kbd></div><div>Open file / folder</div>
+            <div><kbd className="kbd">F2</kbd></div><div>Rename</div>
+            <div><kbd className="kbd">Delete</kbd></div><div>Move to trash</div>
+            <div><kbd className="kbd">Ctrl + C / V / X</kbd></div><div>Copy / Paste / Cut</div>
+            <div><kbd className="kbd">Arrow Keys</kbd></div><div>Navigate items</div>
+            <div><kbd className="kbd">Ctrl + F</kbd></div><div>Search within folder</div>
+            <div><kbd className="kbd">?</kbd></div><div>Show this overlay</div>
+          </div>
+          <p className="mt-4 text-xs text-[hsl(var(--muted))]">Press Esc to close.</p>
+        </div>
+      </div>
+    )}
     </PageTransition>
   );
 }

@@ -1,5 +1,9 @@
 // frontend/components/filemanager/WindowsGrid.tsx
 import { Folder, File as FileIcon, ShieldAlert, HardDrive } from 'lucide-react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import ReactDOM from 'react-dom';
+import { formatBytes } from '../../utils/fileHelpers';
 import type { FileItem } from '../../types';
 
 type Props = {
@@ -17,6 +21,7 @@ export default function WindowsGrid({ files, onOpen, variant = 'tiles' }: Props)
   const gridClass = variant === 'icons' ? 'fm-grid-icons' : 'fm-grid-tiles';
   const iconSize   = variant === 'icons' ? 'w-12 h-12' : 'w-9 h-9';
   const nameClass  = variant === 'icons' ? 'text-sm'   : 'text-[15px]';
+  const [hoverCard, setHoverCard] = useState<{ item: FileItem; x: number; y: number } | null>(null);
 
   return (
     <div className={`${gridClass}`}>
@@ -32,6 +37,12 @@ export default function WindowsGrid({ files, onOpen, variant = 'tiles' }: Props)
             className={`fm-tile p-3 text-left group ${systemFile ? 'fm-system-file' : ''}`}
             onDoubleClick={() => onOpen(f)}
             onKeyDown={(e) => (e.key === 'Enter' ? onOpen(f) : null)}
+            onMouseEnter={(e) => {
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setHoverCard({ item: f, x: rect.left + rect.width / 2, y: rect.top + 10 });
+            }}
+            onMouseMove={(e) => setHoverCard(h => h ? ({ ...h, x: e.clientX + 16, y: e.clientY + 16 }) : h)}
+            onMouseLeave={() => setHoverCard(null)}
           >
             <div className="fm-thumb-box">
               {/* Special micro-badges */}
@@ -73,6 +84,32 @@ export default function WindowsGrid({ files, onOpen, variant = 'tiles' }: Props)
           </button>
         );
       })}
+
+            {/* Hover Preview (parity with FileList) */}
+      {hoverCard && ReactDOM.createPortal(
+        <AnimatePresence>
+          <motion.div
+            key={hoverCard.item.id}
+            className="fixed z-[70] pointer-events-none fm-hover-card bg-[hsl(var(--popover))]/95 backdrop-blur-lg rounded-xl p-3 shadow-2xl border border-[hsl(var(--border))/60] max-w-[280px]"
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.15, ease: 'easeOut' } }}
+            exit={{ opacity: 0, y: 4, scale: 0.98, transition: { duration: 0.12 } }}
+            style={{ left: hoverCard.x, top: hoverCard.y }}
+          >
+            <div className="text-[13px] font-medium truncate mb-1">
+              {(hoverCard.item as any).title || (hoverCard.item as any).fileName || ''}
+            </div>
+            <div className="text-[12px] text-[hsl(var(--muted))] mb-2">
+              {(((hoverCard.item as any).mimeType || (hoverCard.item as any).type || '') as string).toUpperCase()} • {formatBytes((hoverCard.item as any).size || 0)}
+            </div>
+            <div className="flex gap-2 opacity-80">
+              <span className="text-[11px] px-2 py-0.5 rounded-lg border">Enter to open</span>
+              <span className="text-[11px] px-2 py-0.5 rounded-lg border">F2 rename</span>
+            </div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

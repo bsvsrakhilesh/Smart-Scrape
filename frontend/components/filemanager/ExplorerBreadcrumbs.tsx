@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronRight, Home } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -29,6 +30,7 @@ type Props = {
   /** Optional: show a search box on the right */
   onSearchSubmit?: (q: string) => void;
   initialSearch?: string;
+  getChildren?: (id: string | null) => Promise<Array<{ id: string; name: string }>>;
 };
 
 export default function ExplorerBreadcrumbs({
@@ -42,6 +44,7 @@ export default function ExplorerBreadcrumbs({
   onResolvePathText,
   onSearchSubmit,
   initialSearch = "",
+  getChildren
 }: Props) {
   // ----------- Derived strings -----------
   const currentPathString = useMemo(
@@ -54,10 +57,36 @@ export default function ExplorerBreadcrumbs({
   const [addrError, setAddrError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const crumbsRef = useRef<HTMLDivElement | null>(null);
+
+ // Quick-jump menu state
+  const [menu, setMenu] = useState<{
+     x: number;
+     y: number;
+     items: Array<{ id: string; name: string }>;
+  } | null>(null);
+
   useEffect(() => {
     if (!editing) setPathText(currentPathString);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPathString]);
+
+  // Auto-scroll right to reveal the most specific crumb
+  useEffect(() => {
+    const el = crumbsRef.current;
+    if (!el) return;
+    // Defer till after layout
+    requestAnimationFrame(() => {
+       el.scrollLeft = el.scrollWidth;
+    });
+  }, [path]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const onClick = () => setMenu(null);
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, [menu]);
 
   useEffect(() => {
     if (editing && inputRef.current) inputRef.current.select();
@@ -229,6 +258,7 @@ export default function ExplorerBreadcrumbs({
           role="group"
           aria-label="Breadcrumb"
           className="h-9 flex items-center gap-1 px-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] overflow-x-auto scrollbar-thin"
+          ref={crumbsRef}
           onDoubleClick={() => setEditing(true)}
           title="Double-click to edit path"
         >
@@ -249,6 +279,20 @@ export default function ExplorerBreadcrumbs({
               >
                 {c.label}
               </button>
+              {getChildren && (
+              <button
+                className="ml-1 px-1.5 py-1 rounded-md opacity-60 group-hover:opacity-100 hover:bg-[hsl(var(--surface-elev))]"
+                title="Quick jump"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const items = await getChildren(c.id);
+                  setMenu({ x: rect.left, y: rect.bottom + 6, items });
+                }}
+              >
+                ▾
+              </button>
+              )}
             </div>
           ))}
         </div>
@@ -274,6 +318,33 @@ export default function ExplorerBreadcrumbs({
       />
     </form>
   ) : null;
+
+  {menu && createPortal(
+    <div
+      className="fixed z-[80] min-w-[220px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--popover))] shadow-xl p-1"
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseLeave={() => setMenu(null)}
+    >
+      {menu.items.length === 0 ? (
+        <div className="px-3 py-2 text-sm text-[hsl(var(--muted))]">No subfolders</div>
+      ) : (
+        menu.items.map((it) => (
+          <button
+            key={it.id}
+            className="w-full text-left px-3 py-2 rounded-lg hover:bg-[hsl(var(--surface-elev))] text-sm"
+            onClick={() => {
+              setMenu(null);
+              onNavigate?.(it.id);
+            }}
+          >
+            {it.name}
+          </button>
+        ))
+      )}
+    </div>,
+    document.body
+  )}
 
   return (
     <motion.nav

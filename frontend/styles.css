@@ -542,7 +542,7 @@
     background-color .18s ease,
     filter .18s ease;
 
-  background-image: url("data:image/svg
+  background-image: url("data:image/svg");
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 16px 16px;
@@ -838,6 +838,72 @@
 .explorer-row:hover { background: hsl(var(--surface-elev)); border-color: hsl(var(--border)); }
 .explorer-row.selected { background: hsl(var(--surface-elev)); border-color: hsl(var(--accent)); }
 
+/* Restore sizing/layout for the "details" (table) view.
+   Ensure rows are grid containers and children don't force stacking. */
+[data-view="details"] .fm-row,
+.fm-table-wrap .fm-row {
+  display: grid !important;
+  align-items: center;
+  justify-items: start;
+  grid-auto-flow: row; /* children placed in grid cells by columns via grid-template-columns */
+  /* checkbox | name | date | type | size (template overridden inline by FileList when persisted) */
+  column-gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  min-height: 48px;
+}
+
+/* force the explicit column layout applied inline (via style.gridTemplateColumns) to be honored */
+[data-view="details"] .fm-row[style],
+.fm-table-wrap .fm-row[style] {
+  display: grid !important;
+}
+
+/* prevent children from expanding to full width and ensure proper truncation */
+[data-view="details"] .fm-row > * {
+  min-width: 0;
+  align-self: center;
+}
+
+/* Make the thumbnail / folder glyph small inside the details/table view */
+[data-view="details"] .fm-thumb,
+.fm-table-wrap .fm-thumb,
+[data-view="details"] .fm-thumb-box,
+.fm-table-wrap .fm-thumb-box {
+  inline-size: 44px;
+  block-size: 44px;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Ensure the icon inside the small thumb scales correctly */
+[data-view="details"] .fm-thumb svg,
+.fm-table-wrap .fm-thumb svg,
+[data-view="details"] .fm-thumb-box svg,
+.fm-table-wrap .fm-thumb-box svg {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
+
+/* Slightly tighter text layout for table rows */
+[data-view="details"] .fm-list-name,
+.fm-table-wrap .fm-list-name {
+  font-size: 14px;
+  line-height: 1.1;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Keep compact list/tile rules scoped so they don't affect details view */
+.fm-list-compact .fm-thumb { /* keep as-is for compact list */ }
+
 /* Badge, breadcrumbs, simple header helpers */
 .fm-badge {
   @apply absolute -top-1.5 -right-1.5 text-[10px] rounded-full px-1.5 py-0.5 font-medium;
@@ -1018,130 +1084,43 @@
 }
 
 /* Compact list */
-.fm-list-compact { @apply relative flex flex-col gap-1.5 p-2; }
+.fm-list-compact { @apply relative flex flex-col gap-1 p-1; }
 .fm-list-item {
-  @apply grid items-center rounded-lg px-3 py-2 border border-transparent transition;
+  @apply grid items-center rounded-md px-2 py-1.5 border border-transparent transition;
   grid-template-columns: 1fr auto;
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 95%, transparent);
+  gap: 8px;
 }
-.fm-list-item:hover { background: color-mix(in srgb, var(--color-surface) 85%, transparent); border-color: var(--color-border); }
-.fm-list-item__left { @apply min-w-0 flex items-center gap-3; }
-.fm-list-item__right { @apply flex items-center gap-3 justify-end pl-3; }
-.fm-list-name { @apply text-sm font-medium text-[hsl(var(--foreground))]; }
-.fm-list-subtle { @apply text-xs text-[hsl(var(--muted-foreground))]; }
+.fm-list-item:hover { background: color-mix(in srgb, var(--color-surface) 90%, transparent); border-color: var(--color-border); }
 
-/* meta lines, tags, thumb */
-.fm-meta { @apply text-xs text-[hsl(var(--muted-foreground))]; }
-.fm-meta-line { @apply text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5 truncate; }
-.fm-tags { @apply hidden md:flex items-center gap-1 mr-2; }
+.fm-list-item__left { @apply min-w-0 flex items-center gap-2; }
+.fm-list-item__right { @apply flex items-center gap-2 justify-end pl-2; }
 
-.fm-thumb {
-  @apply rounded-lg bg-[hsl(var(--muted))];
-  aspect-ratio: 16/10;
+.fm-list-name { font-size: 14px; line-height: 1.15; font-weight: 500; }
+.fm-list-subtle { font-size: 12px; color: hsl(var(--muted-foreground)); }
+
+/* make list thumbs small and square (only inside compact list) */
+.fm-list-compact .fm-thumb {
+  inline-size: 40px;
+  block-size: 40px;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
   overflow: hidden;
-  position: relative;
-}
-.fm-thumb-box {
-  @apply aspect-[5/4] w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-elev))] flex items-center justify-center relative overflow-hidden;
-}
-.fm-thumb-box .lucide { @apply opacity-90; }
-
-/* tiles and grid layouts */
-.fm-tile {
-  @apply rounded-2xl border border-[hsl(var(--border))] bg-white/80 backdrop-blur shadow-sm transition-all;
-}
-.fm-tile:hover {
-  box-shadow: 0 6px 18px hsl(var(--shadow-color, 0 0% 0%) / .08);
-  transform: translateY(-1px);
-}
-.fm-tile.is-selected {
-  border-color: hsl(var(--brand-500) / .55);
-  box-shadow: 0 0 0 2px hsl(var(--brand-500) / .28);
-}
-.fm-title { @apply mt-2 font-medium truncate; }
-
-/* grid helpers */
-.fm-grid-tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 14px;
-}
-.fm-grid-icons {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
 }
 
-/* row, selection, zebra, focus */
-.fm-row {
-  @apply w-full grid items-center rounded-lg border border-transparent;
-  grid-template-columns: 32px 1.4fr 0.9fr 0.8fr 110px; /* checkbox | name | type | size | updated */
-  column-gap: 10px;
-  padding: 0 10px;
-  transition: background-color .12s ease, border-color .12s ease;
-}
-.fm-row:hover {
-  background: hsl(var(--surface-elev));
-  border-color: hsl(var(--border));
-}
-.fm-row.is-selected {
-  background: hsl(var(--brand-500) / 0.08);
-  border-color: hsl(var(--brand-500) / 0.4);
-}
-.fm-row--selected {
-  outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
-}
-.fm-row-actions { display: flex; gap: 8px; align-items: center; }
-
-/* subtle zebra */
-.fm-zebra .fm-row:nth-child(even) {
-  background: hsl(var(--surface) / .6);
+/* ensure icons inside the small thumb scale down (renderIcon also sets size) */
+.fm-list-compact .fm-thumb > span,
+.fm-list-compact .fm-thumb svg {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
 }
 
-/* shimmer */
-.fm-shimmer {
-  background: linear-gradient(90deg,
-    hsl(var(--muted)) 25%,
-    hsl(var(--muted))/0.7 50%,
-    hsl(var(--muted)) 75%);
-  background-size: 200% 100%;
-  animation: fm-shimmer 1.2s infinite;
-}
-@keyframes fm-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* small utilities */
-.fm-no-scrollbar::-webkit-scrollbar { display: none; }
-.fm-no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-/* ensure surface helper remains */
-.fm-surface {
-  background: radial-gradient(1200px 600px at 80% -10%, color-mix(in oklab, var(--fm-accent) 8%, transparent), transparent 50%) var(--fm-bg);
-}
-
-/* system-file hint */
-.fm-system-file .lucide {
-  color: hsl(var(--muted-foreground));
-  opacity: .7;
-}
-
-/* scroll/segment helpers kept */
-.fm-scroll-slim { /* kept above */ }
-
-/* header polish (kept) */
-.fm-header {
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  background: color-mix(in hsl, hsl(var(--surface)) 86%, transparent);
-  border-bottom: 1px solid hsl(var(--border) / 0.6);
-}
-.fm-header .col-label {
-  font-weight: 600;
-  letter-spacing: .01em;
-  color: hsl(var(--foreground) / .85);
+/* tighten tags/pills inside list */
+.fm-list-compact .fm-chip,
+.fm-list-compact .fm-chip--subtle {
+  padding: 2px 6px;
+  font-size: 11px;
 }
 
 

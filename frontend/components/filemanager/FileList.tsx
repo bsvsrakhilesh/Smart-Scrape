@@ -1032,9 +1032,14 @@ useEffect(() => {
   /** ---------- render ---------- */
   return (
     <div
-      className="flex flex-col h-full"
-      tabIndex={0}
+      className="filelist-root fm-surface"
+      // ensure the container is the target when user clicks empty space
+      onMouseDown={(e) => { (e.currentTarget as HTMLElement).focus(); }}
+      // wire keyboard handler (Escape etc.)
       onKeyDown={onKeyDown}
+       // allow focusing to get keyboard input if needed
+       tabIndex={-1}
+       aria-label="file list"
     >
 
       <div

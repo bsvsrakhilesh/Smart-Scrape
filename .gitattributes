@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# (Optional) enforce CRLF for Windows-only artifacts
+*.bat eol=crlf
+*.cmd eol=crlf

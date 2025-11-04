@@ -11,7 +11,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSidebarOpen }) => {
   return (
-    <div className="bg-background/80 backdrop-blur border-b border-border">
+    <div className="app-header bg-background/80 backdrop-blur border-b border-border">
       {/* Use same left gutter as sidebar items for crisp alignment */}
       <div
         className="h-16 lg:h-[72px] flex items-center justify-between gap-2"

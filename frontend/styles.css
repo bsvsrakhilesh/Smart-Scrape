@@ -1123,4 +1123,367 @@
   font-size: 11px;
 }
 
+/* ================================
+   File Manager — Compact List v2
+   (Scoped; safe to append)
+   ================================ */
 
+.fm-list-compact {
+  /* column gap & vertical rhythm managed by row */
+  display: grid;
+  gap: 6px;
+}
+
+.fm-list-compact .fm-row {
+  /* grid: [left content] [meta] [actions] */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fm-bg);
+  border: 1px solid var(--fm-border);
+  box-shadow: none;
+  transition:
+    background .15s var(--ease-std),
+    border-color .15s var(--ease-std),
+    box-shadow .15s var(--ease-std);
+}
+
+.fm-list-compact .fm-row:hover {
+  background: var(--fm-bg-elev);
+  border-color: hsl(var(--border) / .6);
+  box-shadow: var(--fm-shadow);
+}
+
+.fm-list-compact .fm-row.is-selected {
+  border-color: hsl(var(--accent));
+  box-shadow:
+    0 0 0 2px hsl(var(--accent) / .25) inset,
+    var(--fm-shadow);
+}
+
+/* left chunk */
+.fm-list-compact .fm-list-item__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fm-list-compact .fm-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: hsl(var(--surface-elev));
+  display: grid;
+  place-items: center;
+}
+
+.fm-list-compact .fm-list-name {
+  font-size: 15px;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+.fm-list-compact .fm-list-subtle {
+  font-size: 12px;
+  color: hsl(var(--muted));
+}
+
+/* middle meta (tags), hidden on small screens */
+.fm-row-meta {
+  display: none;
+}
+@media (min-width: 768px) {
+  .fm-row-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-end;
+    font-size: 12px;
+    color: hsl(var(--muted));
+  }
+}
+
+/* tags */
+.fm-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--fm-border);
+  background: hsl(var(--surface) / .6);
+  white-space: nowrap;
+}
+
+/* right hover actions */
+.fm-row-actions {
+  opacity: 0;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition:
+    opacity .15s var(--ease-std),
+    transform .15s var(--ease-std);
+  transform: translateY(1px);
+}
+
+.fm-list-compact .fm-row:hover .fm-row-actions,
+.fm-list-compact .fm-row.is-selected .fm-row-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.fm-action {
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--fm-border);
+  background: hsl(var(--surface));
+  transition: background .15s var(--ease-std);
+}
+.fm-action:hover {
+  background: hsl(var(--surface-elev));
+}
+
+.fm-action.danger {
+  border-color: hsl(0 84% 80% / .8);
+  color: hsl(0 84% 40%);
+}
+.fm-action.danger:hover {
+  background: hsl(0 84% 96%);
+}
+
+/* =========================================================
+   Header & Sidebar premium polish (scoped, no duplicates)
+   ========================================================= */
+
+/* 1) Header — consistent height, padding & crisp separators */
+.app-header > div:first-child {
+  /* row container under the header wrapper */
+  min-height: 3.5rem; /* 56px */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-inline: clamp(12px, 2vw, 20px);
+}
+
+.app-header {
+  /* subtle elevation in light, cleaner border in dark */
+  box-shadow: 0 1px 0 hsl(var(--border) / 0.6);
+}
+.dark .app-header {
+  box-shadow: 0 1px 0 hsl(var(--border) / 0.35);
+}
+
+/* icon buttons in header — unified hover & keyboard focus */
+.app-header .icon-button {
+  border-radius: 10px;
+  transition: background .12s var(--ease-std), box-shadow .12s var(--ease-std);
+  outline: none;
+}
+.app-header .icon-button:hover {
+  background: hsl(var(--surface-elev));
+}
+.app-header .icon-button:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, hsl(var(--accent)) 28%, transparent);
+}
+
+/* 2) Sidebar — elegant, brand-aligned scrollbars & focus */
+.app-sidebar {
+  /* nothing intrusive — just ensure overflow handles our scrollbar styling */
+  overflow-y: auto;
+}
+
+/* WebKit-based browsers */
+.app-sidebar::-webkit-scrollbar {
+  width: 10px;
+}
+.app-sidebar::-webkit-scrollbar-track {
+  background: hsl(var(--surface));
+  border-left: 1px solid hsl(var(--border) / .7);
+}
+.app-sidebar::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    to bottom,
+    hsl(var(--surface-elev)),
+    hsl(var(--surface))
+  );
+  border: 2px solid hsl(var(--surface));
+  border-radius: 999px;
+}
+.app-sidebar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    to bottom,
+    hsl(var(--surface-elev)),
+    hsl(var(--surface-elev))
+  );
+}
+
+/* Firefox */
+@supports (scrollbar-color: auto) {
+  .app-sidebar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--surface-elev)) hsl(var(--surface));
+  }
+}
+
+/* Sidebar links/buttons — consistent hover & keyboard focus without touching your item logic */
+.app-sidebar a,
+.app-sidebar button {
+  outline: none;
+  border-radius: 10px;
+}
+.app-sidebar a:focus-visible,
+.app-sidebar button:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, hsl(var(--accent)) 26%, transparent);
+}
+.app-sidebar a:hover,
+.app-sidebar button:hover {
+  background: hsl(var(--surface-elev));
+}
+
+/* 3) Content container — predictable vertical rhythm (optional) */
+.app-content {
+  /* No heavy margins; just a predictable min-gap with toolbar blocks */
+  scroll-margin-top: 72px; /* anchors scroll nicely beneath header */
+}
+
+/* =========================================================
+   WindowsGrid (Large & Icons) — density + interactions
+   ========================================================= */
+
+.wg-grid {
+  /* The grid exposes design tokens via data- attributes for density & variant. */
+  --wg-gap: 14px;
+  --wg-card-pad: 12px;
+  --wg-thumb: 64px;
+  --wg-name-size: 14px;
+
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--wg-gap);
+}
+
+/* Density presets */
+.wg-grid[data-density="comfortable"] {
+  --wg-gap: 16px;
+  --wg-card-pad: 14px;
+  --wg-thumb: 72px;
+  --wg-name-size: 15px;
+}
+.wg-grid[data-density="cozy"] {
+  --wg-gap: 12px;
+  --wg-card-pad: 10px;
+  --wg-thumb: 60px;
+  --wg-name-size: 14px;
+}
+.wg-grid[data-density="compact"] {
+  --wg-gap: 8px;
+  --wg-card-pad: 8px;
+  --wg-thumb: 50px;
+  --wg-name-size: 13px;
+}
+
+/* Variant-specific tweaks */
+.wg-grid[data-variant="icons"] {
+  /* icons grid prefers tighter min */
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+
+/* The card */
+.wg-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  gap: 8px;
+
+  padding: var(--wg-card-pad);
+  border-radius: 14px;
+  background: var(--fm-bg);
+  border: 1px solid var(--fm-border);
+  box-shadow: var(--fm-shadow);
+  transition:
+    transform .15s var(--ease-std),
+    box-shadow .15s var(--ease-std),
+    border-color .15s var(--ease-std),
+    background .15s var(--ease-std);
+}
+
+.wg-card:hover {
+  transform: translateY(-1px);
+  background: var(--fm-bg-elev);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06), var(--fm-shadow);
+  border-color: hsl(var(--border) / .7);
+}
+
+.wg-card:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, hsl(var(--accent)) 26%, transparent),
+    var(--fm-shadow);
+}
+
+/* Drag-over ring */
+.wg-card.is-dragover {
+  border-color: hsl(var(--accent));
+  box-shadow:
+    0 0 0 3px hsl(var(--accent) / .30),
+    var(--fm-shadow);
+}
+
+/* Thumb */
+.wg-thumb {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  background: hsl(var(--surface-elev));
+  outline: 1px dashed hsl(var(--border) / .35);
+  outline-offset: -6px;
+}
+
+/* Icon inside thumb scales from the variable size */
+.wg-thumb__icon {
+  width: var(--wg-thumb);
+  height: var(--wg-thumb);
+  opacity: .92;
+}
+
+/* Body */
+.wg-body {
+  min-width: 0;
+}
+
+.wg-name {
+  font-size: var(--wg-name-size);
+  line-height: 1.15;
+  font-weight: 600;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* allow two lines in tiles */
+  -webkit-box-orient: vertical;
+}
+
+/* meta only appears in tiles variant */
+.wg-grid[data-variant="icons"] .wg-body .wg-meta {
+  display: none;
+}
+
+.wg-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: hsl(var(--muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

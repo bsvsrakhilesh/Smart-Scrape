@@ -1159,7 +1159,8 @@ const handleRenameById = async (id: string, nextName: string) => {
               {layout === 'large' || layout === 'icons' ? (
                 <WindowsGrid
                   files={allFiles}
-                  variant={layout === 'icons' ? 'icons' : 'tiles'} 
+                  variant={layout === 'icons' ? 'icons' : 'large'} 
+                  density="cozy" 
                   onOpen={(f) => {
                     const isFolder = String(f.id).startsWith('folder:');
                     if (isFolder) {

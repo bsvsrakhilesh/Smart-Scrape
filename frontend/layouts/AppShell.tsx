@@ -32,7 +32,7 @@ export default function AppShell({
 
   return (
     <div
-      className="min-h-screen w-full bg-background text-foreground selection:bg-accent/30 selection:text-accent-foreground"
+      className="app-shell min-h-screen w-full bg-background text-foreground selection:bg-accent/30 selection:text-accent-foreground"
       style={{ ['--sidebar-w' as any]: sidebarVar }}
     >
       {/* HEADER: fixed, full width, does NOT move with sidebar */}
@@ -46,7 +46,7 @@ export default function AppShell({
 
       {/* DESKTOP SIDEBAR */}
       <aside
-        className="hidden lg:block fixed left-0 z-40 border-r border-border bg-card"
+        className="app-sidebar hidden lg:block fixed left-0 z-40 border-r border-border bg-card"
         style={{ top: HEADER_H_LG, bottom: 0, width: 'var(--sidebar-w)' }}
         aria-label="Primary navigation"
       >
@@ -56,7 +56,7 @@ export default function AppShell({
       {/* MAIN CONTENT */}
       <main className="min-h-screen bg-gradient-to-b from-muted/40 to-background" style={{ paddingTop: HEADER_H }}>
       <div className="lg:pl-[var(--sidebar-w)]" style={{ paddingTop: HEADER_H_LG }}>
-      <div className="max-w-[1600px] mx-auto w-full h-full px-3 sm:px-4">{children}</div>
+      <div className="app-content max-w-[1600px] mx-auto w-full h-full px-3 sm:px-4">{children}</div>
       </div>
       </main>
 
@@ -74,7 +74,7 @@ export default function AppShell({
               onClick={onToggleSidebar}
             />
             <motion.aside
-              className="fixed left-0 top-[4rem] z-50 h-[calc(100vh-4rem)] w-[18rem] bg-card border-r border-border lg:hidden"
+              className="app-sidebar fixed left-0 top-[4rem] z-50 h-[calc(100vh-4rem)] w-[18rem] bg-card border-r border-border lg:hidden"
               initial={{ x: -320 }}
               animate={{ x: 0 }}
               exit={{ x: -320 }}

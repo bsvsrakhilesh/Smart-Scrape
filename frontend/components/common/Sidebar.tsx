@@ -77,7 +77,7 @@ const activeList =
   'bg-background/60 dark:bg-background/75 text-foreground font-medium shadow-sm ring-0 border-transparent backdrop-blur-sm';
 
   return (
-    <aside className="h-dvh sticky top-0 z-40 overflow-x-hidden" aria-label="Primary sidebar">
+    <aside className="app-sidebar h-dvh sticky top-0 z-40 overflow-x-hidden" aria-label="Primary sidebar">
       <motion.nav
         role="navigation"
         aria-orientation="vertical"

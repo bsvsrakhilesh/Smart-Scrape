@@ -690,64 +690,143 @@ useEffect(() => {
       className="fm-list-compact"
       role="list"
       onClick={(e) => {
+        // clicking outside a row clears selection
         if (!(e.target as HTMLElement).closest('[data-row]')) setSelectedIds(new Set());
       }}
     >
       {sorted.map((f) => {
         const isSel = selectedIds.has(f.id);
-        const sizeLabel = (f as any).size ? ` • ${formatBytes((f as any).size)}` : '';
-        const updatedLabel = (f as any).updatedAt ? ` • ${new Date((f as any).updatedAt).toLocaleString()}` : '';
+        const sizeLabel =
+          (f as any).size ? ` • ${formatBytes((f as any).size)}` : '';
+        const updated =
+          (f as any).updatedAt
+            ? new Date((f as any).updatedAt).toLocaleString()
+            : '';
+        const updatedLabel = updated ? ` • ${updated}` : '';
 
         return (
           <div
             key={f.id}
             data-row
-            data-id={f.id}
-            className={[
-              'fm-list-item',
-              isSel ? 'fm-row--selected' : '',
-              (f as any).mimeType === 'folder' ? 'fm-row--folder' : 'fm-row--file',
-            ].join(' ')}
-            onMouseDown={(e) => {
-              if (e.shiftKey) toggleSelect(f.id, true, true);
-              else if (e.ctrlKey || e.metaKey) toggleSelect(f.id, false, false);
-              else setSelectedIds(new Set([f.id]));
-            }}
+            tabIndex={0}
+            className={`fm-row group ${isSel ? 'is-selected' : ''}`}
             onDoubleClick={() => onPreview?.(f)}
             onContextMenu={(e) => {
               e.preventDefault();
               setRowMenu({ x: e.clientX, y: e.clientY, file: f });
             }}
+            onClick={(e) => {
+              // preserve your multi-select conventions
+              const next = new Set(selectedIds);
+              const additive = e.ctrlKey || e.metaKey;
+              if (additive) {
+                next.has(f.id) ? next.delete(f.id) : next.add(f.id);
+              } else {
+                next.clear();
+                next.add(f.id);
+              }
+              setSelectedIds(next);
+              onSelectionChange?.(Array.from(next));
+            }}
           >
+            {/* Left: icon + title + subtle meta */}
             <div className="fm-list-item__left">
               <div className="fm-thumb">{renderIcon(f, 20)}</div>
               <div className="min-w-0">
-                <div className="fm-list-name truncate">{fileDisplayName(f)}</div>
-                <div className="fm-list-subtle">
-                  {(f as any).mimeType || '—'}{sizeLabel}{updatedLabel}
-                </div>
+                {/* inline rename shares variables with details view */}
+                {renameId === f.id ? (
+                  <input
+                    ref={renameInputRef}
+                    className="px-2 py-1 rounded border outline-none w-full"
+                    value={renameDraft}
+                    autoFocus
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onBlur={() => {
+                      setRenameId(null);
+                      if (renameDraft && renameDraft !== fileDisplayName(f)) {
+                        onRename?.(f.id, renameDraft);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                      if (e.key === 'Escape') {
+                        setRenameId(null);
+                        setRenameDraft(fileDisplayName(f));
+                      }
+                    }}
+                  />
+                ) : (
+                  <>
+                    <div className="fm-list-name truncate">
+                      {fileDisplayName(f)}
+                    </div>
+                    <div className="fm-list-subtle">
+                      {(f as any).mimeType || '—'}
+                      {sizeLabel}
+                      {updatedLabel}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="fm-list-item__right">
+            {/* Middle: tags / quick meta (hidden on small screens) */}
+            <div className="fm-row-meta">
               {(f as any).tags?.length ? (
-                <div className="fm-tags">
+                <div className="flex items-center gap-1">
                   {(f as any).tags.slice(0, 3).map((t: string) => (
-                    <span key={t} className="fm-chip fm-chip--subtle">{t}</span>
+                    <span key={t} className="fm-tag">{t}</span>
                   ))}
-                  {(f as any).tags.length > 3 && (
-                    <span className="fm-chip fm-chip--subtle">+{(f as any).tags.length - 3}</span>
-                  )}
+                  {(f as any).tags.length > 3 ? (
+                    <span className="fm-tag">+{(f as any).tags.length - 3}</span>
+                  ) : null}
                 </div>
               ) : null}
+            </div>
 
+            {/* Right: hover-only quick actions (don’t steal focus) */}
+            <div className="fm-row-actions" aria-hidden="true">
+              <button
+                className="fm-action"
+                title="Open"
+                onClick={(e) => { e.stopPropagation(); onPreview?.(f); }}
+              >
+                Open
+              </button>
+              <button
+                className="fm-action"
+                title="Download"
+                onClick={(e) => { e.stopPropagation(); onDownload?.(f); }}
+              >
+                Download
+              </button>
+              <button
+                className="fm-action"
+                title="Rename"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenameId(f.id);
+                  setRenameDraft(fileDisplayName(f));
+                }}
+              >
+                Rename
+              </button>
+              <button
+                className="fm-action danger"
+                title="Delete"
+                onClick={(e) => { e.stopPropagation(); onDelete?.(f); }}
+              >
+                Delete
+              </button>
             </div>
           </div>
         );
       })}
     </div>
   );
- };
+};
 
   const renderIcon = (f: FileItem, size = 24) => {
   const t = ((f as any).mimeType || '').toLowerCase();

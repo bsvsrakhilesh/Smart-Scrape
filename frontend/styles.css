@@ -1153,16 +1153,6 @@
   border-radius: 9999px;
 }
 
-/* list/details density helpers (we'll use in Phase 2) */
-.fm-density-comfortable { --fm-row-h: 48px; }
-.fm-density-compact     { --fm-row-h: 36px; }
-.fm-row {
-  height: var(--fm-row-h);
-  display: grid;
-  align-items: center;
-  border-bottom: 1px solid var(--fm-border);
-}
-
 /* sticky breadcrumbs */
 .fm-breadcrumbs-sticky {
   position: sticky; top: 0;
@@ -1172,16 +1162,6 @@
   border-bottom: 1px solid var(--fm-border);
 }
 
-/* pretty scrollbars (non-invasive) */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--fm-border) transparent;
-}
-*::-webkit-scrollbar { height: 8px; width: 8px; }
-*::-webkit-scrollbar-thumb {
-  border-radius: 8px;
-  background: var(--fm-border);
-}
 /* ---------- File Manager: Empty State ---------- */
 .fm-empty {
   display: grid;

@@ -1077,7 +1077,26 @@ const handleRenameById = async (id: string, nextName: string) => {
           )}
 
           {/* Files list */}
-          <div className="card mt-2 min-h-[200px] p-0 overflow-hidden">
+          <div className="mt-2 rounded-2xl bg-white/80 backdrop-blur ring-1 ring-black/5 shadow-sm overflow-hidden">
+            {/* Sticky chrome header (matches screenshot style) */}
+            <div className="sticky top-0 z-[5] bg-[hsl(var(--background)_/_0.88)] backdrop-blur
+                            border-b border-[hsl(var(--border))]">
+              <div className="h-12 px-3 sm:px-4 flex items-center gap-2">
+                <div className="flex-1">
+                  {/* Keep using your existing breadcrumbs component just above the list */}
+                  {/* This slot intentionally blank – your ExplorerBreadcrumbs sits higher in the page */}
+                </div>
+          
+                {/* right: quick density + layout controls mirror your CommandBar */}
+                <div className="flex items-center gap-1 text-[13px]">
+                  {/* we don't add new state here; ExplorerCommandBar already manages layout/density */}
+                  <span className="px-2 py-1 rounded-md border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
+                    {allFiles.length} items
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {isLoading && <div className="p-6 text-sm opacity-70">Loading…</div>}
             {error && !isLoading && (
               <div className="m-4 p-3 rounded bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200">{error}</div>
@@ -1157,6 +1176,7 @@ const handleRenameById = async (id: string, nextName: string) => {
               ) : (
                 <FileList
                   {...({
+                    viewMode: layout === 'details' ? 'details' : 'list',
                     files: allFiles,
                     layout,
                     selectable: true,

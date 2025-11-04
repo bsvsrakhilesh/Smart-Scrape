@@ -685,14 +685,14 @@ useEffect(() => {
   };
 
   const renderListHeader = () => (
-  <div className="sticky top-0 z-10 fm-header grid items-center grid-cols-[36px_1fr] gap-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide border-b border-[hsl(var(--border))] bg-[hsl(var(--background)_/_0.85)] backdrop-blur">
+  <div className="fm-list-header">
     <div className="w-[36px]" />
     <span>Name</span>
   </div>
-);
+  );
 
-// list rows ignore column chooser and just render icon + title
-const renderListRow = (f: FileItem) => {
+  // list rows ignore column chooser and just render icon + title
+  const renderListRow = (f: FileItem) => {
   const isSel = selectedIds.has(f.id);
   return (
     <div
@@ -712,10 +712,10 @@ const renderListRow = (f: FileItem) => {
         setRowMenu({ x: e.clientX, y: e.clientY, file: f });
       }}
     >
-      <div className="px-1">
-        {renderIcon(f, 24)}
-      </div>
-      <div className="truncate">{fileDisplayName(f)}</div>
+    <div className="min-w-0">
+      <div className="px-1">{renderIcon(f, 24)}</div>
+      <div className="fm-list-name">{fileDisplayName(f)}</div>
+    </div>
     </div>
     );
   };
@@ -1027,20 +1027,20 @@ const renderListRow = (f: FileItem) => {
         }}
       >
         {viewMode === 'details' && (
-          <>
+          <div data-view="details" className="fm-table-wrap">
             {renderHeader()}
             <div>
               {sorted.slice(0, renderCount).map((f) => renderRow(f))}
             </div>
-          </>
+          </div>
         )}
         {viewMode === 'list' && (
-          <>
+          <div data-view="list" className="fm-list-wrap">
             {renderListHeader()}
             <div>
               {sorted.slice(0, renderCount).map((f) => renderListRow(f))}
             </div>
-          </>
+          </div>
         )}
         {viewMode !== 'details' && renderGridCards(viewMode as 'large' | 'tiles' | 'list')}
 

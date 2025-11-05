@@ -687,7 +687,7 @@ useEffect(() => {
   const renderCompactList = () => {
   return (
     <div
-      className="fm-list-compact"
+      className="fm-list-compact divide-y divide-border/60"
       role="list"
       onClick={(e) => {
         // clicking outside a row clears selection
@@ -960,7 +960,7 @@ useEffect(() => {
         }}
         onMouseMove={(e) => setHoverCard(h => h ? ({ ...h, x: e.clientX + 16, y: e.clientY + 16 }) : h)}
         onMouseLeave={() => setHoverCard(null)}
-        className={`fm-row cursor-default ${isSel ? 'is-selected' : ''}`}
+        className={`fm-row cursor-default hover:bg-muted/20 hover-lift transition-colors ${isSel ? 'is-selected bg-muted/40 ring-1 ring-accent/30' : ''}`}
         style={{ gridTemplateColumns: gridCols }}
         onDoubleClick={() => onRowDoubleClick(f)}
         onClick={(e) => {
@@ -1111,14 +1111,11 @@ useEffect(() => {
   /** ---------- render ---------- */
   return (
     <div
-      className="filelist-root fm-surface"
-      // ensure the container is the target when user clicks empty space
+      className="filelist-root fm-surface rounded-2xl ring-1 ring-border/60"
       onMouseDown={(e) => { (e.currentTarget as HTMLElement).focus(); }}
-      // wire keyboard handler (Escape etc.)
       onKeyDown={onKeyDown}
-       // allow focusing to get keyboard input if needed
-       tabIndex={-1}
-       aria-label="file list"
+      tabIndex={-1}
+      aria-label="file list"
     >
 
       <div

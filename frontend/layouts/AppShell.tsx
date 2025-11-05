@@ -56,7 +56,7 @@ export default function AppShell({
       {/* MAIN CONTENT */}
       <main className="min-h-screen bg-gradient-to-b from-muted/40 to-background" style={{ paddingTop: HEADER_H }}>
       <div className="lg:pl-[var(--sidebar-w)]" style={{ paddingTop: HEADER_H_LG }}>
-      <div className="app-content max-w-[1600px] mx-auto w-full h-full px-3 sm:px-4">{children}</div>
+      <div className="app-content max-w-screen-2xl mx-auto w-full h-full px-4 sm:px-6 lg:px-8">{children}</div>
       </div>
       </main>
 
@@ -74,7 +74,7 @@ export default function AppShell({
               onClick={onToggleSidebar}
             />
             <motion.aside
-              className="app-sidebar fixed left-0 top-[4rem] z-50 h-[calc(100vh-4rem)] w-[18rem] bg-card border-r border-border lg:hidden"
+              className="app-sidebar fixed left-0 top-[4rem] z-50 h-[calc(100vh-4rem)] w-[18rem] border-r border-border supports-[backdrop-filter]:backdrop-blur-md bg-card/90 elev-2 lg:hidden"
               initial={{ x: -320 }}
               animate={{ x: 0 }}
               exit={{ x: -320 }}

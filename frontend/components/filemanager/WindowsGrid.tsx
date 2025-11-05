@@ -7,9 +7,7 @@ import type { FileItem } from '../../types';
 type Props = {
   files: FileItem[];
   onOpen: (f: FileItem) => void;
-  /** “tiles” (bigger metadata tiles) or “icons” (tight square icon matrix) */
   variant?: 'large' | 'icons';
-  /** Visual density presets for spacing & sizes */
   density?: 'comfortable' | 'cozy' | 'compact';
 };
 
@@ -32,7 +30,7 @@ export default function WindowsGrid({
   } as Record<string, any>;
 
   return (
-    <div className="wg-grid" {...gridAttrs}>
+    <div className="wg-grid p-2 sm:p-3 gap-3 sm:gap-4" {...gridAttrs}>
       {files.map((f) => {
         const id = String(f.id);
         const folder = isFolder(f);
@@ -44,7 +42,7 @@ export default function WindowsGrid({
         return (
           <div
             key={id}
-            className={`wg-card group ${folder ? 'is-folder' : 'is-file'} ${
+            className={`wg-card group rounded-2xl ring-1 ring-border/50 hover:ring-border/70 transition-shadow hover-lift elev-1 ${folder ? 'is-folder' : 'is-file'} ${
               dragOverId === id ? 'is-dragover' : ''
             }`}
             tabIndex={0}
@@ -66,7 +64,7 @@ export default function WindowsGrid({
             }}
           >
             {/* Thumb */}
-            <div className="wg-thumb">
+            <div className="wg-thumb aspect-[4/3] rounded-xl overflow-hidden flex items-center justify-center bg-muted/50 group-hover:bg-muted/70 transition-colors">
               {folder ? (
                 <Folder className="wg-thumb__icon" />
               ) : (
@@ -76,12 +74,11 @@ export default function WindowsGrid({
 
             {/* Title + meta */}
             <div className="wg-body">
-              <div className="wg-name" title={name}>
+              <div className="wg-name truncate" title={name}>
                 {name}
               </div>
 
-              {/* In "icons" variant we hide meta via CSS; tiles show it */}
-              <div className="wg-meta">
+              <div className="wg-meta truncate">
                 {mime}
                 {size}
               </div>

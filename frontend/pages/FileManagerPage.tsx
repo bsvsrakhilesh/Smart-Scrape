@@ -1155,7 +1155,7 @@ const handleRenameById = async (id: string, nextName: string) => {
             />
 
             {!isLoading && !error && allFiles.length > 0 && (
-            <div className="rounded-2xl bg-white/80 ring-1 ring-black/5">
+            <div className="rounded-2xl bg-card/90 dark:bg-card/80 ring-1 ring-border/60 p-2 sm:p-3">
               {layout === 'large' || layout === 'icons' ? (
                 <WindowsGrid
                   files={allFiles}

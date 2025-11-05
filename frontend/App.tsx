@@ -66,6 +66,23 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Global keyboard: Cmd/Ctrl + K to open Command Palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable;
+      if (typing) return;
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const cmdK = (isMac && e.metaKey && e.key.toLowerCase() === 'k') || (!isMac && e.ctrlKey && e.key.toLowerCase() === 'k');
+      if (cmdK) {
+        e.preventDefault();
+        setIsCommandOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const renderPage = () => {
     switch (currentPage) {
       case 'url-collector': return <UrlCollectorPage />;

@@ -188,6 +188,7 @@ useEffect(() => {
 
   // Selection + clipboard for cut/copy/paste
   const [selected, setSelected] = useState<FileItem[]>([]);
+  const selectedIds = useMemo(() => new Set(selected.map(f => f.id)), [selected]);
   const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'cut'; files: FileItem[] } | null>(null);
 
   // ---- Select-all helper (shim) ----
@@ -1169,6 +1170,10 @@ const handleRenameById = async (id: string, nextName: string) => {
                       handleOpenPreview(f as any);
                     }
                   }}
+                  selectedIds={selectedIds}
+                  onSelectionChange={handleSelectionChangeByIds}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
                 />
               ) : (
                 <FileList

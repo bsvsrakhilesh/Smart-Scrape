@@ -30,7 +30,7 @@ const SPRING: Transition = { type: 'spring', stiffness: 420, damping: 34, mass: 
 const railTap =
   'group size-11 grid place-items-center rounded-xl transition-[background,transform,box-shadow] duration-200 hover-lift ' +
   'hover:bg-foreground/8 dark:hover:bg-white/10 ' +
-  ' relative border-transparent';
+  ' overflow-visible relative border-transparent';
 const listTap =
   'group relative flex items-center gap-3 rounded-xl px-3 py-2 transition-[background,transform,box-shadow,color] duration-200 hover-lift ' +
   'hover:bg-foreground/6/60 dark:hover:bg-white/6 ' +
@@ -59,7 +59,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
   const [hoverKey, setHoverKey] = useState<Page | null>(null);
   const reduce = useReducedMotion();
 
-  // small helper classes for active state reused
   // Small helper classes for active state + a reusable glass panel token
   const glassPanel =
   'bg-card/80 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_30px_rgba(2,6,23,0.08)]';
@@ -82,13 +81,17 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
         style={
           useParentWidth
             ? ({
-                overflowX: 'hidden',
+                // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
+                overflowX: isOpen ? 'hidden' : 'visible',
+                overflowY: isOpen ? 'auto' : 'hidden',
                 ['--sidebar-expanded' as any]: `${EXPANDED}px`,
                 ['--sidebar-collapsed' as any]: `${COLLAPSED}px`,
               } as React.CSSProperties)
             : ({
                 width: isOpen ? EXPANDED : COLLAPSED,
-                overflowX: 'hidden',
+                // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
+                overflowX: isOpen ? 'hidden' : 'visible',
+                overflowY: isOpen ? 'auto' : 'hidden',
                 ['--sidebar-expanded' as any]: `${EXPANDED}px`,
                 ['--sidebar-collapsed' as any]: `${COLLAPSED}px`,
               } as React.CSSProperties)
@@ -100,7 +103,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
           {!isOpen && (
             <motion.ul
               role="list"
-              className="py-3 flex flex-col items-center gap-2"
+              className="py-3 flex flex-col items-center gap-2 overflow-visible"
               variants={containerVariants}
               initial="visible"
               animate="visible"
@@ -135,11 +138,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
                       <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
                     </span>
 
-                      {/* Tooltip visible only in collapsed state; uses AnimatePresence + reduced motion handling */}
+                      {/* Tooltip visible only in collapsed state; absolutely positioned to avoid layout shifts */}
                       <AnimatePresence>
                         {hoverKey === key && (
                           <motion.span
-                              className="truncate"
+                              className="absolute center-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-sm bg-card/95 shadow z-30 pointer-events-none"
                               initial={reduce ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }}
                               animate={reduce ? { opacity: 1, x: 0 } : { opacity: 1, x: 0 }}
                               exit={reduce ? { opacity: 0 } : { opacity: 0, x: -6 }}

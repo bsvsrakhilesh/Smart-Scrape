@@ -1020,7 +1020,7 @@ const handleRenameById = async (id: string, nextName: string) => {
           </div>
 
           {/* Secondary command row (Up, New, Upload, Sort, View toggle) */}
-          <div className="mb-4">
+          <div className="mb-4 rounded-2xl shadow-sm overflow-hidden border border-black/5 bg-white/90 backdrop-blur">
             <ExplorerCommandBar
               layout={layout as any}
               onLayoutChange={(next) => {
@@ -1174,6 +1174,31 @@ const handleRenameById = async (id: string, nextName: string) => {
                   onSelectionChange={handleSelectionChangeByIds}
                   sortKey={sortKey}
                   sortDir={sortDir}
+                  onShowProperties={(f: FileItem) => { setPropertiesFile(f); }}
+                  onDownload={handleDownloadItem}
+                  onDelete={handleDelete}
+                  onPaste={handlePaste}
+                  onRename={handleRenameById}
+                  onCopy={(ids: string[]) => handleCopy(byIds(ids))}
+                  onCut={(ids: string[]) => handleCut(byIds(ids))}
+                  onDragStart={handleDragStart}
+                  onDragEnd={() => handleDragEnd([])}
+                  onDrop={(e) => {
+                    try {
+                      const raw = e.dataTransfer.getData("text/plain");
+                      const ids = raw ? JSON.parse(raw) : [];
+                      // currentFolderId is already in scope in your page props
+                      void handleDrop(ids, currentFolderId ?? null);
+                    } catch (err) {
+                      console.error("Drop payload parse error:", err);
+                    }
+                  }}
+                  currentFolderId={currentFolderId}
+                  onSortChange={(key: any, dir: any) => {
+                    setSortKey(key as SortKey);
+                    setSortDir(dir as SortDir);
+                    setPage(1);
+                  }}
                 />
               ) : (
                 <FileList
@@ -1182,6 +1207,7 @@ const handleRenameById = async (id: string, nextName: string) => {
                     files: allFiles,
                     layout,
                     selectable: true,
+                    selectedIds: selectedIds,
                     onOpen: (f: any) => {
                       if (f.mimeType === 'folder') {
                         const folderId = f.id.startsWith('folder:') ? f.id.slice('folder:'.length) : f.id;
@@ -1270,7 +1296,7 @@ const handleRenameById = async (id: string, nextName: string) => {
 
         </section>
         {/* Right: Inspector */}
-        <aside className="col-span-12 lg:col-span-3">
+        <aside className="col-span-12 lg:col-span-3 relative">
           <div
             className={[
               "rounded-3xl border border-border/30 bg-surface/70 backdrop-blur-xl shadow-2xl overflow-hidden",

@@ -23,21 +23,17 @@ const NAV: Array<{ key: Page; label: string; Icon: React.ComponentType<React.SVG
 
 /* --------------------------------- MOTION ---------------------------------- */
 // Softer spring and smaller durations for snappy, refined feel
-const SPRING: Transition = { type: 'spring', stiffness: 380, damping: 32, mass: 0.95 };
+const SPRING: Transition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.95 };
 
 /* --------------------------------- STYLES ---------------------------------- */
 // stronger glass + depth on hover; accessible focus ring retained
-const focusRing =
-  'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary/60 focus-visible:border-transparent';
 const railTap =
   'group size-11 grid place-items-center rounded-xl transition-[background,transform,box-shadow] duration-200 hover-lift ' +
   'hover:bg-foreground/8 dark:hover:bg-white/10 ' +
-  focusRing +
   ' relative border-transparent';
 const listTap =
   'group relative flex items-center gap-3 rounded-xl px-3 py-2 transition-[background,transform,box-shadow,color] duration-200 hover-lift ' +
   'hover:bg-foreground/6/60 dark:hover:bg-white/6 ' +
-  focusRing +
   ' backdrop-blur-xs border-transparent';
 
 /* --------------------------------- CONTAINER / ITEM VARIANTS ----------------- */
@@ -64,17 +60,22 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
   const reduce = useReducedMotion();
 
   // small helper classes for active state reused
+  // Small helper classes for active state + a reusable glass panel token
+  const glassPanel =
+  'bg-card/80 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_30px_rgba(2,6,23,0.08)]';
+
   const activeRail =
-  'bg-gradient-to-br from-foreground/8 to-foreground/5 dark:from-white/8 dark:to-white/5 shadow-[0_10px_24px_rgba(2,6,23,0.06)] ring-0 border-transparent elev-1';
+  'bg-gradient-to-br from-brand-primary/15 to-brand-secondary/15 text-foreground ring-1 ring-brand-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]';
+
   const activeList =
-  'bg-background/60 dark:bg-background/75 text-foreground font-medium shadow-sm ring-0 border-transparent backdrop-blur-sm elev-1';
+  'bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 text-foreground ring-1 ring-brand-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]';
 
   return (
-    <aside className="app-sidebar h-dvh sticky top-0 z-40 overflow-x-hidden supports-[backdrop-filter]:backdrop-blur-md bg-card/85 border-r border-border/70" aria-label="Primary sidebar">
+    <aside className="h-dvh sticky top-0 z-40 p-[1px] rounded-2xl bg-[linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.2))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.04))]" aria-label="Primary sidebar">
       <motion.nav
         role="navigation"
         aria-orientation="vertical"
-        className="h-full flex flex-col bg-card/85 border-r border-border/60 supports-[backdrop-filter]:backdrop-blur-md rounded-none overflow-hidden"
+        className={`h-full flex flex-col rounded-2xl ${glassPanel} overflow-hidden`}
         initial={false}
         animate={{ width: isOpen ? EXPANDED : COLLAPSED }}
         transition={reduce ? { duration: 0 } : SPRING}
@@ -123,15 +124,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
                       whileTap={reduce ? undefined : { scale: 0.985 }}
                       transition={reduce ? { duration: 0 } : SPRING}
                     >
-                      <span
-                        className={[
-                          'grid place-items-center size-9 rounded-lg transition-transform group-hover:translate-y-[-1px]',
-                          'bg-transparent',
-                          active ? 'scale-105 shadow-sm bg-foreground/7 dark:bg-white/6 rounded-md' : 'group-hover:bg-foreground/6/10 dark:group-hover:bg-white/8',
-                        ].join(' ')}
-                      >
-                        <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
-                      </span>
+                    <span
+                      className={[
+                        'grid place-items-center size-9 rounded-lg transition-all',
+                        active
+                          ? 'ring-1 ring-brand-primary/40 bg-white/60 dark:bg-white/10 shadow-sm scale-105'
+                          : 'ring-0 bg-white/5 dark:bg-white/5 group-hover:ring-1 group-hover:ring-white/15',
+                      ].join(' ')}
+                    >
+                      <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
+                    </span>
 
                       {/* Tooltip visible only in collapsed state; uses AnimatePresence + reduced motion handling */}
                       <AnimatePresence>
@@ -182,23 +184,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
                         whileTap={reduce ? undefined : { scale: 0.985 }}
                         transition={reduce ? { duration: 0 } : SPRING}
                       >
-                        {/* Active accent bar on left for visual flair (subtle, not boxy) */}
-                        <span
-                          aria-hidden
-                          className={[
-                            'absolute left-0 top-2 bottom-2 w-1 rounded-r-md transition-opacity duration-200',
-                            active ? 'opacity-100 bg-gradient-to-b from-brand-primary to-brand-secondary' : 'opacity-0',
-                          ].join(' ')}
-                        />
-
-                        <span
-                          className={[
-                            'shrink-0 grid place-items-center size-9 rounded-lg transition-all',
-                            active ? 'bg-foreground/12 dark:bg-white/12 transform scale-105' : 'bg-foreground/5 dark:bg-white/10',
-                          ].join(' ')}
-                        >
-                          <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
-                        </span>
+                      <span
+                        className={[
+                          'shrink-0 grid place-items-center size-9 rounded-lg transition-all',
+                          active
+                            ? 'ring-1 ring-brand-primary/40 bg-white/60 dark:bg-white/10 shadow-sm scale-105'
+                            : 'ring-0 bg-white/5 dark:bg-white/5 group-hover:ring-1 group-hover:ring-white/15',
+                        ].join(' ')}
+                      >
+                        <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
+                      </span>
 
                         {/* label uses motion for a smooth fade-in and slide */}
                         <motion.span

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useRef } from "react";
 import ContextMenu, { type MenuItem } from "../common/ContextMenu";
 import {
   Folder as FolderIcon,
@@ -211,6 +211,7 @@ export default function WindowsGrid({
 
   currentFolderId,
 }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
   // ----- Controlled/Uncontrolled selection bridge -----
   const [uncontrolledSel, setUncontrolledSel] = useState<Set<string>>(
     () => new Set()
@@ -537,13 +538,21 @@ export default function WindowsGrid({
   // ----- Render -----
   return (
     <div
+      ref={rootRef}
       className="wg-grid relative w-full h-full overflow-auto px-2"
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {
         e.preventDefault();
+        const rect = rootRef.current?.getBoundingClientRect();
+        let x = e.clientX;
+        let y = e.clientY;
+        if (rect) {
+          x -= rect.left;
+          y -= rect.top;
+        }
         setRowMenu(null);
-        setBgMenu({ x: e.clientX, y: e.clientY });
+        setBgMenu({ x, y });
       }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -590,8 +599,15 @@ export default function WindowsGrid({
                 onDoubleClick={() => handleDoubleClick(f)}
                 onContextMenu={(e) => {
                   e.preventDefault();
+                  const rect = rootRef.current?.getBoundingClientRect();
+                  let x = e.clientX;
+                  let y = e.clientY;
+                  if (rect) {
+                    x -= rect.left;
+                    y -= rect.top;
+                  }
                   setBgMenu(null);
-                  setRowMenu({ x: e.clientX, y: e.clientY, file: f });
+                  setRowMenu({ x, y, file: f });
                 }}
                 title={titleAttr}
               >

@@ -86,10 +86,35 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50/50">
-      <div className="flex-1 overflow-auto p-6 space-y-4">
+      <div className="flex-1 overflow-auto p-6 pt-5 space-y-4">
+        {messages.length === 0 && (
+          <div className="h-full w-full grid place-items-center">
+            <div className="text-center max-w-md mx-auto px-6 py-10">
+              <div className="mx-auto mb-6 text-emerald-500">
+                {/* simple decorative glyph */}
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.5 5 5.5.8-4 3.9.9 5.6L12 15.9 7.1 17.3l.9-5.6-4-3.9 5.5-.8L12 2z" stroke="currentColor" strokeWidth="1.2" fill="none"/></svg>
+              </div>
+              <h2 className="text-2xl font-semibold text-slate-600">Start your conversation</h2>
+              <p className="mt-2 text-slate-500">
+                Ask anything about your sources, or start a new creative exploration. Your AI assistant is ready.
+              </p>
+            </div>
+          </div>
+        )}
         {messages.map((m,i)=>(
-          <div key={i} className={`max-w-[80%] ${m.role==='user'?'ml-auto':''}`}>
-            <div className={`p-3 rounded-2xl border shadow-sm ${m.role==='user'?'bg-white':'bg-white'}`}
+          <div key={i} className={`max-w-[680px] ${m.role==='user' ? 'ml-auto' : ''}`}>
+            <div className={`p-3 rounded-2xl border shadow-sm ${m.role==='user' ? 'bg-white' : 'bg-white'}
+                             text-sm leading-[1.6]
+                             [&_p]:my-2
+                             [&_strong]:font-semibold
+                             [&_em]:italic
+                             [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1
+                             [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1
+                             [&_li>ul]:mt-1 [&_li>ol]:mt-1
+                             [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-2 [&_h1]:mb-1
+                             [&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1
+                             [&_a]:underline [&_a]:text-slate-800 hover:[&_a]:text-slate-900
+                             [&_code]:font-mono [&_code]:text-[12px]`}
                  {...(m.role==='assistant' ? { dangerouslySetInnerHTML: { __html: m.html } } : { children: m.html })}/>
             {m.role==='assistant' && m.citations?.length ? (
               <div className="mt-2 flex flex-wrap gap-1">
@@ -104,7 +129,7 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
             {m.role==='assistant' && m.suggested?.length ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {m.suggested.map((s, sIdx)=>(
-                  <button key={sIdx} onClick={()=>setInput(s)} className="text-[11px] px-2 py-1 border rounded">
+                  <button key={sIdx} onClick={()=>setInput(s)} className="text-[11px] px-2.5 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 shadow-sm">
                     {s}
                   </button>
                 ))}
@@ -116,7 +141,7 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t p-3 bg-white">
+      <div className="border-t border-emerald-100/70 p-3 bg-transparent">
         <div className="flex gap-2 items-end">
           <textarea
             value={input}
@@ -125,17 +150,19 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
             rows={1}
             placeholder={notebookId ? 'Ask about your sources…' : 'Create/select a notebook to start'}
             disabled={!notebookId}
-            className="flex-1 border rounded-xl px-3 py-2 text-sm focus:outline-none disabled:bg-gray-50 resize-none shadow-sm"
+            className="flex-1 rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 disabled:bg-gray-50 shadow-sm placeholder-slate-400"
           />
           <button
             onClick={()=>notebookId && input.trim() && (setInput(''), send(input.trim()))}
             disabled={!notebookId}
-            className="px-4 py-2 border rounded-full bg-gray-900 text-white text-sm disabled:opacity-60"
+            className="w-9 h-9 grid place-items-center rounded-2xl bg-slate-900 text-white disabled:opacity-60 shadow hover:bg-black"
+            aria-label="Send"
+            title="Send"
           >
-            Send
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l19-9L2 3l3 7 9 2-9 2-3 7z"/></svg>
           </button>
         </div>
-        <div className="mt-1 text-[11px] text-gray-500">Enter to send · Shift+Enter for newline</div>
+        <div className="mt-1 text-[11px] text-slate-500 text-right">Enter to send · Shift+Enter for newline</div>
       </div>
     </div>
   );

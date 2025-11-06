@@ -40,9 +40,9 @@ export default function SourcePicker({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
-      <div className="bg-white w-[640px] max-h-[72vh] rounded-xl border shadow-lg flex flex-col">
-        <div className="p-3 border-b flex items-center gap-2">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px] z-50 flex items-center justify-center">
+      <div className="bg-white w-[640px] max-h-[72vh] rounded-2xl border border-slate-200/80 shadow-xl flex flex-col overflow-hidden">
+        <div className="p-3 border-b border-slate-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/60 flex items-center gap-2">
           <input
             autoFocus
             value={q}

@@ -16,6 +16,21 @@
   --color-brand-secondary: #3b82f6;      /* blue-500 */
   --color-brand-secondary-hover: #2563eb;/* blue-600 */
 }
+/* Hard clamp horizontal overflow to prevent sub-pixel scrollbars */
+html, body, #__next, .app-shell { 
+  overflow-x: hidden;
+}
+
+/* Also ensure the aside never introduces horizontal scroll */
+.app-sidebar { 
+  overflow-x: hidden;
+}
+
+/* Reduce rare paint-edge glitches that can create 1–2px overflow */
+.app-sidebar, .app-content {
+  contain: paint;
+}
+
 
 :root {
     --fm-bg:            hsl(210 30% 98%);
@@ -1297,34 +1312,22 @@
 }
 
 /* 2) Sidebar — elegant, brand-aligned scrollbars & focus */
-.app-sidebar {
-  /* nothing intrusive — just ensure overflow handles our scrollbar styling */
-  overflow-y: auto;
+
+/* Collapsed rail centering (targets the collapsed UL which has items-center) */
+.app-sidebar ul.items-center > li { 
+  width: auto;             /* stop li from stretching full width */
+}
+.app-sidebar ul.items-center > li > button {
+  margin-left: auto;       /* center the 44×44 icon chip */
+  margin-right: auto;
 }
 
-/* WebKit-based browsers */
-.app-sidebar::-webkit-scrollbar {
-  width: 10px;
-}
-.app-sidebar::-webkit-scrollbar-track {
-  background: hsl(var(--surface));
-  border-left: 1px solid hsl(var(--border) / .7);
-}
-.app-sidebar::-webkit-scrollbar-thumb {
-  background: linear-gradient(
-    to bottom,
-    hsl(var(--surface-elev)),
-    hsl(var(--surface))
-  );
-  border: 2px solid hsl(var(--surface));
-  border-radius: 999px;
-}
-.app-sidebar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(
-    to bottom,
-    hsl(var(--surface-elev)),
-    hsl(var(--surface-elev))
-  );
+/* Remove any side padding that could visually offset chips */
+.app-sidebar ul.items-center {
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 0.5rem;   /* was 0.75rem via py-3 */
+  padding-bottom: 0.5rem;
 }
 
 /* Firefox */

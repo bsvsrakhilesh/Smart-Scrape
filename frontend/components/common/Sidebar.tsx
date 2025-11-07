@@ -51,7 +51,7 @@ const itemVariants = {
 /* --------------------------------- COMPONENT ---------------------------------- */
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, useParentWidth }) => {
   // Fixed widths; sidebar itself animates width (no overlay)
-  const COLLAPSED = 84;
+  const COLLAPSED = 72;
   const EXPANDED = 280;
 
   const nav = NAV; // allow future memoization if NAV becomes dynamic
@@ -70,11 +70,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
   'bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 text-foreground ring-1 ring-brand-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]';
 
   return (
-    <aside className="h-dvh sticky top-0 z-40 p-[1px] rounded-2xl bg-[linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.2))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.04))]" aria-label="Primary sidebar">
+    <aside className="h-full z-40 p-[1px] rounded-2xl bg-[linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.2))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.04))] overflow-x-hidden" aria-label="Primary sidebar">
       <motion.nav
         role="navigation"
         aria-orientation="vertical"
-        className={`h-full flex flex-col rounded-2xl ${glassPanel} overflow-hidden`}
+        className={`h-full flex flex-col px-3 data-[sidebar-collapsed=true]:px-0 data-[sidebar-collapsed=true]:items-centerrounded-2xl ${glassPanel}`}
         initial={false}
         animate={{ width: isOpen ? EXPANDED : COLLAPSED }}
         transition={reduce ? { duration: 0 } : SPRING}
@@ -82,7 +82,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
           useParentWidth
             ? ({
                 // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
-                overflowX: isOpen ? 'hidden' : 'visible',
+                overflowX: 'hidden',
                 overflowY: isOpen ? 'auto' : 'hidden',
                 ['--sidebar-expanded' as any]: `${EXPANDED}px`,
                 ['--sidebar-collapsed' as any]: `${COLLAPSED}px`,
@@ -90,7 +90,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
             : ({
                 width: isOpen ? EXPANDED : COLLAPSED,
                 // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
-                overflowX: isOpen ? 'hidden' : 'visible',
+                overflowX: 'hidden' ,
                 overflowY: isOpen ? 'auto' : 'hidden',
                 ['--sidebar-expanded' as any]: `${EXPANDED}px`,
                 ['--sidebar-collapsed' as any]: `${COLLAPSED}px`,
@@ -98,7 +98,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
         }
       >
         {/* NAV ONLY */}
-        <div className="relative flex-1 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden w-full">
           {/* Collapsed (icon-only rail) */}
           {!isOpen && (
             <motion.ul
@@ -111,13 +111,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
               {nav.map(({ key, label, Icon }) => {
                 const active = currentPage === key;
                 return (
-                  <motion.li key={key} variants={itemVariants} className="w-full">
+                  <motion.li key={key} variants={itemVariants} className="w-auto self-center">
                     <motion.button
                       type="button"
                       title={!isOpen ? label : undefined}
                       aria-label={label}
                       aria-current={active ? 'page' : undefined}
-                      className={[railTap, active ? activeRail : ''].join(' ')}
+                      className={[railTap, active ? activeRail : '', 'mx-auto'].join(' ')}
                       onClick={() => setCurrentPage(key)}
                       onMouseEnter={() => setHoverKey(key)}
                       onMouseLeave={() => setHoverKey(null)}

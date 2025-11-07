@@ -11,9 +11,9 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSidebarOpen }) => {
   return (
-    <div className="app-header sticky top-0 z-50 supports-[backdrop-filter]:backdrop-blur-md bg-background/75 border-b border-border/70 elev-1">
+   <div className="app-header w-full z-[100] supports-[backdrop-filter]:backdrop-blur-md bg-background/75 border-b border-border/70 elev-1">
       <div
-        className="h-16 lg:h-[72px] flex items-center justify-between gap-2"
+        className="h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full"
         style={{ paddingLeft: 'var(--gutter-x,16px)', paddingRight: 'var(--gutter-x,16px)' }}
       >
         {/* Left: hamburger + brand */}
@@ -27,7 +27,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
 
           <button
             onClick={onNavigateHome}
-            className="rounded-lg hover:bg-muted px-2 py-1"
+            className="rounded-lg hover:bg-muted px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 flex items-center gap-2"
             title="Home"
             aria-label="Smart Scrape Home"
           >

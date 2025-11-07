@@ -97,7 +97,7 @@ const App: React.FC = () => {
     <ToastProvider>
       <ConfirmProvider>
         <AppShell
-          sidebar={<Sidebar isOpen={isSidebarOpen} currentPage={currentPage} setCurrentPage={setCurrentPage} />}
+          sidebar={<Sidebar isOpen={isSidebarOpen} currentPage={currentPage} setCurrentPage={setCurrentPage} useParentWidth />}
           sidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(v => !v)}
           onNavigateHome={() => setCurrentPage('url-collector')}

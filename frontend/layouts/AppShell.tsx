@@ -13,11 +13,9 @@ type Props = {
   hideAmbient?: boolean;
 };
 
-// Gmail-like sizes
-const SIDEBAR_W_OPEN = '16rem';       // 256px
+const SIDEBAR_W_OPEN = '17.5rem';    // 280px
 const SIDEBAR_W_COLLAPSED = '4.5rem'; // 72px
-const HEADER_H = '4rem';              // 64px (base)
-const HEADER_H_LG = '72px';           // 72px (lg+)
+const HEADER_H_LG = '72px';           // 72px
 const SHELL_SPRING: Transition = { type: 'spring', stiffness: 420, damping: 34 };
 
 export default function AppShell({
@@ -32,10 +30,9 @@ export default function AppShell({
 
   return (
     <div
-      className="app-shell min-h-screen w-full bg-background text-foreground selection:bg-accent/30 selection:text-accent-foreground"
+      className="app-shell min-h-screen w-full overflow-x-hidden bg-background text-foreground selection:bg-accent/30 selection:text-accent-foreground"
       style={{ ['--sidebar-w' as any]: sidebarVar }}
     >
-      {/* HEADER: fixed, full width, does NOT move with sidebar */}
       <header className="fixed inset-x-0 top-0 z-50">
         <Header
           onToggleSidebar={onToggleSidebar}
@@ -46,7 +43,7 @@ export default function AppShell({
 
       {/* DESKTOP SIDEBAR */}
       <aside
-        className="app-sidebar hidden lg:block fixed left-0 z-40 border-r border-border bg-card"
+        className="app-sidebar hidden lg:block fixed left-0 z-40 border-r border-border bg-card /90 supports-[backdrop-filter]:backdrop-blur-md elev-2"
         style={{ top: HEADER_H_LG, bottom: 0, width: 'var(--sidebar-w)' }}
         aria-label="Primary navigation"
       >
@@ -54,11 +51,13 @@ export default function AppShell({
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="min-h-screen bg-gradient-to-b from-muted/40 to-background" style={{ paddingTop: HEADER_H }}>
-      <div className="lg:pl-[var(--sidebar-w)]" style={{ paddingTop: HEADER_H_LG }}>
-      <div className="app-content max-w-screen-2xl mx-auto w-full h-full px-4 sm:px-6 lg:px-8">{children}</div>
+      <main className="min-h-screen bg-gradient-to-b from-muted/40 to-background pt-16 lg:pt-[72px]">
+      <div className="lg:pl-[var(--sidebar-w)]">
+        <div className="app-content max-w-screen-2xl mx-auto w-full h-full px-4 sm:px-6 lg:px-8">
+          {children}
+        </div>
       </div>
-      </main>
+    </main>
 
       {/* MOBILE SIDEBAR OVERLAY */}
       <AnimatePresence initial={false}>

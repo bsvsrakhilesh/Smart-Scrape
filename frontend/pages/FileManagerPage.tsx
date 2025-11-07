@@ -1254,8 +1254,8 @@ const handleRenameById = async (id: string, nextName: string) => {
             transition={{ delay: 1.0, duration: 0.5 }}
           >
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-md">
-                <span className="text-white font-bold text-xs">{page}</span>
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center ">
+                <span className="font-medium-bold text-s">{page}</span>
               </div>
               <span className="font-medium">of {pageCount} pages</span>
             </div>

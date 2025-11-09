@@ -1,22 +1,8 @@
 // frontend/components/filemanager/ExplorerCommandBar.tsx
 "use client";
-
 import { useMemo } from "react";
-
 import {
-  Plus,
-  Upload,
-  ChevronDown,
-  LayoutGrid,
-  Square,
-  List,
-  Rows3,
-  ArrowUpDown,
-  PanelRight,
-  Check,
-  Filter,
-  SlidersHorizontal,
-  Sparkles,
+  Plus, Upload, ChevronDown, LayoutGrid, Square, List, Rows3, ArrowUpDown, PanelRight, Check, Filter, SlidersHorizontal, Sparkles,
 } from "lucide-react";
 
 type LayoutKind = "large" | "icons" | "details" | "list"; // list will alias to details
@@ -123,7 +109,7 @@ export default function ExplorerCommandBar({
         </button>
 
         {/* New / Upload */}
-        <div className="inline-flex items-center gap-1 rounded-xl bg-[hsl(var(--surface-elev))] p-1">
+        <div className="inline-flex items-center gap-1 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-elev))] p-1.5">
           <button onClick={onNew} className="fm-btn" title="New…">
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline text-sm">New</span>
@@ -136,12 +122,12 @@ export default function ExplorerCommandBar({
         </div>
 
         {/* Divider */}
-        <div className="mx-2 h-6 w-px bg-[hsl(var(--border))]" aria-hidden />
+        <div className="mx-3 h-6 w-px bg-[hsl(var(--border))]" aria-hidden />
 
         {/* Sort */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button
-            className="fm-btn"
+            className="fm-btn rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface-elev))] px-3 py-1.5"
             onClick={onSortDirChange}
             title={`Sort ${sortDir === "asc" ? "descending" : "ascending"}`}
           >
@@ -150,19 +136,19 @@ export default function ExplorerCommandBar({
               {SORT_KEYS.find((s) => s.key === sortKey)?.label ?? "Sort"}
             </span>
           </button>
-          <button className="fm-chip" onClick={nextSortKey} title="Change sort">
+          <button className="fm-chip px-2.5" onClick={nextSortKey} title="Change sort">
             {SORT_KEYS.find((s) => s.key === sortKey)?.label}
           </button>
-          <span className="fm-chip-muted uppercase text-[11px] tracking-wide">
+          <span className="fm-chip-muted uppercase text-[11px] tracking-wider">
             {sortDir}
           </span>
         </div>
 
         {/* Divider */}
-        <div className="mx-2 h-6 w-px bg-[hsl(var(--border))]" aria-hidden />
+        <div className="mx-3 h-6 w-px bg-[hsl(var(--border))]" aria-hidden />
 
         {/* Density */}
-        <div className="hidden md:flex items-center gap-1">
+        <div className="hidden md:flex items-center gap-1.5">
           <button
             className={`fm-segmented ${density === "comfortable" ? "fm-seg-active" : ""}`}
             onClick={() => onDensityChange?.("comfortable")}
@@ -193,14 +179,14 @@ export default function ExplorerCommandBar({
           title="Toggle Inspector"
         >
           <PanelRight className="h-4 w-4" />
-          <span className="hidden sm:inline text-sm">Inspector</span>
+          <span className="hidden sm:inline text-xs">Inspector</span>
         </button>
       </div>
 
       {/* Row 2 — view switch + quick filters */}
       <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         {/* View segmented control: Large (tiles), Icons, Details, List (alias details) */}
-        <div className="inline-flex items-center gap-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-1">
+        <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-1.5">
           <button
             className={`fm-segmented ${layout === "large" ? "fm-seg-active" : ""}`}
             onClick={() => setLayout("large")}
@@ -235,8 +221,7 @@ export default function ExplorerCommandBar({
           </button>
         </div>
 
-        {/* Quick filter chips (no search here; search lives in ExplorerBreadcrumbs) */}
-        <div className="flex items-center gap-1 overflow-x-auto fm-no-scrollbar py-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto fm-no-scrollbar py-1 pl-1">
           {QUICK_FILTERS.map((f) => (
             <button
               key={f.key}

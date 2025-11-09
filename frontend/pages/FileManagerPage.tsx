@@ -740,7 +740,7 @@ export default function FileManagerPage() {
   return (
     <PageTransition>
       <motion.div
-        className="min-h-screen bg-background"
+        className="min-h-screen bg-landing-gradient"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
@@ -812,6 +812,8 @@ export default function FileManagerPage() {
             <FileSidebar
               onFolderSelect={onFolderSelect}
               currentFolderId={currentFolderId}
+              storageUsedBytes={totalBytes}
+              storageCapacityBytes={1024 ** 4}
             />
           </motion.div>
         </aside>

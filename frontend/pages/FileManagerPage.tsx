@@ -17,7 +17,7 @@ import PageTransition from '../components/motion/PageTransition';
 import { useExplorerHistory } from '../hooks/useExplorerHistory';
 import WindowsGrid from '../components/filemanager/WindowsGrid';
 
-const DEFAULT_PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 15;
 // --- layout persistence helpers ---
 const getLS = <T,>(k: string, v: T) => {
   try { return JSON.parse(localStorage.getItem(k) || '') as T; } catch { return v; }
@@ -918,18 +918,12 @@ export default function FileManagerPage() {
 
           {/* Files list */}
           <div className="mt-2 rounded-2xl bg-white/80 backdrop-blur ring-1 ring-black/5 shadow-sm overflow-hidden">
-            {/* Sticky chrome header (matches screenshot style) */}
             <div className="sticky top-0 z-[5] bg-[hsl(var(--background)_/_0.88)] backdrop-blur
                             border-b border-[hsl(var(--border))]">
               <div className="h-12 px-3 sm:px-4 flex items-center gap-2">
-                <div className="flex-1">
-                  {/* Keep using your existing breadcrumbs component just above the list */}
-                  {/* This slot intentionally blank – your ExplorerBreadcrumbs sits higher in the page */}
-                </div>
           
                 {/* right: quick density + layout controls mirror your CommandBar */}
                 <div className="flex items-center gap-1 text-[13px]">
-                  {/* we don't add new state here; ExplorerCommandBar already manages layout/density */}
                   <span className="px-2 py-1 rounded-md border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
                     {allFiles.length} items
                   </span>
@@ -1095,7 +1089,7 @@ export default function FileManagerPage() {
             transition={{ delay: 1.0, duration: 0.5 }}
           >
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg flex items-center justify-center ">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center bg-blue-500/20 text-blue-700 font-semibold">
                 <span className="font-medium-bold text-s">{page}</span>
               </div>
               <span className="font-medium">of {pageCount} pages</span>

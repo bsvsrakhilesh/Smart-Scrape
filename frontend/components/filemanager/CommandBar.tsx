@@ -95,7 +95,7 @@ export default function CommandBar({
       aria-label="Explorer commands"
     >
       {/* Row 1 — primary controls */}
-      <div className="flex items-center justify-between gap-x-6 gap-y-1 overflow-x-auto whitespace-nowrap">
+      <div className="flex items-center justify-between gap-x-6 gap-y-1 whitespace-nowrap">
         <div className="flex items-center gap-2 flex-shrink-0">
          {/* Select All (updated classes) */}
          <button
@@ -137,7 +137,7 @@ export default function CommandBar({
         </div>
         
         {/* right group (sort / density / inspector) */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center bg-gray-100 rounded-lg">
            <button
              onClick={nextSortKey}
@@ -200,7 +200,8 @@ export default function CommandBar({
       {/* Row 2 — view switch + quick filters */}
       <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         {/* View segmented control: Large (tiles), Icons, Details, List (alias details) */}
-        <div className="inline-flex items-center gap-1.5 rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] p-1.5 overflow-x-auto fm-no-scrollbar">
+        <div className="inline-flex items-center gap-1.5 rounded-2xl bg-white/60 ring-1 ring-white/60 p-1.5 overflow-x-auto fm-no-scrollbar shadow-sm"
+>
           <button
             className={`fm-segmented ${layout === "large" ? "fm-seg-active" : ""}`}
             onClick={() => setLayout("large")}

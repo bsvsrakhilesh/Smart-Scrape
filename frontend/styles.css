@@ -934,11 +934,15 @@ html, body, #__next, .app-shell {
 
 }
 .fm-segmented {
-   @apply inline-flex items-center justify-center rounded-xl px-2.5 py-1.5 text-xs
-      text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--surface-elev))] transition-colors;
+  @apply inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-xs
+         text-[hsl(var(--muted-foreground))] hover:bg-white/60 transition-colors;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.55);
+  backdrop-filter: blur(6px);
 }
 .fm-seg-active {
-  box-shadow: inset 0 0 0 2px hsl(var(--brand-500) / 0.6);
+  @apply bg-white;
+  box-shadow: inset 0 0 0 2px hsl(var(--brand-500) / .55), 0 1px 6px rgba(0,0,0,.06);
+  color: hsl(var(--text));
 }
 
 .fm-card {
@@ -958,16 +962,19 @@ html, body, #__next, .app-shell {
 .fm-card:focus-visible { box-shadow: var(--fm-shadow), var(--fm-ring); }
 
 .fm-chip {
- @apply inline-flex items-center rounded-full border border-[hsl(var(--border))]
-      bg-[hsl(var(--surface))] px-2.5 py-1 text-[12px] text-[hsl(var(--muted-foreground))]
-      hover:bg-[hsl(var(--surface-elev))] transition-colors;
+  @apply inline-flex items-center rounded-full px-3 py-1 text-[12px]
+         bg-white/70 text-[hsl(var(--muted-foreground))] border border-white/60;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
 }
+.fm-chip:hover { @apply bg-white; }
+
 .fm-chip-muted {
- @apply inline-flex items-center rounded-full bg-[hsl(var(--surface-elev))]
-      px-2 py-0.5 text-[12px] text-[hsl(var(--muted-foreground))];
+  @apply inline-flex items-center rounded-full bg-white/50 px-2 py-0.5 text-[12px]
+         text-[hsl(var(--muted-foreground))];
 }
 .fm-chip.fm-chip--subtle {
-  @apply text-[11px] px-2 py-0.5 rounded-full bg-[hsl(var(--muted))]/15 text-[hsl(var(--muted-foreground))] border border-[hsl(var(--border))]/60;
+  @apply text-[11px] px-2 py-0.5 rounded-full bg-white/50 text-[hsl(var(--muted-foreground))]
+         border border-white/50;
 }
 
 .fm-no-scrollbar {

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight} from 'lucide-react';
-import FileList from '../components/filemanager/FileList';
-import AdvancedFileUpload from '../components/filemanager/AdvancedFileUpload';
 import { useToast } from '../components/providers/Toast';
 import { FileItem, FileDetail } from '../types';
 import { formatBytes } from '../utils/fileHelpers';
 import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
+import FileList from '../components/filemanager/FileList';
+import AdvancedFileUpload from '../components/filemanager/AdvancedFileUpload';
 import ExplorerCommandBar from "../components/filemanager/CommandBar";
 import ExplorerBreadcrumbs from "../components/filemanager/Breadcrumbs";
 import ExplorerPreviewModal from "../components/filemanager/ExplorerPreviewModal";
@@ -494,7 +494,7 @@ export default function FileManagerPage() {
         notify(`Copied ${ids.length} item(s)`, 'success');
       } else {
         await Promise.all(ids.map(id => moveFile(id, currentFolderId ?? null)));
-        notify(`Moved ${ids.length} item(s)`, 'success');
+        notify(`Moved ${ids.length} item(s), 'success'`);
       }
       refresh();
     } catch {
@@ -749,35 +749,33 @@ export default function FileManagerPage() {
   return (
     <PageTransition>
       <motion.div
-        className="min-h-screen bg-landing-gradient"
+        className="h-[calc(100vh-72px)] bg-[hsl(var(--background))] py-1 md:py-2 overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
       {/* Header */}
       <motion.div
-        className="relative bg-gradient-to-br from-surface/80 via-accent/5 to-info/5 backdrop-blur-xl border-b border-border/30 overflow-hidden"
+        className="w-full max-w-7xl mx-auto px-1 pt-2 pb-1 relative z-10"
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.5, ease: "easeOut" }}
       >
 
-      <div className="max-w-7xl mx-auto px-6 py-10 relative z-10">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-      <div className="relative flex-1">
-      <h1 className="text-5xl font-black text-text tracking-tight mb-2 drop-shadow-lg">File Explorer</h1>
-      <p className="text-lg text-muted-foreground max-w-md leading-relaxed flex items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-1">
+       <div className="relative flex-1">
+      <h2 className="text-5xl font-black text-text tracking-tight mb-2 drop-shadow-lg">File Explorer</h2>
+      <p className="text-lg text-muted-foreground flex items-center gap-2 drop-shadow-lg">
       Innovate your journey with seamless file management.
       </p>
-      </div>
-      </div>
+       </div>
       </div>
       </motion.div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-12 gap-6">
+      <div className="max-w-7xl w-full mx-auto mt-5 grid grid-cols-12 gap-2 rounded-3xl bg-white/80 border border-white/60 shadow-2xl backdrop-blur-xl px-3 py-3">
         {/* Left: Quick Access + Folder tree */}
-        <aside className="col-span-12 lg:col-span-3 space-y-6">
+        <aside className="col-span-12 lg:col-span-3 space-y-6 lg:sticky lg:top-6 self-start">
           <motion.div
             className="bg-surface/60 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-border/30"
             initial={{ x: -30, opacity: 0 }}
@@ -797,8 +795,8 @@ export default function FileManagerPage() {
       <section className={`col-span-12 ${inspectorOpen ? 'lg:col-span-6' : 'lg:col-span-9'}`}>
           {/* Sticky toolbar - Enhanced with glassmorphism and animations */}
 
-          <div className="sticky top-[calc(72px+16px)] z-10 -mt-2 mb-3">
-            <div className="rounded-2xl border border-black/5 bg-white/90 backdrop-blur px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+          <div className="sticky top-6 z-20 mb-4">
+            <div className="rounded-2xl bg-white/80 border border-white/60 shadow-md backdrop-blur-xl px-3">
               <ExplorerBreadcrumbs
                 path={breadcrumb.map((b, idx) => ({
                   id: b.id ?? `home-${idx}`,
@@ -829,7 +827,7 @@ export default function FileManagerPage() {
           </div>
 
           {/* Secondary command row (Up, New, Upload, Sort, View toggle) */}
-          <div className="mb-4 rounded-2xl shadow-sm overflow-hidden border border-black/5 bg-white/90 backdrop-blur">
+          <div className="mb-4 rounded-2xl overflow-hidden border border-white/60 bg-white/70 shadow-lg backdrop-blur-xl">
             <ExplorerCommandBar
               layout={layout as any}
               onLayoutChange={(next) => {

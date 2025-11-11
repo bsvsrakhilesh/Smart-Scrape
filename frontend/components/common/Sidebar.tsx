@@ -52,7 +52,7 @@ const itemVariants = {
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, useParentWidth }) => {
   // Fixed widths; sidebar itself animates width (no overlay)
   const COLLAPSED = 72;
-  const EXPANDED = 280;
+  const EXPANDED = 250;
 
   const nav = NAV; // allow future memoization if NAV becomes dynamic
 

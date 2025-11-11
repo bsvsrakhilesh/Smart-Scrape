@@ -249,23 +249,26 @@ export default function ExplorerBreadcrumbs({
         <div
           role="group"
           aria-label="Breadcrumb"
-          className="h-9 flex items-center gap-1 px-1 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] overflow-x-auto scrollbar-thin"
+          className="h-9 inline-flex items-center gap-1 pl-2 pr-2 rounded-2xl bg-white/80 border border-white/80 shadow-sm text-[13px] text-[hsl(var(--muted-foreground))] overflow-x-auto fm-no-scrollbar"
           ref={crumbsRef}
           onDoubleClick={() => setEditing(true)}
           title="Double-click to edit path"
         >
         <button
            onClick={path[0]?.onClick}
-           className="rounded-xl px-2.5 py-1.5 hover:bg-[hsl(var(--surface-elev))]"
+           className="inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 hover:bg-white/90"
            aria-label="Home"
            title="Home"
           >
           <Home className="h-4 w-4" />
+          <span className="font-medium text-[hsl(var(--text))]">
+            {path[0]?.label ?? "Home"}
+          </span>
         </button>
 
           {path.slice(1).map((c) => (
             <div key={c.id} className="flex items-center">
-              <ChevronRight className="h-4 w-4 text-[hsl(var(--muted))]" />
+              <ChevronRight className="h-3.5 w-3.5 text-[hsl(var(--muted))]" />
               <button
                 onClick={c.onClick}
                 className="rounded-xl px-2.5 py-1.5 hover:bg-[hsl(var(--surface-elev))]"

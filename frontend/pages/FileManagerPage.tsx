@@ -749,7 +749,7 @@ export default function FileManagerPage() {
   return (
     <PageTransition>
       <motion.div
-        className="h-[calc(100vh-72px)] bg-[hsl(var(--background))] py-1 md:py-2 overflow-hidden"
+        className="h-full bg-[hsl(var(--background))] py-1 md:py-2 overflow-visible"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
@@ -764,7 +764,7 @@ export default function FileManagerPage() {
 
       <div className="flex flex-wrap items-start justify-between gap-1">
        <div className="relative flex-1">
-      <h2 className="text-5xl font-black text-text tracking-tight mb-2 drop-shadow-lg">File Explorer</h2>
+      <h2 className="text-4xl font-black text-text tracking-tight mb-1 drop-shadow-lg">File Explorer</h2>
       <p className="text-lg text-muted-foreground flex items-center gap-2 drop-shadow-lg">
       Innovate your journey with seamless file management.
       </p>

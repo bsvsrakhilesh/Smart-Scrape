@@ -541,6 +541,7 @@ export default function WindowsGrid({
     <div
       ref={rootRef}
       className="wg-grid relative w-full h-full overflow-auto px-2"
+      style={{ display: 'block' }}
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {
@@ -587,7 +588,7 @@ export default function WindowsGrid({
           return (
             <div
                 key={id}
-                className={`wg-card group relative w-full overflow-hidden rounded-xl border ${
+                className={`wg-card group relative w-full overflow-visible rounded-xl border ${
                   selected
                     ? "border-blue-500 ring-2 ring-blue-400/40"
                     : "border-neutral-200 hover:border-neutral-300"

@@ -13,7 +13,7 @@ type Props = {
   hideAmbient?: boolean;
 };
 
-const SIDEBAR_W_OPEN = '17.5rem';    // 280px
+const SIDEBAR_W_OPEN = '250px';    // 250px
 const SIDEBAR_W_COLLAPSED = '4.5rem'; // 72px
 const HEADER_H_LG = '72px';           // 72px
 const SHELL_SPRING: Transition = { type: 'spring', stiffness: 420, damping: 34 };

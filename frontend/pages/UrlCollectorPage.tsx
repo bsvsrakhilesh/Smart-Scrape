@@ -188,7 +188,6 @@ const UrlCollectorPage: React.FC = () => {
         </div>
       )}
 
-      {/* Keep this hero exactly as in your project */}
       <header className="rounded-2xl p-5 bg-landing-gradient shadow-soft mb-4 text-center">
         <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white">URL Collector</h1>
         <p className="text-gray-700 dark:text-gray-300">Search the web and save relevant sources to your workspace.</p>

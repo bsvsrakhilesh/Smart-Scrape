@@ -1,13 +1,12 @@
 // src/pages/LandingPage.tsx
 "use client";
 
-import React, { useRef, useCallback, useMemo } from "react";
+import React, { useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   motion,
   useScroll,
   useTransform,
-  useSpring,
   type MotionProps,
   type Transition,
 } from "framer-motion";
@@ -16,11 +15,8 @@ import {
   CheckCircle2,
   Sparkles,
   Play,
-  Link2,
-  FileStack,
-  NotebookPen,
-  BotMessageSquare,
 } from "lucide-react";
+import { CircularTestimonials } from "../components/ui/circular-testimonials";
 
 /* ========= Motion presets ========= */
 const EASE: Transition["ease"] = [0.16, 1, 0.3, 1];
@@ -67,46 +63,6 @@ const MagneticButton: React.FC<
     </button>
   );
 };
-
-function ParallaxTilt({
-  children,
-  maxTilt = 8,
-  className = "",
-}: {
-  children: React.ReactNode;
-  maxTilt?: number;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const onMove = useCallback(
-    (e: React.MouseEvent) => {
-      const el = ref.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const px = (e.clientX - r.left) / r.width;
-      const py = (e.clientY - r.top) / r.height;
-      const rx = (py - 0.5) * 2 * maxTilt;
-      const ry = (0.5 - px) * 2 * maxTilt;
-      el.style.transform = `perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg) translateZ(0)`;
-    },
-    [maxTilt]
-  );
-  const reset = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.transform = `perspective(900px) rotateX(0deg) rotateY(0deg) translateZ(0)`;
-  }, []);
-  return (
-    <div
-      ref={ref}
-      onMouseMove={onMove}
-      onMouseLeave={reset}
-      className={`transition-transform duration-300 will-change-transform ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
 
 /* ========= Air-quality primitives ========= */
 function ParticleField({ aqi = 70 }: { aqi?: number }) {
@@ -375,127 +331,36 @@ function Hero({ currentAqi = 118 }: { currentAqi?: number }) {
   );
 }
 
-/* ========= HOW IT WORKS — aligned rail + zig-zag ========= */
-type Step = {
-  key: string;
-  title: string;
-  blurb: string;
-  icon: React.ReactNode;
-  routeHint: string;
-  screenshot?: string;
-};
 
-const STEPS: Step[] = [
+const HOW_IT_WORKS_TESTIMONIALS = [
   {
-    key: "archive",
-    title: "Archive",
-    blurb:
-      "Ingest PDFs, datasets, and field notes into a single, queryable workspace.",
-    icon: <FileStack className="h-5 w-5" />,
-    routeHint: "/app/files",
-    screenshot: "/images/preview-archive.png",
+    quote:
+      "I was impressed by the food! And I could really tell that they use high-quality ingredients. The staff was friendly and attentive. I'll definitely be back for more!",
+    name: "Tamar Mendelson",
+    designation: "Restaurant Critic",
+    src:
+      "https://images.unsplash.com/photo-1512316609839-ce289d3eba0a?q=80&w=1368&auto=format&fit=crop",
   },
   {
-    key: "collector",
-    title: "URL Collector",
-    blurb:
-      "Batch-add sources with tags, dedupe automatically, and schedule re-checks.",
-    icon: <Link2 className="h-5 w-5" />,
-    routeHint: "/app/urls",
-    screenshot: "/images/preview-collector.png",
+    quote:
+      "This place exceeded all expectations! The atmosphere is inviting, and the staff truly goes above and beyond. I'll keep returning for more exceptional dining experience.",
+    name: "Joe Charlescraft",
+    designation: "Frequent Visitor",
+    src:
+      "https://images.unsplash.com/photo-1628749528992-f5702133b686?q=80&w=1368&auto=format&fit=crop",
   },
   {
-    key: "notebook",
-    title: "Notebook",
-    blurb:
-      "Analyze time-series, infer AQI, compare policies, and build annotated charts.",
-    icon: <NotebookPen className="h-5 w-5" />,
-    routeHint: "/app/notebook",
-    screenshot: "/images/preview-notebook.png",
-  },
-  {
-    key: "chatbot",
-    title: "AI Chatbot",
-    blurb:
-      "Ask “Summarize winter PM2.5 since 2019” and get source-linked answers.",
-    icon: <BotMessageSquare className="h-5 w-5" />,
-    routeHint: "/app/chat",
-    screenshot: "/images/preview-chat.png",
-  },
-  {
-    key: "publish",
-    title: "Publish",
-    blurb:
-      "Export briefs/dashboards with citations and share secure links.",
-    icon: <CheckCircle2 className="h-5 w-5" />,
-    routeHint: "/app/exports",
-    screenshot: "/images/preview-publish.png",
+    quote:
+      "Shining Yam is a hidden gem! The impeccable service and overall attention to detail created a memorable experience. I highly recommend it!",
+    name: "Martina Edelweist",
+    designation: "Satisfied Customer",
+    src:
+      "https://images.unsplash.com/photo-1524267213992-b76e8577d046?q=80&w=1368&auto=format&fit=crop",
   },
 ];
 
-function StepPreview({ step, active }: { step: Step; active: boolean }) {
-  return (
-    <ParallaxTilt maxTilt={6} className="rounded-2xl">
-      <motion.div
-        className={`rounded-2xl border p-5 shadow-sm bg-white/80 backdrop-blur ${
-          active ? "border-indigo-500 ring-1 ring-indigo-500" : "border-slate-200"
-        }`}
-        animate={{
-          scale: active ? 1.015 : 1,
-          boxShadow: active
-            ? "0 16px 48px rgba(79,70,229,0.15)"
-            : "0 6px 20px rgba(2,6,23,0.06)",
-        }}
-        transition={{ duration: 0.35, ease: EASE }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-landing-gradient text-white">
-            {step.icon}
-          </div>
-        <div>
-            <div className="text-lg font-semibold">{step.title}</div>
-            <div className="text-xs text-slate-500">{step.routeHint}</div>
-          </div>
-        </div>
-
-        <p className="mt-3 text-slate-600">{step.blurb}</p>
-
-        <motion.div
-          className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white"
-          layout
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: active ? 1 : 0.75, y: active ? 0 : 6 }}
-          transition={{ duration: 0.5, ease: EASE }}
-        >
-          {step.screenshot ? (
-            <img
-              src={step.screenshot}
-              alt={`${step.title} preview`}
-              className="h-48 w-full object-cover"
-            />
-          ) : (
-            <div className="h-48 w-full bg-gradient-to-r from-indigo-50 to-purple-50" />
-          )}
-        </motion.div>
-      </motion.div>
-    </ParallaxTilt>
-  );
-}
-
 function HowItWorksShowcase() {
   const sectionRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: sectionRef,
-    offset: ["start center", "end end"],
-  });
-  const rail = useSpring(scrollYProgress, { stiffness: 120, damping: 20 });
-  const railScale = useTransform(rail, [0, 1], [0, 1]);
-
-  const stepRefs = useMemo(
-    () => STEPS.map(() => React.createRef<HTMLDivElement>()),
-    []
-  );
-  const activeIndex = useMemo(() => ({ current: 0 }), []);
 
   return (
     <section
@@ -514,72 +379,25 @@ function HowItWorksShowcase() {
       </div>
 
       <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
-        {/* LEFT: sticky nav with aligned rail */}
-        <div className="relative md:sticky md:top-24 pl-6">
-          <div className="progress-rail" />
-          <motion.div className="progress-bar" style={{ scaleY: railScale }} />
-
-          <div className="space-y-3">
-            {STEPS.map((s, i) => (
-              <motion.a
-                key={s.key}
-                href={s.routeHint}
-                className="group relative flex items-center gap-3 rounded-xl px-3 py-2"
-                {...fadeUp(i * 0.03)}
-                onMouseEnter={() => (activeIndex.current = i)}
-              >
-                <span
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-white bg-landing-gradient transition-transform ${
-                    i === activeIndex.current ? "scale-105" : "scale-100"
-                  }`}
-                >
-                  {s.icon}
-                </span>
-                <div>
-                  <div className="text-sm font-semibold">{s.title}</div>
-                  <div className="text-xs text-slate-500">{s.routeHint}</div>
-                </div>
-                <motion.span
-                  className="pointer-events-none absolute inset-0 rounded-xl"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: i === activeIndex.current ? 1 : 0 }}
-                  transition={{ duration: 0.3 }}
-                  style={{ boxShadow: "0 0 0 2px rgba(79,70,229,0.25)" }}
-                />
-              </motion.a>
-            ))}
-          </div>
-
-          {/* tags */}
-          <div className="mt-6 flex flex-wrap gap-2">
-            <span className="chip">Evidence graph</span>
-            <span className="chip">AQI inference</span>
-            <span className="chip">Policy briefs</span>
-            <span className="chip">Citations</span>
-          </div>
-        </div>
-
-        {/* RIGHT: Zig-zag timeline with center spine */}
-        <div className="relative">
-          <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-slate-200 md:block" />
-          <div className="flex flex-col gap-8">
-            {STEPS.map((s, i) => {
-              const alignRight = i % 2 === 1;
-              return (
-                <motion.div
-                  key={s.key}
-                  ref={stepRefs[i]}
-                  {...fadeUp(i * 0.04)}
-                  onViewportEnter={() => (activeIndex.current = i)}
-                  className={`md:flex ${alignRight ? "md:justify-end" : "md:justify-start"}`}
-                >
-                  <div className="md:max-w-[520px] w-full">
-                    <StepPreview step={s} active={activeIndex.current === i} />
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
+        {/* RIGHT: Circular testimonials carousel */}
+        <div className="relative flex items-center justify-center">
+          <CircularTestimonials
+            testimonials={HOW_IT_WORKS_TESTIMONIALS}
+            autoplay
+            colors={{
+              name: "#0a0a0a",
+              designation: "#454545",
+              testimony: "#171717",
+              arrowBackground: "#141414",
+              arrowForeground: "#f1f1f7",
+              arrowHoverBackground: "#00A6FB",
+            }}
+            fontSizes={{
+              name: "28px",
+              designation: "20px",
+              quote: "20px",
+            }}
+          />
         </div>
       </div>
     </section>

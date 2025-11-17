@@ -23,7 +23,7 @@ import CodeIcon from '../icons/CodeIcon';
 import FileIcon from '../icons/FileIcon';
 import FolderIcon from '../icons/FolderIcon';
 
-type ViewMode = 'details' | 'large' | 'tiles' | 'list';
+type ViewMode = 'details' | 'list';
 type ColumnKey = 'name' | 'size' | 'date' | 'type';
 const ALL_COLS: ColumnKey[] = ['name', 'size', 'date', 'type'];
 
@@ -73,7 +73,7 @@ type Props = {
   autosizeColumnsToken?: number | string;
 
   /** extras your page passes — optional, not wired yet */
-  layout?: 'details' | 'icons' | 'tiles' | 'list';
+  layout?: 'details' | 'list';
   selectable?: boolean;
   clipboard?: unknown;
   onUpdateTags?: (fileId: string, nextTags: string[]) => Promise<void> | void;
@@ -120,9 +120,6 @@ export default function FileList({
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
 
-  // Properties/preview pane toggle
-  const [showDetailsPane, setShowDetailsPane] = useState<boolean>(false);
-
   const { confirm } = useConfirm();
   const { notify } = useToast();
   const buildBGMenu = (): MenuItem[] => {
@@ -154,7 +151,6 @@ export default function FileList({
     { type: 'item', id: 'paste', label: 'Paste', shortcut: 'Ctrl+V', disabled: !onPaste, onSelect: () => onPaste?.() },
     { type: 'separator' },
     { type: 'item', id: 'download', label: 'Download', onSelect: () => onDownload?.(file) },
-    { type: 'item', id: 'properties', label: 'Properties', shortcut: 'Alt+Enter', onSelect: () => { setShowDetailsPane(true); } },
     ...(isZip(file) ? [{ type: 'item', id: 'openzip', label: 'Open ZIP', onSelect: () => onOpenVirtual?.({ zipId: file.id, prefix: '' }) } as MenuItem] : []),
     { type: 'item', id: 'selectall', label: anySel ? 'Deselect all' : 'Select all', onSelect: () => {
       if (anySel) {
@@ -204,13 +200,7 @@ export default function FileList({
 useEffect(() => {
   if (!layout) return;
   const mapped: ViewMode =
-    layout === 'details'
-      ? 'details'
-      : layout === 'icons'
-      ? 'large'    // icon view renders with large icon renderer in FileList (keeps your styling/hover)
-      : layout === 'tiles'
-      ? 'tiles'
-      : layout === 'list'
+    layout === 'list'
       ? 'list'
       : 'details';
   setViewMode(mapped);
@@ -1015,68 +1005,6 @@ useEffect(() => {
     );
   };
 
-  const renderGridCards = (tile: 'large' | 'tiles' | 'list') => {
-  const iconSize = tile === 'large' ? 56 : 44;
-  const showMeta = tile === 'large';
-
-  return (
-    <div
-      className={tile === 'large' ? 'fm-grid-tiles' : 'fm-grid-icons'}
-      onClick={(e) => {
-        if (!(e.target as HTMLElement).closest('[data-row]')) setSelectedIds(new Set());
-      }}
-    >
-      {sorted.map((f) => {
-        const isSel = selectedIds.has(f.id);
-        return (
-          <div
-            key={f.id}
-            data-row
-            data-id={f.id}
-                        className={[
-              tile === 'large' ? 'fm-tile' : 'fm-icon',
-              isSel ? 'is-selected' : '',
-              'group select-none text-center'
-            ].join(' ')}
-            onDoubleClick={() => onRowDoubleClick(f)}
-            onClick={(e) => {
-              if (e.shiftKey) toggleSelect(f.id, false, true);
-              else if (e.metaKey || e.ctrlKey) toggleSelect(f.id, true, false);
-              else toggleSelect(f.id, false, false);
-            }}
-            draggable
-            onDragStart={() => onDragStart?.(Array.from(selectedIds))}
-            onDragEnd={() => onDragEnd?.(Array.from(selectedIds))}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              if (!selectedIds.has(f.id)) toggleSelect(f.id, false, false);
-              setRowMenu({ x: e.clientX, y: e.clientY, file: f });
-            }}
-          >
-            <div className="flex items-center justify-center">
-              {/* Folder color already amber in your renderIcon */}
-              <span className="text-amber-500">{renderIcon(f, iconSize)}</span>
-            </div>
-            <div className="mt-3 font-medium truncate">{fileDisplayName(f)}</div>
-            {showMeta && (
-              <div className="mt-0.5 text-xs text-[hsl(var(--muted))] truncate">
-                {(f as any).mimeType} • {formatBytes((f as any).size || 0)}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-
-  /** ---------- selection summary (status bar) ---------- */
-  const selectedFiles = useMemo(
-    () => sorted.filter((f) => selectedIds.has(f.id)),
-    [sorted, selectedIds]
-  );
-
   /** ---------- progressive rendering for large lists ---------- */
     const [renderCount, setRenderCount] = useState(() => {
        return sorted.length > 600 ? 300 : sorted.length;
@@ -1139,12 +1067,7 @@ useEffect(() => {
             </div>
           </div>
         )}
-        {/* Render either the compact list (list view) or the grid (only for 'large'|'tiles') */}
-        {viewMode === 'list'
-          ? renderCompactList()
-          : viewMode === 'large' || viewMode === 'tiles'
-          ? renderGridCards(viewMode as 'large' | 'tiles')
-          : null}
+        {viewMode === 'list' ? renderCompactList() : null}
 
         {/* Marquee overlay */}
         {marquee && (
@@ -1231,31 +1154,6 @@ useEffect(() => {
           </div>
         )}
       </div>
-
-      {/* Right details pane */}
-      {showDetailsPane && selectedFiles.length === 1 && (
-        <aside
-          className="sticky top-40 w-80 shrink-0 border rounded-lg ml-3 p-3 h-[calc(100vh-240px)] overflow-auto "
-          aria-label="Details pane"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold text-sm">Details</h3>
-            <button className="text-xs opacity-70 hover:opacity-100" onClick={() => setShowDetailsPane(false)}>Close</button>
-          </div>
-          <div className="mb-3">
-            <div className="mb-2">{renderIcon(selectedFiles[0], 48)}</div>
-            <div className="font-medium break-words">{fileDisplayName(selectedFiles[0])}</div>
-            <div className="text-xs opacity-70">{(selectedFiles[0] as any).mimeType}</div>
-          </div>
-          <div className="text-sm space-y-1">
-            <div>Size: {formatBytes((selectedFiles[0] as any).size || 0)}</div>
-            <div>Type: {(selectedFiles[0] as any).mimeType || '—'}</div>
-            <div>Modified: {(selectedFiles[0] as any).updatedAt || '—'}</div>
-            <div>Created: {(selectedFiles[0] as any).createdAt || '—'}</div>
-          </div>
-        </aside>
-      )}
-
     </div>
   );
 }

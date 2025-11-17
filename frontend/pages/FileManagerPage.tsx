@@ -840,7 +840,6 @@ export default function FileManagerPage() {
               onSortDirChange={() => { setSortDir(d => d === "asc" ? "desc" : "asc"); setPage(1); }}
               isAllSelected={selected.length === allFiles.length && allFiles.length > 0}
               onSelectAll={handleSelectAll}
-              onToggleInspector={() => setInspectorOpen(v => !v)}
               density={density}
               onDensityChange={(d) => setDensity(d)}
             />
@@ -947,7 +946,7 @@ export default function FileManagerPage() {
             />
 
             {!isLoading && !error && visibleFiles.length > 0 && (
-            <div className="mt-3 rounded-[26px] bg-[radial-gradient(circle_at_top,_#d0fae6,_#d8f7ff_45%,_#e7f4ff_90%)] shadow-[0_22px_80px_rgba(15,23,42,0.12)] border border-white/60 px-4 py-4 sm:px-6 sm:py-5">
+            <div >
               {layout === 'large' || layout === 'icons' ? (
                 <WindowsGrid
                   files={visibleFiles}

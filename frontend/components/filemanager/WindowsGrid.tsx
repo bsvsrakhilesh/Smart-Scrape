@@ -27,16 +27,10 @@ const getTitle = (f: FileItem): string =>
     "") as string;
 
 const getMime = (f: FileItem): string | undefined =>
-  ((f as any).mimeType ??
-    (f as any).mimetype ??
-    (f as any).type ??
-    (f as any).contentType) as string | undefined;
-
-const getThumb = (f: FileItem): string | undefined =>
-  ((f as any).thumbnailUrl ??
-    (f as any).thumbnailURL ??
-    (f as any).thumbnail ??
-    (f as any).thumb) as string | undefined;
+  (f as any).mimeType ??
+  (f as any).contentType ??
+  (f as any).type ??
+  undefined;
 
 const getSize = (f: FileItem): number | null => {
   const v =
@@ -60,53 +54,52 @@ const getUpdated = (f: FileItem): Date | null => {
     (f as any).modified ??
     null;
   if (!v) return null;
-  const d = v instanceof Date ? v : new Date(v);
-  return Number.isFinite(d.getTime()) ? d : null;
+  try {
+    return new Date(v);
+  } catch {
+    return null;
+  }
 };
 
-const getExt = (f: FileItem): string => {
-  // If your backend doesn’t send an explicit extension, infer from title.
-  const explicit =
-    (f as any).ext ??
-    (f as any).extension ??
-    (f as any).fileExtension ??
-    (f as any).suffix;
-  if (explicit && typeof explicit === "string") return explicit.toLowerCase();
+const isFolder = (f: FileItem): boolean =>
+  (f as any).isFolder === true ||
+  (f as any).mimeType === "folder" ||
+  (f as any).type === "folder";
 
-  const t = getTitle(f);
-  const dot = t.lastIndexOf(".");
-  if (dot > 0 && dot < t.length - 1) return t.slice(dot + 1).toLowerCase();
-  return "";
-};
-
-const isFolder = (f: FileItem): boolean => {
-  const mt = (getMime(f) ?? "").toLowerCase();
-  const flag = Boolean((f as any).isFolder ?? (f as any).directory);
-  return flag || mt === "folder" || mt === "inode/directory" || mt === "directory";
-};
-
-const isZipLike = (f: FileItem): boolean => {
-  const mt = (getMime(f) ?? "").toLowerCase();
-  const ext = getExt(f);
-  const t = getTitle(f).toLowerCase();
+const isZip = (f: FileItem): boolean => {
+  const name = getTitle(f).toLowerCase();
+  const t = getMime(f)?.toLowerCase() ?? "";
   return (
-    ext === "zip" ||
-    /\.zip$/i.test(t) ||
-    mt === "application/zip" ||
-    mt.includes("zip")
+    name.endsWith(".zip") ||
+    t === "application/zip" ||
+    t === "application/x-zip-compressed"
   );
 };
 
 const fileType = (f: FileItem): string => {
   if (isFolder(f)) return "folder";
-  const mt = (getMime(f) ?? "").toLowerCase();
-  if (!mt) return getExt(f) || "file";
-  if (mt.includes("/")) return mt.split("/")[0]; // image, video, application, ...
-  return mt;
+  const t = getMime(f)?.toLowerCase() ?? "";
+  if (t.startsWith("image/")) return "image";
+  if (t.startsWith("video/")) return "video";
+  if (t.startsWith("audio/")) return "audio";
+  if (t.includes("pdf")) return "pdf";
+  if (t.includes("zip")) return "archive";
+  return t || "file";
+};
+
+const getThumb = (f: FileItem): string | null => {
+  // if your FileItem has thumbnailUrl / thumb / preview / etc
+  const v =
+    (f as any).thumbnailUrl ??
+    (f as any).thumbnail ??
+    (f as any).thumb ??
+    (f as any).preview ??
+    null;
+  return typeof v === "string" && v.trim() ? v : null;
 };
 
 const fileDisplayName = (f: FileItem) =>
-  (f as any).title || (f as any).fileName || '';
+  (f as any).title || (f as any).fileName || "";
 
 const renderIcon = (f: FileItem, size = 24) => {
   const t = ((f as any).mimeType || "").toLowerCase();
@@ -115,18 +108,59 @@ const renderIcon = (f: FileItem, size = 24) => {
   const base = "opacity-90";
   const inner = "w-full h-full";
 
-  if (t.startsWith("image/")) return <span style={style} className={base}><ImageIcon className={inner} /></span>;
-  if (t.startsWith("video/")) return <span style={style} className={base}><VideoIcon className={inner} /></span>;
-  if (t.startsWith("audio/")) return <span style={style} className={base}><MusicIcon className={inner} /></span>;
-  if (name.endsWith(".zip")) return <span style={style} className={base}><ArchiveIcon className={inner} /></span>;
-  if (t.includes("pdf") || name.endsWith(".pdf")) return <span style={style} className={base}><BookIcon className={inner} /></span>;
-  if (t.includes("javascript") || t.includes("typescript") || t.includes("text/"))
-    return <span style={style} className={base}><CodeIcon className={inner} /></span>;
+  if (t.startsWith("image/"))
+    return (
+      <span style={style} className={base}>
+        <ImageIcon className={inner} />
+      </span>
+    );
+  if (t.startsWith("video/"))
+    return (
+      <span style={style} className={base}>
+        <VideoIcon className={inner} />
+      </span>
+    );
+  if (t.startsWith("audio/"))
+    return (
+      <span style={style} className={base}>
+        <MusicIcon className={inner} />
+      </span>
+    );
+  if (name.endsWith(".zip"))
+    return (
+      <span style={style} className={base}>
+        <ArchiveIcon className={inner} />
+      </span>
+    );
+  if (t.includes("pdf") || name.endsWith(".pdf"))
+    return (
+      <span style={style} className={base}>
+        <BookIcon className={inner} />
+      </span>
+    );
+  if (
+    t.includes("javascript") ||
+    t.includes("typescript") ||
+    t.includes("text/")
+  )
+    return (
+      <span style={style} className={base}>
+        <CodeIcon className={inner} />
+      </span>
+    );
 
   if ((f as any).mimeType === "folder") {
-    return <span style={style} className="text-amber-500"><FolderIcon className={inner} /></span>;
+    return (
+      <span style={style} className="text-amber-500">
+        <FolderIcon className={inner} />
+      </span>
+    );
   }
-  return <span style={style} className={base}><FileIcon className={inner} /></span>;
+  return (
+    <span style={style} className={base}>
+      <FileIcon className={inner} />
+    </span>
+  );
 };
 
 type SortKey = "name" | "date" | "type" | "size";
@@ -148,6 +182,8 @@ type Props = {
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void; // e.g. navigate to /api/files/:id/download
   onShowProperties?: (f: FileItem) => void;
+  onNew?: (kind: "folder" | "file") => void;
+  onRefresh?: () => void;
 
   // zip/virtual navigation (optional — wire to listZipChildren/streamZipFile)
   onOpenVirtual?: (opts: { zipId: string; prefix: string }) => void;
@@ -203,6 +239,8 @@ export default function WindowsGrid({
   onPreview,
   onDownload,
   onShowProperties,
+  onNew,
+  onRefresh,
   onOpenVirtual,
 
   // DnD
@@ -229,16 +267,19 @@ export default function WindowsGrid({
     [onSelectionChange]
   );
 
-  // ----- Sorting (defensive; upstream usually passes sorted files) -----
+  // ----- Derived + sorting -----
   const sortedFiles = useMemo(() => {
-    if (!sortKey) return files;
-    const dir = sortDir === "desc" ? -1 : 1;
-
-    // Folders first, then files
-    const byFolder = (a: FileItem, b: FileItem) =>
-      Number(isFolder(b)) - Number(isFolder(a));
+    const byFolder = (a: FileItem, b: FileItem) => {
+      const af = isFolder(a);
+      const bf = isFolder(b);
+      if (af === bf) return 0;
+      return af ? -1 : 1;
+    };
 
     const byKey = (a: FileItem, b: FileItem) => {
+      if (!sortKey) return 0;
+      const dir = sortDir === "desc" ? -1 : 1;
+
       switch (sortKey) {
         case "name": {
           const aa = getTitle(a).toLowerCase();
@@ -282,36 +323,48 @@ export default function WindowsGrid({
 
   const buildBGMenu = useCallback((): MenuItem[] => {
     const pasteLabel = currentFolderId ? `Paste into this folder` : `Paste`;
-    const pasteDisabled = !onPaste || !currentFolderId;
 
     return [
+      // Match FileList: New folder + Paste + Select all + Refresh
+      {
+        type: "item",
+        id: "newfolder",
+        label: "New folder",
+        onSelect: () => onNew?.("folder"),
+      },
+      {
+        type: "item",
+        id: "paste",
+        label: pasteLabel,
+        shortcut: "Ctrl+V",
+        // same as FileList: enabled whenever onPaste exists
+        disabled: !onPaste,
+        onSelect: () => onPaste?.(),
+      },
+      { type: "separator" },
       {
         type: "item",
         id: "selectall",
         label: "Select all",
         shortcut: "Ctrl+A",
         onSelect: () => {
-          const all = new Set<string>(sortedFiles.map((f) => String((f as any).id)));
+          const all = new Set<string>(
+            sortedFiles.map((f) => String((f as any).id))
+          );
           setSel(all);
         },
       },
       { type: "separator" },
-      {
-        type: "item",
-        id: "paste",
-        label: pasteLabel,
-        shortcut: "Ctrl+V",
-        disabled: pasteDisabled,
-        onSelect: () => onPaste?.(),
-      },
-      { type: "separator" },
+      // Keep existing "Sort by" group
       ...(onSortChange
         ? ([
             { type: "label", label: "Sort by" } as MenuItem,
             {
               type: "item",
               id: "sort_name",
-              label: `Name ${sortKey === "name" ? `(${sortDir ?? "asc"})` : ""}`,
+              label: `Name ${
+                sortKey === "name" ? `(${sortDir ?? "asc"})` : ""
+              }`,
               onSelect: () =>
                 onSortChange?.(
                   "name",
@@ -321,7 +374,9 @@ export default function WindowsGrid({
             {
               type: "item",
               id: "sort_date",
-              label: `Date ${sortKey === "date" ? `(${sortDir ?? "asc"})` : ""}`,
+              label: `Date ${
+                sortKey === "date" ? `(${sortDir ?? "asc"})` : ""
+              }`,
               onSelect: () =>
                 onSortChange?.(
                   "date",
@@ -331,7 +386,9 @@ export default function WindowsGrid({
             {
               type: "item",
               id: "sort_type",
-              label: `Type ${sortKey === "type" ? `(${sortDir ?? "asc"})` : ""}`,
+              label: `Type ${
+                sortKey === "type" ? `(${sortDir ?? "asc"})` : ""
+              }`,
               onSelect: () =>
                 onSortChange?.(
                   "type",
@@ -341,7 +398,9 @@ export default function WindowsGrid({
             {
               type: "item",
               id: "sort_size",
-              label: `Size ${sortKey === "size" ? `(${sortDir ?? "asc"})` : ""}`,
+              label: `Size ${
+                sortKey === "size" ? `(${sortDir ?? "asc"})` : ""
+              }`,
               onSelect: () =>
                 onSortChange?.(
                   "size",
@@ -350,8 +409,30 @@ export default function WindowsGrid({
             },
           ] as MenuItem[])
         : []),
+      // Optional Refresh item (if provided)
+      ...(onRefresh
+        ? ([
+            { type: "separator" } as MenuItem,
+            {
+              type: "item",
+              id: "refresh",
+              label: "Refresh",
+              onSelect: () => onRefresh?.(),
+            },
+          ] as MenuItem[])
+        : []),
     ];
-  }, [sortedFiles, setSel, onPaste, onSortChange, sortKey, sortDir, currentFolderId]);
+  }, [
+    sortedFiles,
+    setSel,
+    onNew,
+    onPaste,
+    onSortChange,
+    sortKey,
+    sortDir,
+    onRefresh,
+    currentFolderId,
+  ]);
 
   const buildRowMenu = useCallback(
     (file: FileItem): MenuItem[] => {
@@ -370,14 +451,14 @@ export default function WindowsGrid({
       ];
 
       // ZIP virtual navigation hook (lib/api.ts: listZipChildren / streamZipFile)
-      if (isZipLike(file) && onOpenVirtual) {
+      if (isZip(file) && onOpenVirtual) {
         items.push({
           type: "item",
-          id: "open_zip",
+          id: "open_archive",
           label: "Open archive",
           onSelect: () =>
-            onOpenVirtual?.({
-              zipId: id,
+            onOpenVirtual({
+              zipId: String((file as any).id),
               prefix: "",
             }),
         });
@@ -422,7 +503,8 @@ export default function WindowsGrid({
           id: "paste",
           label: currentFolderId ? "Paste into this folder" : "Paste",
           shortcut: "Ctrl+V",
-          disabled: !onPaste || !currentFolderId,
+          // enabled whenever onPaste exists
+          disabled: !onPaste,
           onSelect: () => onPaste?.(),
         },
         { type: "separator" },
@@ -454,7 +536,9 @@ export default function WindowsGrid({
           onSelect: () => {
             if (sel.size) setSel(new Set());
             else
-              setSel(new Set(sortedFiles.map((f) => String((f as any).id))));
+              setSel(
+                new Set(sortedFiles.map((f) => String((f as any).id)))
+              );
           },
         }
       );
@@ -479,40 +563,66 @@ export default function WindowsGrid({
     ]
   );
 
-  // ----- Layout sizing -----
+  // card size depends on variant + density
   const cardSize = useMemo(() => {
-    const sizeByVariant =
+    const base =
       variant === "large"
         ? { w: 160, h: 160, thumb: 80, icon: 40 }
         : { w: 120, h: 120, thumb: 56, icon: 28 };
-    const pad =
-      density === "compact" ? 6 : density === "cozy" ? 10 : /* comfortable */ 14;
-    return { ...sizeByVariant, pad };
+
+    const densityOffsets = {
+      comfortable: { pad: 12, gap: 12 },
+      cozy: { pad: 8, gap: 10 },
+      compact: { pad: 4, gap: 8 },
+    } as const;
+
+    return {
+      ...base,
+      pad: densityOffsets[density].pad,
+      gap: densityOffsets[density].gap,
+    };
   }, [variant, density]);
 
-  // ----- Event handlers -----
   const toggleSelect = useCallback(
     (file: FileItem, e: React.MouseEvent) => {
       const id = String((file as any).id);
       const next = new Set(sel);
 
-      const multi = e.metaKey || e.ctrlKey;
-      const range = e.shiftKey;
-
-      if (multi) {
+      if (e.shiftKey) {
+        // multi range - not strictly necessary for grid, but keep semantics
+        const ids = sortedFiles.map((f) => String((f as any).id));
+        const lastId =
+          Array.from(sel).length > 0
+            ? Array.from(sel)[Array.from(sel).length - 1]
+            : id;
+        const start = ids.indexOf(lastId);
+        const end = ids.indexOf(id);
+        if (start !== -1 && end !== -1) {
+          const [s, eidx] =
+            start < end ? [start, end] : [end, start];
+          for (let i = s; i <= eidx; i++) {
+            next.add(ids[i]);
+          }
+        } else {
+          next.add(id);
+        }
+      } else if (e.metaKey || e.ctrlKey) {
         if (next.has(id)) next.delete(id);
         else next.add(id);
-      } else if (range) {
-        next.clear();
-        next.add(id);
       } else {
-        const alreadyOnlyThis = next.size === 1 && next.has(id);
-        next.clear();
-        if (!alreadyOnlyThis) next.add(id);
+        if (next.has(id) && next.size === 1) {
+          const alreadyOnlyThis = next.size === 1 && next.has(id);
+          next.clear();
+          if (!alreadyOnlyThis) next.add(id);
+        } else {
+          const alreadyOnlyThis = next.size === 1 && next.has(id);
+          next.clear();
+          if (!alreadyOnlyThis) next.add(id);
+        }
       }
       setSel(next);
     },
-    [sel, setSel]
+    [sel, setSel, sortedFiles]
   );
 
   const handleDoubleClick = useCallback(
@@ -541,7 +651,7 @@ export default function WindowsGrid({
     <div
       ref={rootRef}
       className="wg-grid relative w-full h-full overflow-auto px-2"
-      style={{ display: 'block' }}
+      style={{ display: "block" }}
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {
@@ -567,12 +677,14 @@ export default function WindowsGrid({
       <div
         className="grid"
         style={{
-        gridTemplateColumns: `repeat(auto-fill, minmax(${variant === "large" ? 160 : 120}px, 1fr))`,
-        gridAutoFlow: "row dense",
-        justifyItems: "stretch",
-        gap: 14,
-        padding: cardSize.pad,
-      }}
+          gridTemplateColumns: `repeat(auto-fill, minmax(${
+            variant === "large" ? 160 : 120
+          }px, 1fr))`,
+          gridAutoFlow: "row dense",
+          justifyItems: "stretch",
+          gap: 14,
+          padding: cardSize.pad,
+        }}
       >
         {sortedFiles.map((f) => {
           const id = String((f as any).id);
@@ -581,38 +693,48 @@ export default function WindowsGrid({
           const size = getSize(f);
           const title = getTitle(f);
 
-          const titleAttr = [title, !folder && size != null ? `• ${formatBytes(size)}` : null]
+          const titleAttr = [
+            title,
+            !folder && size != null ? `• ${formatBytes(size)}` : null,
+          ]
             .filter(Boolean)
             .join(" ");
 
           return (
             <div
-                key={id}
-                className={`wg-card group relative w-full overflow-visible rounded-xl border ${
-                  selected
-                    ? "border-blue-500 ring-2 ring-blue-400/40"
-                    : "border-neutral-200 hover:border-neutral-300"
-                } bg-white shadow-sm hover:shadow transition-all`}
-                style={{ height: cardSize.h }}
-                draggable
-                onDragStart={(e) => handleDragStart(e, f)}
-                onDragEnd={handleDragEnd}
-                onClick={(e) => toggleSelect(f, e)}
-                onDoubleClick={() => handleDoubleClick(f)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  const rect = rootRef.current?.getBoundingClientRect();
-                  let x = e.clientX;
-                  let y = e.clientY;
-                  if (rect) {
-                    x -= rect.left;
-                    y -= rect.top;
-                  }
-                  setBgMenu(null);
-                  setRowMenu({ x, y, file: f });
-                }}
-                title={titleAttr}
-              >
+              key={id}
+              className={`wg-card group relative w-full overflow-visible rounded-xl border ${
+                selected
+                  ? "border-blue-500 ring-2 ring-blue-400/40"
+                  : "border-neutral-200 hover:border-neutral-300"
+              } bg-white shadow-sm hover:shadow transition-all`}
+              style={{ height: cardSize.h }}
+              draggable
+              onDragStart={(e) => handleDragStart(e, f)}
+              onDragEnd={handleDragEnd}
+              onClick={(e) => toggleSelect(f, e)}
+              onDoubleClick={() => handleDoubleClick(f)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                const id = String((f as any).id);
+
+                // If right-clicking an unselected card, focus selection on it
+                if (!sel.has(id)) {
+                  setSel(new Set([id]));
+                }
+
+                const rect = rootRef.current?.getBoundingClientRect();
+                let x = e.clientX;
+                let y = e.clientY;
+                if (rect) {
+                  x -= rect.left;
+                  y -= rect.top;
+                }
+                setBgMenu(null);
+                setRowMenu({ x, y, file: f });
+              }}
+              title={titleAttr}
+            >
               {/* Favorite badge */}
               {(f as any).isFavorited && (
                 <div className="wg-badge-star" title="Starred">
@@ -626,14 +748,10 @@ export default function WindowsGrid({
                   <img
                     src={getThumb(f)!}
                     alt={title}
-                    className="object-contain"
-                    style={{ width: cardSize.thumb, height: cardSize.thumb }}
+                    className="max-h-[72px] max-w-[90%] rounded-md object-cover shadow-sm"
                   />
                 ) : (
-                  <div
-                    className="flex items-center justify-center rounded-md bg-neutral-50"
-                    style={{ width: cardSize.thumb, height: cardSize.thumb }}
-                  >
+                  <div className="flex h-[72px] w-[72px] items-center justify-center rounded-lg bg-neutral-50">
                     {renderIcon(f, Math.round(cardSize.icon * 2))}
                   </div>
                 )}
@@ -643,13 +761,15 @@ export default function WindowsGrid({
               <div className="absolute bottom-2 left-2 right-2">
                 <div
                   className={`truncate text-center ${
-                    selected ? "font-semibold text-blue-700" : "text-neutral-800"
+                    selected
+                      ? "font-semibold text-blue-700"
+                      : "text-neutral-800"
                   } text-sm`}
                 >
                   {title}
                 </div>
                 {!folder && size != null && (
-                  <div className="mt-0.5 text-[11px] text-center text-neutral-500 truncate">
+                  <div className="mt-0.5 text-center text-xs text-neutral-500">
                     {formatBytes(size)}
                   </div>
                 )}
@@ -659,7 +779,6 @@ export default function WindowsGrid({
         })}
       </div>
 
-      {/* Context menus */}
       {rowMenu && (
         <ContextMenu
           open

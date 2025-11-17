@@ -2,7 +2,7 @@
 "use client";
 import { useMemo } from "react";
 import {
-  Plus, Upload, ChevronDown, LayoutGrid, Square, List, Rows3, ArrowUpDown, PanelRight, Check, Filter, SlidersHorizontal, Sparkles,
+  Plus, Upload, ChevronDown, LayoutGrid, Square, List, Rows3, ArrowUpDown, Check, Filter, SlidersHorizontal, Sparkles,
 } from "lucide-react";
 
 type LayoutKind = "large" | "icons" | "details" | "list"; 
@@ -13,7 +13,6 @@ type Props = {
   onToggleView?: () => void;
   onNew?: () => void;
   onUpload?: () => void;
-  isInspectorVisible?: boolean;
 
   /** sorting */
   sortKey?: string;
@@ -24,9 +23,6 @@ type Props = {
   /** bulk select */
   isAllSelected?: boolean;
   onSelectAll?: (checked: boolean) => void;
-
-  /** inspector right pane */
-  onToggleInspector?: () => void;
 
   /** density */
   density?: "comfortable" | "compact";
@@ -63,8 +59,6 @@ export default function CommandBar({
   onSortDirChange,
   isAllSelected,
   onSelectAll,
-  onToggleInspector,
-  isInspectorVisible,
   density = "comfortable",
   onDensityChange,
   onQuickFilter,
@@ -136,7 +130,7 @@ export default function CommandBar({
          </button>
         </div>
         
-        {/* right group (sort / density / inspector) */}
+        {/* right group (sort / density) */}
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center bg-gray-100 rounded-lg">
            <button
@@ -180,19 +174,7 @@ export default function CommandBar({
            </button>
            <span className="ml-1 hidden xl:inline text-[12px] text-[hsl(var(--muted-foreground))]">
              {densityLabel}
-           </span>
-         
-          {/* Inspector */}
-          <div className="mx-3 h-4 w-px bg-[hsl(var(--border))]" aria-hidden />
-
-          <button
-            onClick={onToggleInspector}
-            className={`flex items-center h-8 px-4 rounded-lg text-sm font-medium ${isInspectorVisible ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-            title="Toggle Inspector"
-          >
-            <PanelRight className="h-4 w-4" />
-            <span className="hidden sm:inline text-xs">Inspector</span>
-          </button>
+           </span>  
           </div>
         </div>
       </div>

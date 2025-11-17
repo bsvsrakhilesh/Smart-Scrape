@@ -30,7 +30,11 @@ export default function AppShell({
 
   return (
     <div
-      className="app-shell min-h-screen w-full overflow-x-hidden bg-background text-foreground selection:bg-accent/30 selection:text-accent-foreground"
+      className={
+        hideAmbient
+          ? "min-h-screen bg-[radial-gradient(circle_at_top,_#d2f9e6,_#c9f5ff_45%,_#b7e4ff_85%)] pt-16 lg:pt-[72px]"
+          : "min-h-screen bg-gradient-to-b from-muted/40 to-background pt-16 lg:pt-[72px]"
+      }
       style={{ ['--sidebar-w' as any]: sidebarVar }}
     >
       <header className="fixed inset-x-0 top-0 z-50">

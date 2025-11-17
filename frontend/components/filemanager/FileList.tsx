@@ -1076,11 +1076,6 @@ useEffect(() => {
     () => sorted.filter((f) => selectedIds.has(f.id)),
     [sorted, selectedIds]
   );
-  const selectedTotalSize = useMemo(
-    () =>
-      selectedFiles.reduce((s, f) => s + ((f as any).size || 0), 0),
-    [selectedFiles]
-  );
 
   /** ---------- progressive rendering for large lists ---------- */
     const [renderCount, setRenderCount] = useState(() => {
@@ -1111,7 +1106,7 @@ useEffect(() => {
   /** ---------- render ---------- */
   return (
     <div
-      className="filelist-root fm-surface rounded-2xl ring-1 ring-border/60"
+      className="filelist-root rounded-2xl"
       onMouseDown={(e) => { (e.currentTarget as HTMLElement).focus(); }}
       onKeyDown={onKeyDown}
       tabIndex={-1}
@@ -1122,7 +1117,7 @@ useEffect(() => {
         ref={containerRef}
         role="grid"
         aria-multiselectable="true"
-        className="relative -mt-1 min-h-0 flex-1 overflow-auto rounded-lg border fm-scroll-slim"
+        className="relative -mt-1 min-h-0 flex-1 overflow-auto rounded-lg fm-scroll-slim"
         onMouseDown={onMouseDownBG}
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest('[data-row]')) {
@@ -1261,15 +1256,6 @@ useEffect(() => {
         </aside>
       )}
 
-      {/* Status bar */}
-      <div className="h-8 border-t flex items-center justify-between px-3 text-sm mt-2 rounded-b-lg bg-[hsl(var(--surface-elev))]">
-        <span>{sorted.length} items</span>
-        <span>
-          {selectedFiles.length
-            ? `${selectedFiles.length} selected • ${formatBytes(selectedTotalSize)}`
-            : ''}
-        </span>
-      </div>
     </div>
   );
 }

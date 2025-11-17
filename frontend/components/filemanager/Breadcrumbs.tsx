@@ -237,7 +237,7 @@ export default function Breadcrumbs({
 
   // --- Search box (right side) ---
   const SearchBox = onSearchSubmit ? (
-    <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-2xl border border-[hsl(var(--fm-border))] bg-[hsl(var(--fm-bg-elev))] shadow-sm w-64">
+    <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-2xl bg-[hsl(var(--fm-bg-elev))] shadow-sm w-64">
       <Search className="h-4 w-4 text-[hsl(var(--fm-muted))]" />
       <input
         type="search"
@@ -266,7 +266,7 @@ export default function Breadcrumbs({
       {/* Left cluster: Back / Forward + breadcrumb pill */}
       <div className="flex items-center gap-3 min-w-0 flex-1">
         {/* Back / Forward pill */}
-        <div className="inline-flex items-center rounded-2xl border border-[hsl(var(--fm-border))] bg-[hsl(var(--fm-bg-elev))] shadow-sm overflow-hidden">
+        <div className="inline-flex items-center rounded-2xl shadow-sm overflow-hidden">
           <button
             type="button"
             className={`px-3 py-2 transition-colors ${
@@ -283,7 +283,7 @@ export default function Breadcrumbs({
           </button>
           <button
             type="button"
-            className={`px-3 py-2 border-l border-[hsl(var(--fm-border))] transition-colors ${
+            className={`px-3 py-2 transition-colors ${
               canForward
                 ? "hover:bg-[hsl(var(--surface-elevated))]"
                 : "opacity-40 cursor-not-allowed"
@@ -298,11 +298,11 @@ export default function Breadcrumbs({
         </div>
 
         {/* Address / breadcrumbs pill */}
-        <div className="flex-1 rounded-2xl border border-[hsl(var(--fm-border))] bg-[hsl(var(--fm-bg-elev))] shadow-sm px-3 py-1.5 flex items-center gap-2 min-w-0">
+        <div className="flex-1 rounded-2xl shadow-sm px-3 py-1.5 flex items-center gap-2 min-w-0">
           {/* Home icon bubble */}
           <button
             type="button"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-[hsl(var(--fm-bg))] text-[hsl(var(--fm-accent))] border border-[hsl(var(--fm-border))] shadow-[var(--fm-shadow)]"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-[hsl(var(--fm-accent))] shadow-[var(--fm-shadow)]"
             onClick={() => runNavigate(null)}
             title="Go to root"
             aria-label="Go to root"

@@ -81,7 +81,7 @@ export default function NotebookPage() {
 
   return (
     <div className="p-3 md:p-5">
-      <div className="rounded-[28px] border border-emerald-100 bg-gradient-to-b from-emerald-50 to-teal-50 shadow-[0_8px_40px_rgba(16,185,129,0.15)] p-3 md:p-4 h-full">
+      <div className="min-h rounded-[28px] border border-emerald-100 bg-gradient-to-b from-emerald-50 to-teal-50 shadow-[0_8px_40px_rgba(16,185,129,0.15)] p-3 md:p-4 h-full">
         <div className="grid grid-cols-1 md:grid-cols-[320px_1fr_420px] items-stretch h-full">
       {/* Left rail */}
       <div className="rounded-2xl border border-emerald-300/70 bg-transparent p-3 flex flex-col overflow-hidden backdrop-blur-[0.5px]">
@@ -90,12 +90,12 @@ export default function NotebookPage() {
           <h2 className="text-sm font-semibold text-slate-800">Notebooks</h2>
             <button
               onClick={() => createM.mutate({ title: `Notebook ${new Date().toLocaleTimeString()}` })}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border-emerald-300/70 transition shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-slate-900 text-white hover:bg-black transition shadow-sm"
             >
               New
             </button>
         </div>
-        <div className="space-y-1 overflow-auto max-h pr-1 pb-1">
+        <div className="space-y-1 overflow-auto max-h-44 pr-1 pb-1">
           {listQ.isLoading ? <ListSkeleton rows={4} /> : (listQ.data || []).map(n => (
            <button
              key={n.id}

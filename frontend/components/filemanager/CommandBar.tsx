@@ -90,12 +90,12 @@ export default function CommandBar({
 
   return (
     <div
-      className="glass-card fm-toolbar sticky top-2 z-30 px-3 py-2 md:px-4 md:py-3"
+      className="fm-toolbar bg-slate-50 border-t border-slate-200 px-3 py-2 md:px-4 md:py-3"
       role="toolbar"
       aria-label="Explorer commands"
     >
       {/* Row 1 — primary controls */}
-      <div className="flex items-center justify-between gap-x-6 gap-y-1 whitespace-nowrap">
+      <div className="flex items-center justify-between gap-x-5 gap-y-1 whitespace-nowrap">
         <div className="flex items-center gap-2 flex-shrink-0">
          {/* Select All (updated classes) */}
          <button

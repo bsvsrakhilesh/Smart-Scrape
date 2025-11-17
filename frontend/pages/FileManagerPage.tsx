@@ -749,14 +749,14 @@ export default function FileManagerPage() {
   return (
     <PageTransition>
       <motion.div
-        className="h-full w-full bg-[hsl(var(--background))] py-1 md:py-1 overflow-visible"
+        className="h-full py-4 md:py-6 overflow-visible"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
       {/* Header */}
       <motion.div
-        className="w-full max-w-7xl mx-auto px-1 pt-2 pb-1 relative z-10"
+        className="max-w-7xl mx-auto px-1 pt-2 pb-1 relative z-10"
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.5, ease: "easeOut" }}
@@ -773,11 +773,11 @@ export default function FileManagerPage() {
       </motion.div>
 
       {/* Content */}
-      <div className="max-w-7xl w-full mx-auto mt-5 grid grid-cols-12 gap-2 rounded-3xl bg-white/80 border border-white/60 shadow-2xl backdrop-blur-xl px-3 py-3">
+      <div className="max-w-7xl w-full mx-auto mt-5 grid grid-cols-12 gap-4 rounded-[28px] bg-white/70 shadow-[0_22px_80px_rgba(15,23,42,0.15)] ring-1 ring-white/60 backdrop-blur-2xl px-4 pt-4 pb-2 md:px-6 md:pt-5 md:pb-3">
         {/* Left: Quick Access + Folder tree */}
-        <aside className="col-span-12 lg:col-span-3 space-y-6 lg:sticky lg:top-6 self-start">
+        <aside className="col-span-12 lg:col-span-3 flex flex-col">
           <motion.div
-            className="bg-surface/60 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-border/30"
+            className="h-full rounded-[30px] bg-white p-6 border border-slate-200 shadow-[0_18px_60px_rgba(15,23,42,0.16)]"
             initial={{ x: -30, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.6, ease: "easeOut" }}
@@ -795,8 +795,7 @@ export default function FileManagerPage() {
       <section className={`col-span-12 ${inspectorOpen ? 'lg:col-span-6' : 'lg:col-span-9'}`}>
           {/* Sticky toolbar - Enhanced with glassmorphism and animations */}
 
-          <div className="sticky top-6 z-20 mb-4">
-            <div className="rounded-2xl bg-white/80 border border-white/60 shadow-md backdrop-blur-xl px-3">
+          <div className="mb-2">
               <ExplorerBreadcrumbs
                 path={breadcrumb.map((b, idx) => ({
                   id: b.id ?? `home-${idx}`,
@@ -823,11 +822,10 @@ export default function FileManagerPage() {
                 onSearchSubmit={(q) => setSearch(q)}
                 initialSearch={search}
               />
-            </div>
           </div>
 
           {/* Secondary command row (Up, New, Upload, Sort, View toggle) */}
-          <div className="mb-4 rounded-2xl overflow-hidden border border-white/60 bg-white/70 shadow-lg backdrop-blur-xl">
+          <div className="mb-2">
             <ExplorerCommandBar
               layout={layout as any}
               onLayoutChange={(next) => {
@@ -857,7 +855,7 @@ export default function FileManagerPage() {
                 variant="primary"
                 onClick={() => onAutoTagSelected(selected.map(s => s.id))}
                 title="Run AI auto-tag on selected files"
-                className="mr-2"
+                className="mr-2 mb-2"
               >
               AI Auto-Tag selected
               </ToolbarButton>
@@ -876,14 +874,13 @@ export default function FileManagerPage() {
           )}
 
           {/* Files list */}
-          <div className="mt-2 rounded-2xl bg-white/80 backdrop-blur ring-1 ring-black/5 shadow-sm overflow-hidden">
-            <div className="sticky top-0 z-[5] bg-[hsl(var(--background)_/_0.88)] backdrop-blur
-                            border-b border-[hsl(var(--border))]">
-              <div className="h-12 px-3 sm:px-4 flex items-center gap-2">
+          <div className="rounded-2xl bg-white border border-slate-200 shadow-[0_18px_60px_rgba(15,23,42,0.08)] overflow-hidden">
+            <div className="sticky top-0 z-[5] bg-slate-50 border-b border-slate-200">
+              <div className="h-full px-3 sm:px-4 flex items-center gap-2">
           
                 {/* right: quick density + layout controls mirror your CommandBar */}
-                <div className="flex items-center gap-1 text-[13px]">
-                  <span className="px-2 py-1 rounded-md border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
+                <div className="flex items-center gap-1 text-[13px] px-1 py-1">
+                  <span className="px-2 py-2 rounded-md border border-[hsl(var(--border))] text-[hsl(var(--muted-foreground))]">
                     {allFiles.length} items
                   </span>
                 </div>
@@ -950,7 +947,7 @@ export default function FileManagerPage() {
             />
 
             {!isLoading && !error && visibleFiles.length > 0 && (
-            <div className="rounded-2xl bg-card/90 dark:bg-card/80 ring-1 ring-border/60 p-2 sm:p-3">
+            <div className="mt-3 rounded-[26px] bg-[radial-gradient(circle_at_top,_#d0fae6,_#d8f7ff_45%,_#e7f4ff_90%)] shadow-[0_22px_80px_rgba(15,23,42,0.12)] border border-white/60 px-4 py-4 sm:px-6 sm:py-5">
               {layout === 'large' || layout === 'icons' ? (
                 <WindowsGrid
                   files={visibleFiles}
@@ -1042,10 +1039,10 @@ export default function FileManagerPage() {
 
           {/* Pagination - Enhanced with glassmorphism and animations */}
           <motion.div
-            className="mt-6 bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/30 dark:border-slate-700/30 p-4 flex items-center justify-between text-sm text-slate-700 dark:text-slate-300"
+            className="mt-2 pt-3 border-t border-slate-200 flex items-center justify-between text-sm text-slate-700"
             initial={{ y: 10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 1.0, duration: 0.5 }}
+            transition={{ delay: 0.9, duration: 0.4 }}
           >
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg flex items-center justify-center bg-blue-500/20 text-blue-700 font-semibold">

@@ -401,7 +401,7 @@ const onAutoTagSelected = useCallback(async (ids: string[]) => {
   }, [selectedItems, clipboard, selectedCollectionId, collPickerOpen, pickerOpen, detail, selection.size, handleCopy, handleCut, handlePaste, clearSelection]);
 
   return (
-  <main className="space-y-6">
+  <main className="space-y-6 px-4 md:px-6 lg:px-8 pt-6 md:pt-8">
     {/* Grid inside AppShell content */}
     <section className="grid grid-cols-12 gap-4 sm:gap-6">
       {/* Sidebar */}

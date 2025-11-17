@@ -11,7 +11,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSidebarOpen }) => {
   return (
-   <div className="app-header w-full z-[100] supports-[backdrop-filter]:backdrop-blur-md bg-background/75 border-b border-border/70 elev-1">
+   <div className="app-header w-full z-[100] bg-background border-b border-border/70 shadow-sm">
       <div
         className="h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full"
         style={{ paddingLeft: 'var(--gutter-x,16px)', paddingRight: 'var(--gutter-x,16px)' }}

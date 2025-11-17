@@ -17,7 +17,6 @@ import { useExplorerHistory } from '../hooks/useExplorerHistory';
 import WindowsGrid from '../components/filemanager/WindowsGrid';
 
 const DEFAULT_PAGE_SIZE = 15;
-// --- layout persistence helpers ---
 const getLS = <T,>(k: string, v: T) => {
   try { return JSON.parse(localStorage.getItem(k) || '') as T; } catch { return v; }
 };
@@ -754,16 +753,16 @@ export default function FileManagerPage() {
       >
       {/* Header */}
       <motion.div
-        className="max-w-7xl mx-auto px-1 pt-2 pb-1 relative z-10"
+        className="max-w-7xl mx-auto px-1 pt-2 pb-1 relative z-10 bg-gradient-to-b from-white/90 to-white/50 dark:from-neutral-900/90 dark:to-neutral-900/50 rounded-[28px] shadow-[0_22px_80px_rgba(15,23,42,0.15)] ring-1 ring-white/60 backdrop-blur-2xl"
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.5, ease: "easeOut" }}
       >
 
-      <div className="flex flex-wrap items-start justify-between gap-1">
-       <div className="relative flex-1">
-      <h2 className="text-4xl font-black text-text tracking-tight mb-1 drop-shadow-lg">File Explorer</h2>
-      <p className="text-lg text-muted-foreground flex items-center gap-2 drop-shadow-lg">
+      <div className="flex flex-wrap items-start justify-between gap-1 md:gap-1">
+       <div className="relative flex-1 min-w-0">
+      <h2 className="text-4xl font-black text-text tracking-tight mb-1 drop-shadow-lg px-1">File Explorer</h2>
+      <p className="text-lg text-muted-foreground flex items-center gap-2 drop-shadow-lg px-1">
       Innovate your journey with seamless file management.
       </p>
        </div>
@@ -771,7 +770,7 @@ export default function FileManagerPage() {
       </motion.div>
 
       {/* Content */}
-      <div className="max-w-7xl w-full mx-auto mt-5 grid grid-cols-12 gap-4 rounded-[28px] bg-white/70 shadow-[0_22px_80px_rgba(15,23,42,0.15)] ring-1 ring-white/60 backdrop-blur-2xl px-4 pt-4 pb-2 md:px-6 md:pt-5 md:pb-3">
+      <div className="max-w-7xl w-full mx-auto mt-3 grid grid-cols-12 gap-4 rounded-[28px] bg-white/70 shadow-[0_22px_80px_rgba(15,23,42,0.15)] ring-1 ring-white/60 backdrop-blur-2xl px-4 pt-4 pb-2 md:px-6 md:pt-5 md:pb-3">
         {/* Left: Quick Access + Folder tree */}
         <aside className="col-span-12 lg:col-span-3 flex flex-col">
           <motion.div
@@ -1036,7 +1035,7 @@ export default function FileManagerPage() {
 
           {/* Pagination - Enhanced with glassmorphism and animations */}
           <motion.div
-            className="mt-2 pt-3 border-t border-slate-200 flex items-center justify-between text-sm text-slate-700"
+            className="mt-2 border-t border-slate-200 flex items-center justify-between text-sm text-slate-700"
             initial={{ y: 10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.9, duration: 0.4 }}

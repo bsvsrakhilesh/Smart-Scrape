@@ -5,7 +5,7 @@ import { useToast } from '../components/providers/Toast';
 import { FileItem, FileDetail } from '../types';
 import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
-import FileList from '../components/filemanager/FileList';
+import Details_ListView from '../components/filemanager/Details_ListView';
 import AdvancedFileUpload from '../components/filemanager/AdvancedFileUpload';
 import ExplorerCommandBar from "../components/filemanager/CommandBar";
 import ExplorerBreadcrumbs from "../components/filemanager/Breadcrumbs";
@@ -14,7 +14,7 @@ import PropertiesModal from "../components/filemanager/PropertiesModal";
 import FileSidebar from "../components/filemanager/FileSidebar";
 import PageTransition from '../components/motion/PageTransition';
 import { useExplorerHistory } from '../hooks/useExplorerHistory';
-import WindowsGrid from '../components/filemanager/Large_IconView';
+import Large_IconView from '../components/filemanager/Large_IconView';
 
 const DEFAULT_PAGE_SIZE = 15;
 const getLS = <T,>(k: string, v: T) => {
@@ -975,7 +975,7 @@ export default function FileManagerPage() {
             {!isLoading && !error && visibleFiles.length > 0 && (
             <div >
               {layout === 'large' || layout === 'icons' ? (
-                <WindowsGrid
+                <Large_IconView
                   files={visibleFiles}
                   variant={layout === 'icons' ? 'icons' : 'large'} 
                   density={density === 'compact' ? 'compact' : 'comfortable'}
@@ -1018,7 +1018,7 @@ export default function FileManagerPage() {
                   }}
                 />
               ) : (
-                <FileList
+                <Details_ListView
                   {...({
                     viewMode: layout === 'details' ? 'details' : 'list',
                     files: visibleFiles,

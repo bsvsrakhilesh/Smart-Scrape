@@ -82,7 +82,7 @@ type Props = {
   onRefresh?: () => void;
 };
 
-export default function FileList({
+export default function Details_ListView({
   files,
 
   selectedIds: selectedIdsProp,

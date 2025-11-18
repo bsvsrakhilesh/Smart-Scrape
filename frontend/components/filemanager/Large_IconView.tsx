@@ -215,7 +215,7 @@ function safeNumber(n: any): number {
   return Number.isFinite(num) ? num : 0;
 }
 
-export default function WindowsGrid({
+export default function Large_IconView({
   files,
   onOpen,
   variant = "large",

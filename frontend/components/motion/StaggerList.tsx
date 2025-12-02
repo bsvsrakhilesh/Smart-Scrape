@@ -1,7 +1,6 @@
 // frontend/components/motion/StaggerList.tsx
 "use client";
 import * as React from "react";
-import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
 
 /**
@@ -21,18 +20,11 @@ export const StaggerList = React.forwardRef(function StaggerList(
   { as: As = "div", className, children, ...rest }: BaseProps & Record<string, any>,
   ref: React.Ref<any>
 ) {
-  const M: any = typeof As === "string" ? (motion as any)[As] ?? motion.div : (motion as any)(As);
+  const Comp: any = As;
   return (
-    <M
-      ref={ref}
-      initial="hidden"
-      animate="show"
-      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
-      className={cn("m-0 p-0", className)}
-      {...rest}
-    >
+    <Comp ref={ref} className={cn("m-0 p-0", className)} {...rest}>
       {children}
-    </M>
+    </Comp>
   );
 });
 
@@ -41,15 +33,10 @@ export const StaggerItem = React.forwardRef(function StaggerItem(
   { as: As = "div", className, children, ...rest }: BaseProps & Record<string, any>,
   ref: React.Ref<any>
 ) {
-  const M: any = typeof As === "string" ? (motion as any)[As] ?? motion.div : (motion as any)(As);
+  const Comp: any = As;
   return (
-    <M
-      ref={ref}
-      variants={{ hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0 } }}
-      className={className}
-      {...rest}
-    >
+    <Comp ref={ref} className={className} {...rest}>
       {children}
-    </M>
+    </Comp>
   );
 });

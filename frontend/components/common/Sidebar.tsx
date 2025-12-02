@@ -28,13 +28,13 @@ const SPRING: Transition = { type: 'spring', stiffness: 420, damping: 34, mass: 
 /* --------------------------------- STYLES ---------------------------------- */
 // stronger glass + depth on hover; accessible focus ring retained
 const railTap =
-  'group size-11 grid place-items-center rounded-xl transition-[background,transform,box-shadow] duration-200 hover-lift ' +
-  'hover:bg-foreground/8 dark:hover:bg-white/10 ' +
-  ' overflow-visible relative border-transparent';
+  'group relative size-11 grid place-items-center rounded-xl border border-transparent bg-background/70 ' +
+  'shadow-sm hover:shadow-lg hover:-translate-y-[2px] hover:bg-background/90 ' +
+  'transition-all duration-200 ease-out hover-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60';
+
 const listTap =
-  'group relative flex items-center gap-3 rounded-xl px-3 py-2 transition-[background,transform,box-shadow,color] duration-200 hover-lift ' +
-  'hover:bg-foreground/6/60 dark:hover:bg-white/6 ' +
-  ' backdrop-blur-xs border-transparent';
+  'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-foreground/80 ' +
+  'transition-all duration-200 ease-out hover-lift hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary/60';
 
 /* --------------------------------- CONTAINER / ITEM VARIANTS ----------------- */
 // Use explicit hidden/visible states so collapsed (icon-only) still shows icons.
@@ -61,20 +61,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
 
   // Small helper classes for active state + a reusable glass panel token
   const glassPanel =
-  'bg-card/80 backdrop-blur-xl border border-white/10 dark:border-white/5 shadow-[0_8px_30px_rgba(2,6,23,0.08)]';
+    'bg-background/80 backdrop-blur-2xl border border-white/10 dark:border-white/5 shadow-[0_18px_45px_rgba(15,23,42,0.30)]';
 
   const activeRail =
-  'bg-gradient-to-br from-brand-primary/15 to-brand-secondary/15 text-foreground ring-1 ring-brand-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]';
+    'border-brand-primary/40 bg-gradient-to-br from-brand-primary/20 via-brand-secondary/20 to-brand-primary/10 shadow-[0_14px_38px_rgba(15,23,42,0.35)]';
 
   const activeList =
-  'bg-gradient-to-br from-brand-primary/10 to-brand-secondary/10 text-foreground ring-1 ring-brand-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]';
+    'text-foreground border border-brand-primary/35 bg-gradient-to-r from-brand-primary/18 via-brand-secondary/15 to-brand-primary/8 shadow-[0_14px_40px_rgba(15,23,42,0.30)]';
 
   return (
-    <aside className="h-full z-40 p-[1px] rounded-2xl bg-[linear-gradient(180deg,rgba(255,255,255,0.6),rgba(255,255,255,0.2))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0.04))] overflow-x-hidden" aria-label="Primary sidebar">
+    <aside className="h-full z-40 p-[1px] rounded-2xl bg-[linear-gradient(145deg,rgba(148,163,184,0.36),rgba(226,232,240,0.14),rgba(148,163,184,0.30))] overflow-x-hidden" aria-label="Primary sidebar">
       <motion.nav
         role="navigation"
         aria-orientation="vertical"
-        className={`h-full flex flex-col px-3 data-[sidebar-collapsed=true]:px-0 data-[sidebar-collapsed=true]:items-centerrounded-2xl ${glassPanel}`}
+        className={`h-full flex flex-col gap-3 px-3 py-3 data-[sidebar-collapsed=true]:items-center rounded-2xl ${glassPanel}`}
         initial={false}
         animate={{ width: isOpen ? EXPANDED : COLLAPSED }}
         transition={reduce ? { duration: 0 } : SPRING}
@@ -97,67 +97,67 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, currentPage, setCurrentPage, 
               } as React.CSSProperties)
         }
       >
-        {/* NAV ONLY */}
-        <div className="relative flex-1 overflow-hidden w-full">
-          {/* Collapsed (icon-only rail) */}
-          {!isOpen && (
-            <motion.ul
-              role="list"
-              className="py-4 flex flex-col items-center gap-3 overflow-visible relative"
-              variants={containerVariants}
-              initial="visible"
-              animate="visible"
-            >
-              {nav.map(({ key, label, Icon }) => {
-                const active = currentPage === key;
-                return (
-                  <motion.li key={key} variants={itemVariants} className="w-auto self-center">
-                    <motion.button
-                      type="button"
-                      title={!isOpen ? label : undefined}
-                      aria-label={label}
-                      aria-current={active ? 'page' : undefined}
-                      className={[railTap, active ? activeRail : '', 'mx-auto'].join(' ')}
-                      onClick={() => setCurrentPage(key)}
-                      onMouseEnter={() => setHoverKey(key)}
-                      onMouseLeave={() => setHoverKey(null)}
-                      onFocus={() => setHoverKey(key)}
-                      onBlur={() => setHoverKey(null)}
-                      whileHover={reduce ? undefined : { y: -4, scale: 1.02 }}
-                      whileTap={reduce ? undefined : { scale: 0.985 }}
-                      transition={reduce ? { duration: 0 } : SPRING}
-                    >
-                    <span
-                      className={[
-                        'grid place-items-center size-9 rounded-lg transition-all',
-                        active
-                          ? 'ring-1 ring-brand-primary/40 bg-white/60 dark:bg-white/10 shadow-sm scale-105'
-                          : 'ring-0 bg-white/5 dark:bg-white/5 group-hover:ring-1 group-hover:ring-white/15',
-                      ].join(' ')}
-                    >
-                      <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
-                    </span>
+      {/* NAV ONLY */}
+      <div className="relative flex-1 overflow-hidden w-full">
+        {/* Collapsed (icon-only rail) */}
+        {!isOpen && (
+          <motion.ul
+            role="list"
+            className="py-4 flex flex-col items-center gap-3 overflow-visible relative"
+            variants={containerVariants}
+            initial="visible"
+            animate="visible"
+          >
+          {nav.map(({ key, label, Icon }) => {
+            const active = currentPage === key;
+              return (
+                <motion.li key={key} variants={itemVariants} className="w-auto self-center">
+                  <motion.button
+                    type="button"
+                    title={!isOpen ? label : undefined}
+                    aria-label={label}
+                    aria-current={active ? 'page' : undefined}
+                    className={[railTap, active ? activeRail : '', 'mx-auto'].join(' ')}
+                    onClick={() => setCurrentPage(key)}
+                    onMouseEnter={() => setHoverKey(key)}
+                    onMouseLeave={() => setHoverKey(null)}
+                    onFocus={() => setHoverKey(key)}
+                    onBlur={() => setHoverKey(null)}
+                    whileHover={reduce ? undefined : { y: -4, scale: 1.02 }}
+                    whileTap={reduce ? undefined : { scale: 0.985 }}
+                    transition={reduce ? { duration: 0 } : SPRING}
+                  >
+                  <span
+                    className={[
+                      'grid place-items-center size-9 rounded-lg transition-all',
+                      active
+                        ? 'ring-1 ring-brand-primary/40 bg-white/60 dark:bg-white/10 shadow-sm scale-105'
+                        : 'ring-0 bg-white/5 dark:bg-white/5 group-hover:ring-1 group-hover:ring-white/15',
+                    ].join(' ')}
+                  >
+                  <Icon aria-hidden className={active ? 'w-5 h-5 text-foreground' : 'w-5 h-5 text-foreground/70'} />
+                  </span>
 
-                      {/* Tooltip visible only in collapsed state; absolutely positioned to avoid layout shifts */}
-                      <AnimatePresence>
-                        {hoverKey === key && (
-                          <motion.span
-                              className="absolute center-full ml-3 top-1/2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-sm bg-card/95 shadow z-30 pointer-events-none"
-                              initial={reduce ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }}
-                              animate={reduce ? { opacity: 1, x: 0 } : { opacity: 1, x: 0 }}
-                              exit={reduce ? { opacity: 0 } : { opacity: 0, x: -6 }}
-                              transition={reduce ? { duration: 0 } : { duration: 0.18, ease: 'easeOut' }}
-                          >
-                            {label}
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    </motion.button>
-                  </motion.li>
-                );
-              })}
-            </motion.ul>
-          )}
+                  {/* Tooltip visible only in collapsed state; absolutely positioned to avoid layout shifts */}
+                  <AnimatePresence>
+                    {hoverKey === key && (
+                      <motion.span
+                        className="absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-lg ring-1 ring-black/5 pointer-events-none"
+                        initial={reduce ? { opacity: 1, x: 0 } : { opacity: 0, x: -6 }}
+                        animate={reduce ? { opacity: 1, x: 0 } : { opacity: 1, x: 0 }}
+                        exit={reduce ? { opacity: 0 } : { opacity: 0, x: -6 }}
+                        transition={reduce ? { duration: 0 } : { duration: 0.18, ease: 'easeOut' }}
+                      >
+                      {label}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                  </motion.button>
+                </motion.li>
+              );
+          })}
+          </motion.ul>
+        )}
 
           {/* Expanded (icon + label list) */}
           <AnimatePresence initial={false}>

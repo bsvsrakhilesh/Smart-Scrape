@@ -11,9 +11,9 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSidebarOpen }) => {
   return (
-   <div className="app-header w-full z-[100] bg-background border-b border-border/70 shadow-sm">
+   <div className="app-header w-full z-[100] bg-background/80 backdrop-blur-xl border-b border-border/60 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
       <div
-        className="h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full"
+        className="h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full transition-[height,padding] duration-200"
         style={{ paddingLeft: 'var(--gutter-x,16px)', paddingRight: 'var(--gutter-x,16px)' }}
       >
         {/* Left: hamburger + brand */}
@@ -27,14 +27,18 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
 
           <button
             onClick={onNavigateHome}
-            className="rounded-lg hover:bg-muted px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 flex items-center gap-2"
+            className="group rounded-lg px-2 py-1 flex items-center gap-2 hover:bg-muted/70 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary/60"
             title="Home"
             aria-label="Smart Scrape Home"
           >
             <span className="flex items-center gap-2">
-              <img src="/assets/logo.png" alt="Smart Scrape" className="w-6 h-6 rounded" />
+              <span className="relative inline-flex">
+              <img src="/assets/logo.png" alt="Smart Scrape" className="w-6 h-6 rounded shadow-sm transition-transform duration-200 group-hover:scale-[1.04]" />
+              <span className="pointer-events-none absolute inset-0 rounded-full ring-0 ring-brand-primary/40 opacity-0 group-hover:opacity-100 group-hover:ring-2 transition-all duration-200" />
+              </span>
               <span className="hidden sm:inline text-sm font-semibold tracking-wide">
                 Smart Scrape
+              <span className="block h-[2px] w-0 bg-gradient-to-r from-brand-primary/80 to-brand-secondary/80 rounded-full mt-[2px] group-hover:w-full transition-all duration-200 ease-out" />
               </span>
             </span>
           </button>
@@ -45,7 +49,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
           <motion.button
             whileHover={{ y: -1 }}
             whileTap={{ y: 0 }}
-            className="icon-button hover-lift ring-offset-1 focus-visible:ring-2 focus-visible:ring-brand-primary/40 rounded-lg"
+            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
             title="Notifications"
             aria-label="Notifications"
           >
@@ -55,7 +59,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
           <motion.button
             whileHover={{ y: -1 }}
             whileTap={{ y: 0 }}
-            className="icon-button hover-lift ring-offset-1 focus-visible:ring-2 focus-visible:ring-brand-primary/40 rounded-lg"
+            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
             title="Settings"
             aria-label="Settings"
           >
@@ -65,7 +69,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
           <motion.button
             whileHover={{ y: -1 }}
             whileTap={{ y: 0 }}
-            className="icon-button hover-lift ring-offset-1 focus-visible:ring-2 focus-visible:ring-brand-primary/40 rounded-lg"
+            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
             title="Account"
             aria-label="Account"
           >
@@ -75,7 +79,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
       </div>
 
       {/* Thin brand accent (optional) */}
-      <div className="h-[2px] bg-gradient-to-r from-brand-primary/70 to-brand-secondary/70" />
+      <div className="h-[2px] bg-gradient-to-r from-brand-primary/80 via-brand-secondary/80 to-brand-primary/40" />
     </div>
   );
 };

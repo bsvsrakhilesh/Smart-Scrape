@@ -307,12 +307,14 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
               role="link"
               tabIndex={0}
               className={[
-                'group relative rounded-xl border border-gray-200 bg-white',
-                'hover:shadow-soft hover:ring-1 hover:ring-green-200 transition-all cursor-pointer',
+                'group relative rounded-xl border border-gray-100 bg-white/80 backdrop-blur-sm',
+                'hover:shadow-soft hover:-translate-y-[1px] hover:border-green-200/80 hover:bg-white',
+                'transition-all duration-200 ease-out cursor-pointer',
               ].join(' ')}
             >
               {/* left accent on hover */}
-              <span className="absolute left-0 top-0 h-full w-1 rounded-l-xl bg-transparent group-hover:bg-green-400" />
+              <span className="absolute left-0 top-0 h-full w-[2px] rounded-l-xl bg-transparent group-hover:bg-green-400/90 group-hover:w-[3px]
+                transition-all duration-200 ease-out" />
 
               <div className={['grid grid-cols-[auto,1fr,auto] items-start gap-3 px-3 sm:px-4', padY].join(' ')}>
                 {/* checkbox (optional) */}

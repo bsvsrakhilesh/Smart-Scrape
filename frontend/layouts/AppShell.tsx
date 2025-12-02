@@ -32,8 +32,8 @@ export default function AppShell({
     <div
       className={
         hideAmbient
-          ? "min-h-screen bg-[radial-gradient(circle_at_top,_#d2f9e6,_#c9f5ff_45%,_#b7e4ff_85%)] pt-16 lg:pt-[72px]"
-          : "min-h-screen bg-gradient-to-b from-muted/40 to-background pt-16 lg:pt-[72px]"
+          ? "min-h-screen bg-[radial-gradient(circle_at_top,_#d2f9e6,_#c9f5ff_45%,_#b7e4ff_85%)]"
+          : "min-h-screen bg-gradient-to-b from-muted/40 to-background"
       }
       style={{ ['--sidebar-w' as any]: sidebarVar }}
     >
@@ -55,7 +55,7 @@ export default function AppShell({
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="min-h-screen bg-gradient-to-b from-muted/40 to-background pt-16 lg:pt-[72px]">
+      <main className="min-h-screen pt-16 lg:pt-[72px] pb-8">
       <div className="lg:pl-[var(--sidebar-w)]">
         <div className="app-content max-w-screen-2xl mx-auto w-full h-full px-4 sm:px-6 lg:px-8">
           {children}

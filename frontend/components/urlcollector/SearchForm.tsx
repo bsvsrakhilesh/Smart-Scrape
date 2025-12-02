@@ -89,7 +89,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
         <FormField
           label="Keywords"
           htmlFor="keywords"
-          helpText="Comma-separated terms, e.g. smog tower, pm10 pm25, Connaught Place"
+          helpText="Comma-separated terms"
         >
           <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
           <input

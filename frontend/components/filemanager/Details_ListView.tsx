@@ -9,7 +9,6 @@ import type { FileItem } from '../../types';
 import { formatBytes } from '../../utils/fileHelpers';
 import ContextMenu, { type MenuItem } from '../common/ContextMenu';
 import { useConfirm } from '../providers/Confirm';
-import { useToast } from '../providers/Toast';
 import gsap from 'gsap';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactDOM from 'react-dom';
@@ -50,6 +49,7 @@ type Props = {
   onCut?: (ids: string[]) => void;
   onPaste?: () => void;
   onDelete?: (f: FileItem) => void;
+  onDeleteMany?: (ids: string[]) => void;
   onRename?: (id: string, nextName: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void;
@@ -92,6 +92,7 @@ export default function Details_ListView({
   onCut,
   onPaste,
   onDelete,
+  onDeleteMany,
   onRename,
   onPreview,
   onDownload,
@@ -122,7 +123,6 @@ export default function Details_ListView({
   const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
 
   const { confirm } = useConfirm();
-  const { notify } = useToast();
   const buildBGMenu = (): MenuItem[] => {
   return [
     { type: 'item', id: 'newfolder', label: 'New folder', onSelect: () => onNew?.('folder') },
@@ -168,13 +168,26 @@ export default function Details_ListView({
       danger: true,
       shortcut: 'Del',
       onSelect: async () => {
-        const ok = await confirm({ title: 'Move to Trash?', description: many ? `Move ${targetIds.length} items to trash?` : `Move "${fileDisplayName(file)}" to trash?` });
+        const ok = await confirm({
+          title: 'Move to Trash?',
+          description: many
+            ? `Move ${targetIds.length} items to Trash?`
+            : `Move "${fileDisplayName(file)}" to Trash?`,
+        });
         if (!ok) return;
-        // Prefer per-file delete callback if provided
-        if (!many && onDelete) return onDelete(file);
-        notify('Use a bulk delete API here if you add one. For now, call trashFile per id.');
-      }
-    }
+
+        // Bulk path
+        if (many && onDeleteMany) {
+          onDeleteMany(targetIds);
+          return;
+        }
+
+        // Single-file path
+        if (!many && onDelete) {
+          onDelete(file);
+        }
+      },
+    },
   ];
 };
 
@@ -469,9 +482,14 @@ useEffect(() => {
       }
       if (e.key === 'Delete' && selIds.length) {
         e.preventDefault();
-        sorted.forEach((f) => {
-          if (selectedIds.has(f.id)) onDelete?.(f);
-        });
+        const ids = selIds.slice();
+
+        if (ids.length > 1 && onDeleteMany) {
+          onDeleteMany(ids);
+        } else if (onDelete) {
+          const f = sorted.find(x => selectedIds.has(x.id));
+          if (f) onDelete(f);
+        }
       }
       if (e.key === 'F2' && selIds.length === 1) {
         e.preventDefault();
@@ -553,7 +571,7 @@ useEffect(() => {
           ?.scrollIntoView({ block: 'nearest' });
       }
     },
-    [sorted, selectedIds, onCopy, onCut, onPaste, onDelete, onPreview, onOpenVirtual]
+    [sorted, selectedIds, onCopy, onCut, onPaste, onDelete, onDeleteMany, onPreview, onOpenVirtual]
   );
 
   /** ---------- row interactions ---------- */

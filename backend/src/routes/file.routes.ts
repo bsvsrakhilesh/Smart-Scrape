@@ -422,7 +422,9 @@ r.get('/files', async (req, res, next) => {
   try {
     const { q, tags, mimeTypes, visibility, favoritesOnly, sortKey = 'createdAt', sortOrder = 'desc', page, pageSize, folderId } = req.query as Record<string, string>;
 
-    const where: any = {};
+    const where: any = {
+      deletedAt: null,
+    };
     if (q && q.trim()) {
       const term = q.trim().toLowerCase();
       where.OR = [

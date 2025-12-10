@@ -3,9 +3,10 @@ import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../components/providers/Toast';
 import { FileItem, FileDetail } from '../types';
-import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders } from '../lib/api';
+import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders,trashFile, } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
 import Details_ListView from '../components/filemanager/Details_ListView';
+import Large_IconView from '../components/filemanager/Large_IconView';
 import AdvancedFileUpload from '../components/filemanager/AdvancedFileUpload';
 import ExplorerCommandBar from "../components/filemanager/CommandBar";
 import ExplorerBreadcrumbs from "../components/filemanager/Breadcrumbs";
@@ -14,7 +15,6 @@ import PropertiesModal from "../components/filemanager/PropertiesModal";
 import FileSidebar from "../components/filemanager/FileSidebar";
 import PageTransition from '../components/motion/PageTransition';
 import { useExplorerHistory } from '../hooks/useExplorerHistory';
-import Large_IconView from '../components/filemanager/Large_IconView';
 
 const DEFAULT_PAGE_SIZE = 15;
 const getLS = <T,>(k: string, v: T) => {
@@ -420,14 +420,13 @@ export default function FileManagerPage() {
   const handleDownloadItem = (f: FileItem) => handleDownload(f);
 
   const handleDelete = async (file: FileItem) => {
-    if (!confirm(`Delete ${file.title ?? 'this file'}?`)) return;
+    if (!confirm(`Move "${file.title ?? 'this file'}" to Trash?`)) return;
     try {
-      const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Delete failed');
-      notify('File deleted', 'success');
+      await trashFile(file.id);
+      notify('Moved to Trash', 'success');
       refresh();
     } catch (e: any) {
-      notify(e?.message || 'Delete failed', 'error');
+      notify((e as any)?.message || 'Failed to move to Trash', 'error');
     }
   };
 
@@ -578,23 +577,19 @@ export default function FileManagerPage() {
 
   const onDeleteSelected = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} selected item(s)?`)) return;
+    if (!confirm(`Move ${ids.length} selected item(s) to Trash?`)) return;
 
     const backup = allFiles;
     setAllFiles(prev => prev.filter(f => !ids.includes(f.id)));
     setSelected([]);
 
     try {
-      await Promise.all(ids.map(id =>
-        fetch(`/api/files/${id}`, { method: 'DELETE' }).then(res => {
-          if (!res.ok) throw new Error('Delete failed');
-        })
-      ));
-      notify('Deleted', 'success');
+      await Promise.all(ids.map(id => trashFile(id)));
+      notify('Moved to Trash', 'success');
       refresh();
     } catch (e: any) {
       setAllFiles(backup);
-      notify(e?.message || 'Failed to delete some items', 'error');
+      notify((e as any)?.message || 'Failed to move some items to Trash', 'error');
     }
   }, [allFiles, notify, refresh]);
 
@@ -1052,6 +1047,7 @@ export default function FileManagerPage() {
                     onShowProperties: (f: FileItem) => { setPropertiesFile(f); },
                     onDownload: handleDownloadItem,
                     onDelete: handleDelete,
+                    onDeleteMany: onDeleteSelected,
                     clipboard,
                     onPaste: handlePaste,
                     onUpdateTags: handleUpdateTags,

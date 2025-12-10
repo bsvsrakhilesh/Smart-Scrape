@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../components/providers/Toast';
 import { FileItem, FileDetail } from '../types';
-import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders,trashFile, } from '../lib/api';
+import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders, } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
 import Details_ListView from '../components/filemanager/Details_ListView';
 import Large_IconView from '../components/filemanager/Large_IconView';
@@ -404,14 +404,14 @@ export default function FileManagerPage() {
   ]);
 
   // ------- Actions -------
-  const handleOpenPreview = useCallback((f: FileDetail, opts?: { focusTags?: boolean }) => {
+  const handleOpenPreview = useCallback((f: FileDetail) => {
     setSelectedPreview(f);
     // reset the flag once modal mounts (prevents sticking true for next open)
     setTimeout(() => {}, 0);
   }, []);
 
   const handleEditTagsInPreview = useCallback((file: FileDetail) => {
-    handleOpenPreview(file, { focusTags: true });
+    handleOpenPreview(file);
   }, [handleOpenPreview]);
 
   const handleDownload = (f: FileDetail | FileItem) => {
@@ -420,13 +420,38 @@ export default function FileManagerPage() {
   const handleDownloadItem = (f: FileItem) => handleDownload(f);
 
   const handleDelete = async (file: FileItem) => {
-    if (!confirm(`Move "${file.title ?? 'this file'}" to Trash?`)) return;
+    const isFolder =
+      (file as any).mimeType === 'folder' ||
+      String(file.id).startsWith('folder:');
+
+    const label = file.title || (isFolder ? 'this folder' : 'this file');
+    if (!confirm(`Delete ${label}?`)) return;
+
     try {
-      await trashFile(file.id);
-      notify('Moved to Trash', 'success');
+      if (isFolder) {
+        const rawId = String(file.id).startsWith('folder:')
+          ? String(file.id).slice('folder:'.length)
+          : String(file.id);
+
+        const res = await fetch(`/api/folders/${rawId}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          throw new Error(`Folder delete failed (${res.status})`);
+        }
+      } else {
+        const res = await fetch(`/api/files/${file.id}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          throw new Error(`File delete failed (${res.status})`);
+        }
+      }
+
+      notify(isFolder ? 'Folder deleted' : 'File deleted', 'success');
       refresh();
     } catch (e: any) {
-      notify((e as any)?.message || 'Failed to move to Trash', 'error');
+      notify(e?.message || 'Delete failed', 'error');
     }
   };
 
@@ -575,23 +600,57 @@ export default function FileManagerPage() {
     setPage(1);
   }, [breadcrumb, buildBreadcrumb]);
 
-  const onDeleteSelected = useCallback(async (ids: string[]) => {
-    if (!ids.length) return;
-    if (!confirm(`Move ${ids.length} selected item(s) to Trash?`)) return;
+  const onDeleteSelected = useCallback(
+    async (ids: string[]) => {
+      if (!ids.length) return;
+      if (!confirm(`Delete ${ids.length} selected item(s)?`)) return;
 
-    const backup = allFiles;
-    setAllFiles(prev => prev.filter(f => !ids.includes(f.id)));
-    setSelected([]);
+      const backup = allFiles;
+      // optimistic removal from UI
+      setAllFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
+      setSelected([]);
 
-    try {
-      await Promise.all(ids.map(id => trashFile(id)));
-      notify('Moved to Trash', 'success');
-      refresh();
-    } catch (e: any) {
-      setAllFiles(backup);
-      notify((e as any)?.message || 'Failed to move some items to Trash', 'error');
-    }
-  }, [allFiles, notify, refresh]);
+      try {
+        const itemsToDelete = allFiles.filter((f) => ids.includes(f.id));
+
+        await Promise.all(
+          itemsToDelete.map(async (f) => {
+            const isFolder =
+              (f as any).mimeType === 'folder' ||
+              String(f.id).startsWith('folder:');
+
+            if (isFolder) {
+              const rawId = String(f.id).startsWith('folder:')
+                ? String(f.id).slice('folder:'.length)
+                : String(f.id);
+
+              const res = await fetch(`/api/folders/${rawId}`, {
+                method: 'DELETE',
+              });
+              if (!res.ok) {
+                throw new Error(`Folder delete failed (${res.status})`);
+              }
+            } else {
+              const res = await fetch(`/api/files/${f.id}`, {
+                method: 'DELETE',
+              });
+              if (!res.ok) {
+                throw new Error(`File delete failed (${res.status})`);
+              }
+            }
+          })
+        );
+
+        notify('Deleted', 'success');
+        refresh();
+      } catch (e: any) {
+        // revert optimistic change if anything failed
+        setAllFiles(backup);
+        notify(e?.message || 'Failed to delete some items', 'error');
+      }
+    },
+    [allFiles, notify, refresh]
+  );
 
   // Previously there was a ctrl+f search focus handler — removed along with SearchFilter.
 
@@ -1039,7 +1098,9 @@ export default function FileManagerPage() {
                     selectedIds: selectedIds,
                     onOpen: (f: any) => {
                       if (f.mimeType === 'folder') {
-                        const folderId = f.id.startsWith('folder:') ? f.id.slice('folder:'.length) : f.id;
+                        const folderId = f.id.startsWith('folder:')
+                          ? f.id.slice('folder:'.length)
+                          : f.id;
                         onFolderSelect(folderId, f.title);
                       } else {
                         handleOpenPreview(f as any);

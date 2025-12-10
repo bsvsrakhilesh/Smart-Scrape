@@ -665,15 +665,8 @@ export default function Large_IconView({
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {
         e.preventDefault();
-        const rect = rootRef.current?.getBoundingClientRect();
-        let x = e.clientX;
-        let y = e.clientY;
-        if (rect) {
-          x -= rect.left;
-          y -= rect.top;
-        }
         setRowMenu(null);
-        setBgMenu({ x, y });
+        setBgMenu({ x: e.clientX, y: e.clientY });
       }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
@@ -730,20 +723,12 @@ export default function Large_IconView({
                 e.preventDefault();
                 const id = String((f as any).id);
 
-                // If right-clicking an unselected card, focus selection on it
                 if (!sel.has(id)) {
                   setSel(new Set([id]));
                 }
 
-                const rect = rootRef.current?.getBoundingClientRect();
-                let x = e.clientX;
-                let y = e.clientY;
-                if (rect) {
-                  x -= rect.left;
-                  y -= rect.top;
-                }
                 setBgMenu(null);
-                setRowMenu({ x, y, file: f });
+                setRowMenu({ x: e.clientX, y: e.clientY, file: f });
               }}
               title={titleAttr}
             >

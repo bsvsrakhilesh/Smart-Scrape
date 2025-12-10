@@ -50,6 +50,8 @@ type Props = {
   onPaste?: () => void;
   onDelete?: (f: FileItem) => void;
   onDeleteMany?: (ids: string[]) => void;
+
+  onOpen?: (f: FileItem) => void;
   onRename?: (id: string, nextName: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void;
@@ -93,6 +95,7 @@ export default function Details_ListView({
   onPaste,
   onDelete,
   onDeleteMany,
+  onOpen,
   onRename,
   onPreview,
   onDownload,
@@ -599,8 +602,23 @@ useEffect(() => {
   };
 
   const onRowDoubleClick = (f: FileItem) => {
-    if (isZip(f)) onOpenVirtual?.({ zipId: f.id, prefix: '' });
-    else onPreview?.(f);
+    const isFolder =
+      (f as any).mimeType === 'folder' ||
+      String(f.id).startsWith('folder:');
+
+    if (isFolder && onOpen) {
+      // Let the parent decide how to open folders (navigate into them)
+      onOpen(f);
+      return;
+    }
+
+    if (isZip(f) && onOpenVirtual) {
+      onOpenVirtual({ zipId: f.id, prefix: '' });
+      return;
+    }
+
+    // Fallback: normal file preview
+    onPreview?.(f);
   };
 
   /** ---------- render helpers ---------- */
@@ -719,7 +737,7 @@ useEffect(() => {
             data-row
             tabIndex={0}
             className={`fm-row group ${isSel ? 'is-selected' : ''}`}
-            onDoubleClick={() => onPreview?.(f)}
+            onDoubleClick={() => onRowDoubleClick(f)}
             onContextMenu={(e) => {
               e.preventDefault();
               setRowMenu({ x: e.clientX, y: e.clientY, file: f });

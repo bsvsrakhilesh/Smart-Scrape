@@ -44,7 +44,6 @@ const getSize = (f: FileItem): number | null => {
 };
 
 const getUpdated = (f: FileItem): Date | null => {
-  // Your FileItem has uploadDate (ISO). Also tolerate a few alternates.
   const v =
     (f as any).uploadDate ??
     (f as any).updatedAt ??
@@ -88,7 +87,6 @@ const fileType = (f: FileItem): string => {
 };
 
 const getThumb = (f: FileItem): string | null => {
-  // if your FileItem has thumbnailUrl / thumb / preview / etc
   const v =
     (f as any).thumbnailUrl ??
     (f as any).thumbnail ??
@@ -181,12 +179,12 @@ type Props = {
   onDeleteMany?: (ids: string[]) => void;
   onRename?: (id: string, nextName: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
-  onDownload?: (f: FileItem) => void; // e.g. navigate to /api/files/:id/download
+  onDownload?: (f: FileItem) => void;
   onShowProperties?: (f: FileItem) => void;
   onNew?: (kind: "folder" | "file") => void;
   onRefresh?: () => void;
 
-  // zip/virtual navigation (optional — wire to listZipChildren/streamZipFile)
+  // zip/virtual navigation
   onOpenVirtual?: (opts: { zipId: string; prefix: string }) => void;
 
   // DnD
@@ -194,7 +192,6 @@ type Props = {
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent) => void;
 
-  // current folder (used to scope paste target)
   currentFolderId?: string;
 
   // open handler (file/folder)
@@ -222,16 +219,13 @@ export default function Large_IconView({
   variant = "large",
   density = "comfortable",
 
-  // selection
   selectedIds,
   onSelectionChange,
 
-  // sorting
   sortKey,
   sortDir,
   onSortChange,
 
-  // actions
   onCopy,
   onCut,
   onPaste,
@@ -245,7 +239,6 @@ export default function Large_IconView({
   onRefresh,
   onOpenVirtual,
 
-  // DnD
   onDragStart,
   onDragEnd,
   onDrop,
@@ -253,7 +246,8 @@ export default function Large_IconView({
   currentFolderId,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
-  // ----- Controlled/Uncontrolled selection bridge -----
+
+  // selection bridge
   const [uncontrolledSel, setUncontrolledSel] = useState<Set<string>>(
     () => new Set()
   );
@@ -269,7 +263,7 @@ export default function Large_IconView({
     [onSelectionChange]
   );
 
-  // ----- Derived + sorting -----
+  // sort
   const sortedFiles = useMemo(() => {
     const byFolder = (a: FileItem, b: FileItem) => {
       const af = isFolder(a);
@@ -289,7 +283,7 @@ export default function Large_IconView({
           return aa === bb ? 0 : aa > bb ? dir : -dir;
         }
         case "date": {
-          const aa = getUpdated(a)?.getTime() ?? 0; // uses uploadDate if present
+          const aa = getUpdated(a)?.getTime() ?? 0;
           const bb = getUpdated(b)?.getTime() ?? 0;
           return aa === bb ? 0 : aa > bb ? dir : -dir;
         }
@@ -315,7 +309,7 @@ export default function Large_IconView({
     });
   }, [files, sortKey, sortDir]);
 
-  // ----- Context menus -----
+  // context menus
   const [rowMenu, setRowMenu] = useState<{
     x: number;
     y: number;
@@ -324,10 +318,9 @@ export default function Large_IconView({
   const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
 
   const buildBGMenu = useCallback((): MenuItem[] => {
-    const pasteLabel = currentFolderId ? `Paste into this folder` : `Paste`;
+    const pasteLabel = currentFolderId ? "Paste into this folder" : "Paste";
 
     return [
-      // Match FileList: New folder + Paste + Select all + Refresh
       {
         type: "item",
         id: "newfolder",
@@ -339,7 +332,6 @@ export default function Large_IconView({
         id: "paste",
         label: pasteLabel,
         shortcut: "Ctrl+V",
-        // same as FileList: enabled whenever onPaste exists
         disabled: !onPaste,
         onSelect: () => onPaste?.(),
       },
@@ -357,7 +349,6 @@ export default function Large_IconView({
         },
       },
       { type: "separator" },
-      // Keep existing "Sort by" group
       ...(onSortChange
         ? ([
             { type: "label", label: "Sort by" } as MenuItem,
@@ -411,7 +402,6 @@ export default function Large_IconView({
             },
           ] as MenuItem[])
         : []),
-      // Optional Refresh item (if provided)
       ...(onRefresh
         ? ([
             { type: "separator" } as MenuItem,
@@ -452,7 +442,6 @@ export default function Large_IconView({
         },
       ];
 
-      // ZIP virtual navigation hook (lib/api.ts: listZipChildren / streamZipFile)
       if (isZip(file) && onOpenVirtual) {
         items.push({
           type: "item",
@@ -505,7 +494,6 @@ export default function Large_IconView({
           id: "paste",
           label: currentFolderId ? "Paste into this folder" : "Paste",
           shortcut: "Ctrl+V",
-          // enabled whenever onPaste exists
           disabled: !onPaste,
           onSelect: () => onPaste?.(),
         },
@@ -519,9 +507,9 @@ export default function Large_IconView({
         {
           type: "item",
           id: "delete",
-          label: "Delete",
+          label: many ? `Delete ${targetIds.length} items` : "Delete",
           shortcut: "Del",
-          disabled: !onDelete,
+          disabled: !onDelete && !onDeleteMany,
           onSelect: () => {
             if (many && onDeleteMany) {
               onDeleteMany(targetIds);
@@ -597,41 +585,18 @@ export default function Large_IconView({
       const id = String((file as any).id);
       const next = new Set(sel);
 
-      if (e.shiftKey) {
-        // multi range - not strictly necessary for grid, but keep semantics
-        const ids = sortedFiles.map((f) => String((f as any).id));
-        const lastId =
-          Array.from(sel).length > 0
-            ? Array.from(sel)[Array.from(sel).length - 1]
-            : id;
-        const start = ids.indexOf(lastId);
-        const end = ids.indexOf(id);
-        if (start !== -1 && end !== -1) {
-          const [s, eidx] =
-            start < end ? [start, end] : [end, start];
-          for (let i = s; i <= eidx; i++) {
-            next.add(ids[i]);
-          }
-        } else {
-          next.add(id);
-        }
-      } else if (e.metaKey || e.ctrlKey) {
+      if (e.metaKey || e.ctrlKey) {
         if (next.has(id)) next.delete(id);
         else next.add(id);
       } else {
-        if (next.has(id) && next.size === 1) {
-          const alreadyOnlyThis = next.size === 1 && next.has(id);
-          next.clear();
-          if (!alreadyOnlyThis) next.add(id);
-        } else {
-          const alreadyOnlyThis = next.size === 1 && next.has(id);
-          next.clear();
-          if (!alreadyOnlyThis) next.add(id);
-        }
+        const onlyThis = next.size === 1 && next.has(id);
+        next.clear();
+        if (!onlyThis) next.add(id);
       }
+
       setSel(next);
     },
-    [sel, setSel, sortedFiles]
+    [sel, setSel]
   );
 
   const handleDoubleClick = useCallback(
@@ -655,7 +620,6 @@ export default function Large_IconView({
     onDragEnd?.();
   }, [onDragEnd]);
 
-  // ----- Render -----
   return (
     <div
       ref={rootRef}
@@ -664,7 +628,7 @@ export default function Large_IconView({
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {
-        if ((e.target as HTMLElement).closest('.wg-card')) return;
+        if ((e.target as HTMLElement).closest(".wg-card")) return;
         e.preventDefault();
         setRowMenu(null);
         setBgMenu({ x: e.clientX, y: e.clientY });
@@ -733,13 +697,12 @@ export default function Large_IconView({
               }}
               title={titleAttr}
             >
-              {/* Favorite badge */}
               {(f as any).isFavorited && (
                 <div className="wg-badge-star" title="Starred">
                   <StarIcon className="h-3.5 w-3.5" />
                 </div>
               )}
-              {/* Thumbnail / Icon */}
+
               <div className="flex items-center justify-center pt-4">
                 {getThumb(f) ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -755,7 +718,6 @@ export default function Large_IconView({
                 )}
               </div>
 
-              {/* Title + (optional) size */}
               <div className="absolute bottom-2 left-2 right-2">
                 <div
                   className={`truncate text-center ${

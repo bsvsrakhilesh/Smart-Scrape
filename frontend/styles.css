@@ -1546,6 +1546,18 @@ html, body, #__next, .app-shell {
   scroll-margin-top: 72px; /* anchors scroll nicely beneath header */
 }
 
+/* File Manager canvas background — subtle Explorer-style grid */
+.fm-canvas {
+  background-color: hsl(var(--background));
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    hsl(var(--border) / 0.55) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+  background-attachment: local; /* scrolls naturally with the panel */
+}
+
 .wg-grid {
   /* The grid exposes design tokens via data- attributes for density & variant. */
   --wg-gap: 14px;

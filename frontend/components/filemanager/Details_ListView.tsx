@@ -777,7 +777,7 @@ export default function Details_ListView({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-auto text-sm"
+      className="fm-canvas relative w-full h-full overflow-auto text-sm"
       tabIndex={0}
       onKeyDown={onKeyDown}
       onDrop={handleDrop}

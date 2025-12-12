@@ -92,44 +92,23 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   onFolderSelect?.(undefined, 'Home');
   }, [onFolderSelect]);
 
- const favorites = useMemo(() => {
-   // Helper: try to open a library by name; fall back to root
-   const openByName = (needle: string) => {
-     const match = libraryFolders?.find(
-       f => f.name.toLowerCase().includes(needle.toLowerCase())
-     );
-     if (match) {
-       onFolderSelect?.(match.id, match.name);
-     } else {
-       goHome();
-     }
-   };
+ const favorites = useMemo(() => {    
    return [
      {
        label: 'Quick Access',
        icon: <Star className="w-4 h-4" />,
-       // treat as root / home
        go: goHome,
-     },
-     {
-       label: 'Desktop',
-       icon: <Monitor className="w-4 h-4" />,
-       go: () => openByName('desktop'),
-     },
-     {
-       label: 'Downloads',
-       icon: <Download className="w-4 h-4" />,
-       go: () => openByName('download'),
+       active: !currentFolderId,
      },
    ];
- }, [onFolderSelect, libraryFolders, goHome]);
+ }, [onFolderSelect, goHome]);
 
   return (
     <nav className="h-full overflow-y-auto pr-1" aria-label="Folders">
       <div className="space-y-6">
-        <Section title="Favorites">
+        <Section title="Recently Accessed">
           {favorites.map(x =>
-            <NavBtn key={x.label} label={x.label} onClick={x.go} left={x.icon} />
+            <NavBtn key={x.label} label={x.label} onClick={x.go} left={x.icon} active={x.active} />
           )}
         </Section>
 
@@ -160,12 +139,12 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
           />
         </Section>
 
-         {/* Storage Used (matches the screenshot) */}
-         <div className="mt-6 rounded-2xl border border-[hsl(var(--border))]/60 bg-[hsl(var(--surface))]/80 shadow-[var(--shadow-soft)] p-4">
-           <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
-             <Database className="w-4 h-4" />
-             <span className="text-sm font-medium">Storage Used</span>
-           </div>
+        {/* Storage Used */}
+        <div className="mt-6 rounded-2xl border border-[hsl(var(--border))]/60 bg-[hsl(var(--surface))]/80 shadow-[var(--shadow-soft)] p-4">
+          <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
+            <Database className="w-4 h-4" />
+            <span className="text-sm font-medium">Storage Used</span>
+          </div>
  
            {/* numbers */}
            <div className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">

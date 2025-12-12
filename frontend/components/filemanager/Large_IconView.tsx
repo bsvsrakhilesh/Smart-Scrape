@@ -623,7 +623,7 @@ export default function Large_IconView({
   return (
     <div
       ref={rootRef}
-      className="wg-grid relative w-full h-full overflow-auto px-2"
+      className="fm-canvas wg-grid relative w-full h-full overflow-auto px-2"
       style={{ display: "block" }}
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}

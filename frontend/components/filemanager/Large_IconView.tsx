@@ -12,6 +12,7 @@ import {
   Book as BookIcon,
   Code as CodeIcon,
   Star as StarIcon,
+  Check as CheckIcon,
 } from "lucide-react";
 import { formatBytes } from "../../utils/fileHelpers";
 import type { FileItem } from "../../types";
@@ -670,15 +671,17 @@ export default function Large_IconView({
           return (
             <div
               key={id}
-              className={`wg-card wg-card-animate group relative w-full overflow-visible rounded-xl border ${
-                selected
-                  ? "border-blue-500 ring-2 ring-blue-400/40"
-                  : "border-neutral-200 hover:border-neutral-300"
-              } bg-white shadow-sm hover:shadow transition-all`}
+              className="wg-card wg-card-animate ex-tile group"
+              data-selected={selected ? "true" : "false"}
+              data-variant={variant}
+              data-density={density}
               style={{
                 height: cardSize.h,
                 animationDelay: `${Math.min(index * 0.02, 0.25)}s`,
               }}
+              tabIndex={0}
+              role="option"
+              aria-selected={selected}
               draggable
               onDragStart={(e) => handleDragStart(e, f)}
               onDragEnd={handleDragEnd}
@@ -697,41 +700,36 @@ export default function Large_IconView({
               }}
               title={titleAttr}
             >
+              {/* Windows-style selection check */}
+              <div className="ex-tile-check" aria-hidden="true">
+                <CheckIcon className="h-3.5 w-3.5" />
+              </div>
+            
               {(f as any).isFavorited && (
-                <div className="wg-badge-star" title="Starred">
+                <div className="ex-tile-star" title="Starred">
                   <StarIcon className="h-3.5 w-3.5" />
                 </div>
               )}
 
-              <div className="flex items-center justify-center pt-4">
+              <div className="ex-tile-preview">
                 {getThumb(f) ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={getThumb(f)!}
                     alt={title}
-                    className="max-h-[72px] max-w-[90%] rounded-md object-cover shadow-sm"
+                    className="ex-tile-preview-img"
                   />
                 ) : (
-                  <div className="flex h-[72px] w-[72px] items-center justify-center rounded-lg bg-neutral-50">
+                  <div className="ex-tile-preview-fallback">
                     {renderIcon(f, Math.round(cardSize.icon * 2))}
                   </div>
                 )}
               </div>
-
-              <div className="absolute bottom-2 left-2 right-2">
-                <div
-                  className={`truncate text-center ${
-                    selected
-                      ? "font-semibold text-blue-700"
-                      : "text-neutral-800"
-                  } text-sm`}
-                >
-                  {title}
-                </div>
+            
+              <div className="ex-tile-meta">
+                <div className="ex-tile-name">{title}</div>
                 {!folder && size != null && (
-                  <div className="mt-0.5 text-center text-xs text-neutral-500">
-                    {formatBytes(size)}
-                  </div>
+                  <div className="ex-tile-sub">{formatBytes(size)}</div>
                 )}
               </div>
             </div>

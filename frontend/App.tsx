@@ -32,9 +32,24 @@ const App: React.FC = () => {
   const [isCommandOpen, setIsCommandOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.location.hash = currentPage;
+    if (typeof window === 'undefined') return;
+
+    const next = `#${currentPage}`;
+    if (window.location.hash !== next) {
+      window.history.replaceState(null, "", next);
     }
+  }, [currentPage]);
+
+  useEffect(() => {
+  if (typeof window === 'undefined') return;
+  if (currentPage !== "notebook") return;
+
+  // Ensure notebook always opens with its page header visible.
+   requestAnimationFrame(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    // Second tick beats late layout shifts (fonts, async content)
+    setTimeout(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }), 0);
+   });
   }, [currentPage]);
 
   // Persist sidebar state
@@ -51,7 +66,6 @@ const App: React.FC = () => {
     return () => document.removeEventListener('open-command-palette', open as EventListener);
   }, []);
 
-  // Optional: "[" toggles sidebar
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();

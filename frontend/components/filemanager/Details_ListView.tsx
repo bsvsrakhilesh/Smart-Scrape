@@ -18,11 +18,12 @@ import ArchiveIcon from "../icons/ArchiveIcon";
 import CodeIcon from "../icons/CodeIcon";
 import FileIcon from "../icons/FileIcon";
 import FolderIcon from "../icons/FolderIcon";
+import { ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal } from "lucide-react";
 
 type ViewMode = "details" | "list";
-type ColumnKey = "name" | "size" | "date" | "type";
+type ColumnKey = "name" | "date" | "type" | "size" ;
 
-const ALL_COLS: ColumnKey[] = ["name", "size", "date", "type"];
+const ALL_COLS: ColumnKey[] = ["name", "date", "type", "size"];
 
 const isZip = (f: FileItem) => {
   const n =
@@ -120,7 +121,7 @@ type Props = {
   layout?: "details" | "list";
   selectable?: boolean;
   clipboard?: unknown;
-  density?: "comfortable" | "compact";
+  density?: "cozy" | "compact";
 
   onUpdateTags?: (fileId: string, nextTags: string[]) => Promise<void> | void;
   onEditTags?: (file: any) => void;
@@ -159,6 +160,7 @@ export default function Details_ListView({
 
   layout,
   selectable = true,
+  density = "cozy"
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -620,50 +622,60 @@ export default function Details_ListView({
 
   /** ---- rendering helpers ---- */
   const renderHeader = () => {
-    const arrow = (key: ColumnKey) =>
-      effectiveSortKey === key ? (effectiveSortDir === "asc" ? "↑" : "↓") : "";
+  const labelFor = (key: ColumnKey) => {
+    switch (key) {
+      case "name":
+        return "Name";
+      case "size":
+        return "Size";
+      case "date":
+        return "Date modified";
+      case "type":
+        return "Type";
+      default:
+        return key;
+    }
+  };
 
-    const labelFor = (key: ColumnKey) => {
-      switch (key) {
-        case "name":
-          return "Name";
-        case "size":
-          return "Size";
-        case "date":
-          return "Date modified";
-        case "type":
-          return "Type";
-        default:
-          return key;
-      }
-    };
-
-    return (
-      <div className="fm-table-header grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)] border-b border-border/70 bg-[hsl(var(--surface-elev))] text-xs uppercase tracking-wide text-muted-foreground select-none">
-        {ALL_COLS.map((key) => {
-          const common = "px-3 py-2 cursor-pointer";
-          const extra =
-            key === "name"
-              ? "flex items-center gap-2"
-              : key === "size"
-              ? "text-right"
-              : "";
-
-          return (
-            <div
-              key={key}
-              className={`${common} ${extra}`}
-              onClick={() => setSort(key)}
-            >
-              <span>{labelFor(key)}</span>
-              <span>{arrow(key)}</span>
-            </div>
-          );
-        })}
-      </div>
+  const iconFor = (key: ColumnKey) => {
+    if (effectiveSortKey !== key) return <ChevronsUpDown className="fm-sort-icon fm-sort-icon--neutral" />;
+    return effectiveSortDir === "asc" ? (
+      <ChevronUp className="fm-sort-icon" />
+    ) : (
+      <ChevronDown className="fm-sort-icon" />
     );
   };
 
+  return (
+    <div className="fm-table-header fm-row-grid" role="row">
+      {ALL_COLS.map((key) => {
+        const isRight = key === "size";
+        const isSorted = effectiveSortKey === key;
+        const ariaSort = isSorted
+          ? effectiveSortDir === "asc"
+            ? "ascending"
+            : "descending"
+          : "none";
+
+        return (
+          <button
+            key={key}
+            type="button"
+            role="columnheader"
+            aria-sort={ariaSort as any}
+            className={`fm-th ${isRight ? "is-right" : ""}`}
+            onClick={() => setSort(key)}
+          >
+            <span className="fm-th-label">{labelFor(key)}</span>
+            <span className="fm-th-sort" aria-hidden="true">
+              {iconFor(key)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+   );
+  };
 
   const renderDetailsRows = () =>
     sorted.map((f) => {
@@ -682,6 +694,7 @@ export default function Details_ListView({
           key={id}
           data-row
           data-id={id}
+          data-selected={isSel ? "true" : "false"}
           draggable
           onDragStart={(e) => handleRowDragStart(e, f)}
           onDragEnd={handleRowDragEnd}
@@ -695,83 +708,137 @@ export default function Details_ListView({
             setBgMenu(null);
             setRowMenu({ x: e.clientX, y: e.clientY, file: f });
           }}
-          className={`fm-row grid grid-cols-[minmax(0,3fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)] items-center text-sm border-b border-border/40 hover:bg-[hsl(var(--surface-elev))] ${
-            isSel ? "bg-blue-50/70" : ""
-          }`}
+          className="fm-row fm-row--details fm-row-grid"
         >
-          <div className="flex items-center gap-2 px-3 py-1.5 min-w-0">
+          {/* Name */}
+          <div className="fm-td fm-td--name">
             {showCheckCol && (
               <input
                 type="checkbox"
-                className="mr-2"
+                className="fm-check"
                 checked={isSel}
                 onChange={(e) => handleRowClick(f, e as any)}
                 onClick={(e) => e.stopPropagation()}
+                aria-label={isSel ? "Deselect item" : "Select item"}
               />
             )}
-            <span className="w-4 h-4 flex-shrink-0">{renderTypeIcon(f)}</span>
-            <span className="truncate">{fileDisplayName(f)}</span>
+            <span className="fm-file-icon" aria-hidden="true">
+              {renderTypeIcon(f)}
+            </span>
+            <span className="fm-file-name" title={fileDisplayName(f)}>
+              {fileDisplayName(f)}
+            </span>
           </div>
-          <div className="px-3 py-1.5 text-right tabular-nums text-xs text-muted-foreground">
-            {sizeLabel}
-          </div>
-          <div className="px-3 py-1.5 text-xs text-muted-foreground truncate">
+      
+          {/* Date modified */}
+          <div className="fm-td fm-td--date" title={dateLabel}>
             {dateLabel}
           </div>
-          <div className="px-3 py-1.5 text-xs text-muted-foreground truncate">
+      
+          {/* Type */}
+          <div className="fm-td fm-td--type" title={typeLabel}>
             {typeLabel}
+          </div>
+      
+          {/* Size */}
+          <div className="fm-td fm-td--size is-right" title={sizeLabel}>
+            {sizeLabel}
           </div>
         </div>
       );
     });
 
-  const renderCompactList = () =>
-    sorted.map((f) => {
-      const id = String((f as any).id ?? fileDisplayName(f));
-      const isSel = selectedIds.has(id);
-      const size = (f as any).size;
-      const sizeLabel =
-        size != null && size !== ""
-          ? ` • ${formatBytes(
-              typeof size === "string" ? parseFloat(size) : size
-            )}`
-          : "";
-      const dateLabel = getDateLabel(f);
-      const datePart = dateLabel ? ` • ${dateLabel}` : "";
+  const renderList = () =>
+  sorted.map((f) => {
+    const id = String((f as any).id ?? fileDisplayName(f));
+    const isSel = selectedIds.has(id);
 
-      return (
-        <div
-          key={id}
-          data-row
-          data-id={id}
-          draggable
-          onDragStart={(e) => handleRowDragStart(e, f)}
-          onDragEnd={handleRowDragEnd}
-          onDoubleClick={() => handleRowDoubleClick(f)}
-          onClick={(e) => handleRowClick(f, e)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            if (!selectedIds.has(id)) {
-              setSelectedIds(new Set([id]));
-            }
-            setBgMenu(null);
-            setRowMenu({ x: e.clientX, y: e.clientY, file: f });
-          }}
-          className={`fm-row flex items-center px-3 py-1.5 text-sm hover:bg-[hsl(var(--surface-elev))] ${
-            isSel ? "bg-blue-50/70" : ""
-          }`}
-        >
-          <span className="mr-2 w-4 h-4 flex-shrink-0">
+    const mime = String((f as any).mimeType || (f as any).type || "").toLowerCase();
+    const isFolder = Boolean((f as any).isFolder) || mime === "folder";
+
+    const rawSize = (f as any).size;
+    const sizeLabel =
+      rawSize != null && rawSize !== ""
+        ? formatBytes(typeof rawSize === "string" ? parseFloat(rawSize) : rawSize)
+        : "";
+
+    const dateLabel = getDateLabel(f);
+
+    return (
+      <div
+        key={id}
+        data-row
+        data-id={id}
+        data-selected={isSel ? "true" : "false"}
+        draggable
+        onDragStart={(e) => handleRowDragStart(e, f)}
+        onDragEnd={handleRowDragEnd}
+        onDoubleClick={() => handleRowDoubleClick(f)}
+        onClick={(e) => handleRowClick(f, e)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
+          setBgMenu(null);
+          setRowMenu({ x: e.clientX, y: e.clientY, file: f });
+        }}
+        className={`fm-row ${isSel ? "is-selected" : ""}`}
+        role="option"
+        aria-selected={isSel}
+        tabIndex={0}
+      >
+        {/* Left: checkbox + icon + name */}
+        <div className="fm-list-item__left">
+          {showCheckCol && (
+            <input
+              type="checkbox"
+              className="fm-check"
+              checked={isSel}
+              onChange={(e) => handleRowClick(f, e as any)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={isSel ? "Deselect item" : "Select item"}
+            />
+          )}
+
+          <span className="fm-thumb" aria-hidden="true">
             {renderTypeIcon(f)}
           </span>
-          <span className="truncate">
-            {fileDisplayName(f)}
-            {sizeLabel}
-            {datePart}
-          </span>
+
+          <div className="fm-list-text">
+            <div className="fm-list-name" title={fileDisplayName(f)}>
+              {fileDisplayName(f)}
+            </div>
+            <div className="fm-list-subtle fm-list-subline">
+              {isFolder ? "Folder" : mime ? mime.split("/").pop() : "File"}
+            </div>
+          </div>
         </div>
-      );
-    });
+
+        {/* Middle meta (Explorer-like: right aligned pills on desktop) */}
+        <div className="fm-row-meta" aria-hidden="true">
+          {sizeLabel && !isFolder && <span className="fm-tag">{sizeLabel}</span>}
+          {dateLabel && <span className="fm-tag">{dateLabel}</span>}
+        </div>
+
+        {/* Right: quick menu button */}
+        <div className="fm-row-actions">
+          <button
+            type="button"
+            className="fm-iconbtn"
+            aria-label="More actions"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setBgMenu(null);
+              if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
+              setRowMenu({ x: rect.left, y: rect.bottom + 6, file: f });
+            }}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  });
 
   /** ---- render ---- */
   return (
@@ -799,13 +866,15 @@ export default function Details_ListView({
       {viewMode === "details" && (
         <div data-view="details" className="fm-table-wrap">
           {renderHeader()}
-          <div>{renderDetailsRows()}</div>
+          <div className="fm-table-body">{renderDetailsRows()}</div>
         </div>
       )}
 
       {viewMode === "list" && (
-        <div data-view="list" className="fm-list-compact divide-y divide-border/60">
-          {renderCompactList()}
+        <div data-view="list" className="fm-list-surface">
+          <div className="fm-list-compact" data-density={density}>
+          {renderList()}
+          </div>
         </div>
       )}
 

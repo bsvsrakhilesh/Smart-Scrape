@@ -5,6 +5,7 @@ import { useToast } from '../components/providers/Toast';
 import { FileItem, FileDetail } from '../types';
 import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getJob, startFileTagJob, listFolders, } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
+import ContextMenu, { type MenuItem } from '../components/common/ContextMenu';
 import Details_ListView from '../components/filemanager/Details_ListView';
 import Large_IconView from '../components/filemanager/Large_IconView';
 import AdvancedFileUpload from '../components/filemanager/AdvancedFileUpload';
@@ -165,6 +166,7 @@ export default function FileManagerPage() {
   const [selected, setSelected] = useState<FileItem[]>([]);
   const selectedIds = useMemo(() => new Set(selected.map(f => f.id)), [selected]);
   const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'cut'; files: FileItem[] } | null>(null);
+  const [emptyBgMenu, setEmptyBgMenu] = useState<{ x: number; y: number } | null>(null);
 
   // ---- Select-all helper (shim) ----
   const handleSelectAll = () => {
@@ -524,6 +526,44 @@ export default function FileManagerPage() {
       setClipboard(null);
     }
   }, [clipboard, currentFolderId, notify, refresh]);
+
+  const buildEmptyBGMenu = useCallback((): MenuItem[] => {
+  const items: MenuItem[] = [
+    {
+      type: 'item',
+      id: 'new-folder',
+      label: 'New folder',
+      onSelect: () => { void handleNewFolder(); },
+    },
+    {
+      type: 'item',
+      id: 'upload',
+      label: 'Upload files',
+      onSelect: () => setShowUpload(true),
+    },
+  ];
+
+  if (clipboard?.files?.length) {
+    items.push({ type: 'separator' });
+    items.push({
+      type: 'item',
+      id: 'paste',
+      label: clipboard.mode === 'cut' ? 'Move here' : 'Paste',
+      shortcut: 'Ctrl+V',
+      onSelect: () => { void handlePaste(); },
+    });
+  }
+
+  items.push({ type: 'separator' });
+  items.push({
+    type: 'item',
+    id: 'refresh',
+    label: 'Refresh',
+    onSelect: () => refresh(),
+  });
+
+  return items;
+  }, [clipboard, handlePaste, refresh]);
 
   // Drag and drop handlers
   const handleDragStart = useCallback((ids: string[]) => {
@@ -988,51 +1028,46 @@ export default function FileManagerPage() {
               <div className="m-4 p-3 rounded bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200">{error}</div>
             )}
             {!isLoading && !error && visibleFiles.length === 0 && (
-            <div className="fm-empty">
-              <div
-                aria-hidden
-                className="h-24 w-36 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--surface))] shadow-[var(--shadow-soft)] mb-3"
-              />
+            <div
+              className="fm-empty"
+              onContextMenu={(e) => {
+                const t = e.target as HTMLElement;
+            
+                // Don't hijack right-click on buttons/inputs/links inside the empty card
+                if (t.closest('button, a, input, textarea, select')) return;
+            
+                e.preventDefault();
+                setEmptyBgMenu({ x: e.clientX, y: e.clientY });
+              }}
+              onMouseDown={() => setEmptyBgMenu(null)}
+            >
           
               <h3>This folder is feeling a little empty</h3>
               <p>Create a new folder, upload files, or drag & drop from your desktop.</p>
           
-              <div className="mt-4 flex items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleNewFolder}
-                >
-                  New folder
-                </button>
-          
-                <button
-                  type="button"
-                  className="fm-btn"
-                  onClick={() => setShowUpload(true)}
-                  title="Upload files"
-                >
-                  Upload files
-                </button>
-              </div>
-          
-              <div className="mt-3 text-xs text-[hsl(var(--muted-foreground))]">          
-              Tip: You can paste files with <kbd>Ctrl</kbd>+<kbd>V</kbd> after copying.
-              </div>
             </div>
           )}
+          {emptyBgMenu && (
+            <ContextMenu
+              open
+              x={emptyBgMenu.x}
+              y={emptyBgMenu.y}
+              items={buildEmptyBGMenu()}
+              onClose={() => setEmptyBgMenu(null)}
+            />
+          )}
 
-            {clipboard && (
-              <div className="mb-3 rounded-lg border bg-amber-50 dark:bg-amber-900/30 p-3 text-sm flex items-center justify-between">
-                <span>
-                  {clipboard.mode === 'copy' ? 'Ready to paste copy' : 'Ready to move'} — {clipboard.files.length} item(s)
-                  {currentFolderId ? ' into this folder.' : ' into Home.'}
-                </span>
-                <div className="flex gap-2">
-                  <button className="btn" onClick={handlePaste}>Paste here</button>
-                  <button className="btn-ghost" onClick={() => setClipboard(null)}>Clear</button>
-                </div>
+          {clipboard && (
+            <div className="mb-3 rounded-lg border bg-amber-50 dark:bg-amber-900/30 p-3 text-sm flex items-center justify-between">
+              <span>
+                {clipboard.mode === 'copy' ? 'Ready to paste copy' : 'Ready to move'} — {clipboard.files.length} item(s)
+                {currentFolderId ? ' into this folder.' : ' into Home.'}
+              </span>
+              <div className="flex gap-2">
+                <button className="btn" onClick={handlePaste}>Paste here</button>
+                <button className="btn-ghost" onClick={() => setClipboard(null)}>Clear</button>
               </div>
+            </div>
           )}
 
             {/* Properties modal */}

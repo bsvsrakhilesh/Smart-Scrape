@@ -995,9 +995,6 @@ html, body, #__next, .app-shell {
   color: color-mix(in oklab, hsl(var(--accent)) 70%, hsl(var(--text)));
 }
 
-/* Keep compact list/tile rules scoped so they don't affect details view */
-.fm-list-compact .fm-thumb { /* keep as-is for compact list */ }
-
 /* Badge, breadcrumbs, simple header helpers */
 .fm-badge {
   @apply absolute -top-1.5 -right-1.5 text-[10px] rounded-full px-1.5 py-0.5 font-medium;
@@ -1013,6 +1010,333 @@ html, body, #__next, .app-shell {
   backdrop-filter: saturate(140%) blur(10px);
   background: color-mix(in oklab, var(--fm-bg-elev) 85%, transparent);
   border-bottom: 1px solid var(--fm-border);
+}
+/* ------------------------------------------------------------
+   Explorer-grade sidebar navigation (FileSidebar)
+------------------------------------------------------------- */
+
+.ex-nav {
+  height: 100%;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.ex-nav-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ex-nav-section {
+  border-radius: 18px;
+  border: 1px solid hsl(var(--border));
+  background: color-mix(in oklab, hsl(var(--surface)) 86%, transparent);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.ex-nav-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 88%, transparent);
+}
+
+.ex-nav-section-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  letter-spacing: 0.02em;
+  text-transform: none;
+  user-select: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 12px;
+}
+
+.ex-nav-section-btn:hover {
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 92%, transparent);
+  color: hsl(var(--text));
+}
+
+.ex-nav-section-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.22);
+}
+
+.ex-nav-section-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: hsl(var(--border));
+  display: inline-block;
+}
+
+.ex-nav-section-title {
+  line-height: 1;
+}
+
+.ex-nav-section-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ex-nav-pill {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted));
+}
+
+.ex-nav-pill--danger {
+  border-color: hsl(var(--danger, 0 84% 60%) / 0.35);
+  background: hsl(var(--danger, 0 84% 60%) / 0.08);
+  color: hsl(var(--danger, 0 84% 60%));
+}
+
+.ex-nav-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ex-nav-item {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: default;
+  user-select: none;
+  transition: background-color 140ms var(--ease-std), border-color 140ms var(--ease-std);
+}
+
+.ex-nav-item:hover {
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 92%, transparent);
+  border-color: hsl(var(--border) / 0.85);
+}
+
+.ex-nav-item::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.ex-nav-item[data-active="true"] {
+  background: color-mix(in oklab, hsl(var(--accent)) 14%, hsl(var(--surface)));
+  border-color: color-mix(in oklab, hsl(var(--accent)) 55%, hsl(var(--border)));
+}
+
+.ex-nav-item[data-active="true"]::before {
+  background: hsl(var(--accent));
+}
+
+.ex-nav-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border) / 0.7);
+  background: color-mix(in oklab, hsl(var(--surface)) 84%, transparent);
+  flex: 0 0 auto;
+}
+
+.ex-nav-label {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  color: hsl(var(--text));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ex-nav-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+}
+
+.ex-nav-skeleton {
+  padding: 8px 10px 10px;
+}
+
+.ex-nav-skel-row {
+  height: 38px;
+  border-radius: 14px;
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 88%, transparent);
+  border: 1px solid hsl(var(--border) / 0.7);
+  margin-bottom: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ex-nav-skel-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-60%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  animation: ex-skel 1.2s ease-in-out infinite;
+}
+
+@keyframes ex-skel {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(60%); }
+}
+
+.ex-storage {
+  border-radius: 18px;
+  border: 1px solid hsl(var(--border));
+  background: color-mix(in oklab, hsl(var(--surface)) 86%, transparent);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  padding: 14px;
+}
+
+.ex-storage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ============================
+   Explorer shell (Windows-like)
+   ============================ */
+
+.ex-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1024px) {
+  .ex-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ex-sidebar,
+.ex-main {
+  min-width: 0;
+}
+
+.ex-sidebar-surface {
+  height: 100%;
+  border-radius: 28px;
+  background: color-mix(in oklab, hsl(var(--surface)) 78%, transparent);
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.ex-main-surface {
+  border-radius: 28px;
+  background: color-mix(in oklab, hsl(var(--surface)) 68%, transparent);
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.ex-sticky-top {
+  position: sticky;
+  top: 16px;
+  z-index: 20;
+  border-radius: 22px;
+  overflow: hidden;
+  background: color-mix(in oklab, hsl(var(--surface)) 82%, transparent);
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.10);
+}
+
+.ex-addressbar {
+  padding: 10px 12px;
+}
+
+.ex-commandbar {
+  border-top: 1px solid hsl(var(--border) / 0.75);
+}
+
+/* Remove CommandBar’s own “toolbar strip” background ONLY inside our sticky shell */
+.ex-sticky-top .fm-toolbar {
+  background: transparent !important;
+  border-top: none !important;
+}
+
+.ex-workspace {
+  margin-top: 16px;
+}
+
+.ex-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: color-mix(in oklab, hsl(var(--surface)) 85%, transparent);
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.ex-status-left,
+.ex-status-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ex-status-pill {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 9999px;
+  background: hsl(var(--surface-elev));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted));
+}
+
+.ex-status-pill--accent {
+  background: color-mix(in oklab, hsl(var(--accent) / 0.12) 55%, hsl(var(--surface-elev)));
+  color: hsl(var(--text));
+  border-color: hsl(var(--accent) / 0.28);
+}
+
+.ex-page-size {
+  border-radius: 14px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.ex-page-size:focus {
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.25);
 }
 
 /* Buttons, chips, card */

@@ -2,41 +2,74 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   Star, Monitor, Download,
   FileText, Image as ImageIcon, Music, Video, HardDrive, Database,
-  Folder as FolderIcon
+  Folder as FolderIcon, ChevronDown, ChevronRight, Pin
 } from 'lucide-react'
-import type { FileItem, FolderNode } from '../../types/file'
+import type { FolderNode } from '../../types/file'
 import { fetchRootFolders, fetchChildren } from '../../lib/folders'
 
 type FileSidebarProps = {
   onFolderSelect: (id?: string, name?: string) => void
-  onFileSelect?: (file: FileItem) => void
   currentFolderId?: string
   storageUsedBytes?: number
   storageCapacityBytes?: number
 }
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div>
-    <div className="px-3 text-[11px] uppercase tracking-wider text-[hsl(var(--muted))] mb-2">{title}</div>
-    <div className="space-y-1">{children}</div>
+const SectionShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="ex-nav-section">{children}</div>
+)
+
+const SectionHeader: React.FC<{
+  title: string
+  collapsed?: boolean
+  onToggle?: () => void
+  right?: React.ReactNode
+}> = ({ title, collapsed, onToggle, right }) => (
+  <div className="ex-nav-section-head">
+    <button
+      type="button"
+      className="ex-nav-section-btn"
+      onClick={onToggle}
+      disabled={!onToggle}
+      aria-expanded={onToggle ? !collapsed : undefined}
+      title={onToggle ? (collapsed ? `Expand ${title}` : `Collapse ${title}`) : title}
+    >
+      {onToggle ? (
+        collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
+      ) : (
+        <span className="ex-nav-section-dot" aria-hidden="true" />
+      )}
+      <span className="ex-nav-section-title">{title}</span>
+    </button>
+
+    {right ? <div className="ex-nav-section-right">{right}</div> : null}
   </div>
 )
 
-const NavBtn: React.FC<{ label: string; onClick: () => void; left?: React.ReactNode; active?: boolean }> =
-({ label, onClick, left, active }) => (
+const NavItem: React.FC<{
+  label: string
+  onClick: () => void
+  left?: React.ReactNode
+  right?: React.ReactNode
+  active?: boolean
+  pinned?: boolean
+}> = ({ label, onClick, left, right, active, pinned }) => (
   <button
+    type="button"
     onClick={onClick}
-    className={[
-    "w-full h-9 px-3 rounded-lg flex items-center gap-3 text-sm transition-colors",
-    active
-    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-    : "hover:bg-slate-100"
-    ].join(' ')}
-
+    className="ex-nav-item"
+    data-active={active ? "true" : "false"}
     title={label}
   >
-    <span className="shrink-0 opacity-80">{left}</span>
-    <span className="truncate">{label}</span>
+    <span className="ex-nav-ico" aria-hidden="true">
+      {left}
+    </span>
+
+    <span className="ex-nav-label">{label}</span>
+
+    <span className="ex-nav-right" aria-hidden="true">
+      {pinned ? <Pin className="w-3.5 h-3.5 opacity-70" /> : null}
+      {right}
+    </span>
   </button>
 )
 
@@ -65,13 +98,22 @@ async function getLibraryFolders(): Promise<FolderNode[]> {
 
 const FileSidebar: React.FC<FileSidebarProps> = ({
   onFolderSelect,
-  onFileSelect,
   currentFolderId,
   storageUsedBytes,
   storageCapacityBytes
 }) => {
   const [libraryFolders, setLibraryFolders] = useState<FolderNode[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const [collapsed, setCollapsed] = useState({
+    quick: false,
+    libraries: false,
+    thispc: false,
+  })
+
+  const toggle = useCallback((k: keyof typeof collapsed) => {
+    setCollapsed(s => ({ ...s, [k]: !s[k] }))
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -92,98 +134,172 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   onFolderSelect?.(undefined, 'Home');
   }, [onFolderSelect]);
 
- const favorites = useMemo(() => {    
-   return [
-     {
-       label: 'Quick Access',
-       icon: <Star className="w-4 h-4" />,
-       go: goHome,
-       active: !currentFolderId,
-     },
-   ];
- }, [onFolderSelect, goHome]);
+  const quickAccess = useMemo(() => {
+    const HOME = {
+      label: 'Home',
+      icon: <Star className="w-4 h-4" />,
+      go: goHome,
+      active: !currentFolderId,
+      pinned: true,
+    }
 
-  return (
-    <nav className="h-full overflow-y-auto pr-1" aria-label="Folders">
-      <div className="space-y-6">
-        <Section title="Recently Accessed">
-          {favorites.map(x =>
-            <NavBtn key={x.label} label={x.label} onClick={x.go} left={x.icon} active={x.active} />
-          )}
-        </Section>
+    const COMMON_ORDER = ['desktop', 'downloads', 'documents', 'pictures', 'music', 'videos']
 
-        <Section title="Libraries">
-          {!libraryFolders && !error && (
-            <div className="px-3 py-2 text-xs text-[hsl(var(--muted))]">Loading…</div>
-          )}
-          {error && (
-            <div className="px-3 py-2 text-xs text-red-600/80">{error}</div>
-          )}
-          {libraryFolders?.map(lib => (
-            <NavBtn
-              key={lib.id}
-              label={lib.name}
-              onClick={() => onFolderSelect?.(lib.id, lib.name)}
-              left={iconFor(lib.name)}
-              active={currentFolderId === lib.id}
-            />
-          ))}
-        </Section>
+    const libs = (libraryFolders ?? [])
+      .slice()
+      .sort((a, b) => {
+        const ai = COMMON_ORDER.findIndex(x => a.name.toLowerCase().includes(x))
+        const bi = COMMON_ORDER.findIndex(x => b.name.toLowerCase().includes(x))
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+      })
 
-        <Section title="This PC">
-          <NavBtn
-            label="Local Disk (C:)"
-            onClick={goHome}
-            left={<HardDrive className="w-4 h-4" />}
-            active={!currentFolderId}
+    const pinned = libs
+      .filter(l => COMMON_ORDER.some(x => l.name.toLowerCase().includes(x)))
+      .slice(0, 6)
+      .map(l => ({
+        label: l.name,
+        icon: iconFor(l.name),
+        go: () => onFolderSelect?.(l.id, l.name),
+        active: currentFolderId === l.id,
+        pinned: true,
+      }))
+
+    return [HOME, ...pinned]
+  }, [goHome, currentFolderId, libraryFolders, onFolderSelect])
+
+    return (
+    <nav className="ex-nav" aria-label="Folders">
+      <div className="ex-nav-stack">
+
+        {/* Quick access */}
+        <SectionShell>
+          <SectionHeader
+            title="Quick access"
+            collapsed={collapsed.quick}
+            onToggle={() => toggle("quick")}
           />
-        </Section>
+          {!collapsed.quick && (
+            <div className="ex-nav-list">
+              {quickAccess.map(x => (
+                <NavItem
+                  key={x.label}
+                  label={x.label}
+                  onClick={x.go}
+                  left={x.icon}
+                  active={x.active}
+                  pinned={x.pinned}
+                />
+              ))}
+            </div>
+          )}
+        </SectionShell>
+
+        {/* Libraries */}
+        <SectionShell>
+          <SectionHeader
+            title="Libraries"
+            collapsed={collapsed.libraries}
+            onToggle={() => toggle("libraries")}
+            right={
+              !libraryFolders && !error ? (
+                <span className="ex-nav-pill">Loading…</span>
+              ) : error ? (
+                <span className="ex-nav-pill ex-nav-pill--danger">Error</span>
+              ) : (
+                <span className="ex-nav-pill">{libraryFolders?.length ?? 0}</span>
+              )
+            }
+          />
+
+          {!collapsed.libraries && (
+            <div className="ex-nav-list">
+              {!libraryFolders && !error && (
+                <div className="ex-nav-skeleton">
+                  <div className="ex-nav-skel-row" />
+                  <div className="ex-nav-skel-row" />
+                  <div className="ex-nav-skel-row" />
+                </div>
+              )}
+
+              {error && (
+                <div className="px-3 py-2 text-xs text-red-600/80">{error}</div>
+              )}
+
+              {libraryFolders?.map(lib => (
+                <NavItem
+                  key={lib.id}
+                  label={lib.name}
+                  onClick={() => onFolderSelect?.(lib.id, lib.name)}
+                  left={iconFor(lib.name)}
+                  active={currentFolderId === lib.id}
+                />
+              ))}
+            </div>
+          )}
+        </SectionShell>
+
+        {/* This PC */}
+        <SectionShell>
+          <SectionHeader
+            title="This PC"
+            collapsed={collapsed.thispc}
+            onToggle={() => toggle("thispc")}
+          />
+          {!collapsed.thispc && (
+            <div className="ex-nav-list">
+              <NavItem
+                label="Local Disk (C:)"
+                onClick={goHome}
+                left={<HardDrive className="w-4 h-4" />}
+                active={!currentFolderId}
+              />
+            </div>
+          )}
+        </SectionShell>
 
         {/* Storage Used */}
-        <div className="mt-6 rounded-2xl border border-[hsl(var(--border))]/60 bg-[hsl(var(--surface))]/80 shadow-[var(--shadow-soft)] p-4">
-          <div className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]">
+        <div className="ex-storage">
+          <div className="ex-storage-head">
             <Database className="w-4 h-4" />
-            <span className="text-sm font-medium">Storage Used</span>
+            <span className="text-sm font-medium">Storage</span>
           </div>
- 
-           {/* numbers */}
-           <div className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
-             {(() => {
-               const used = storageUsedBytes ?? 0;
-               const cap = storageCapacityBytes ?? (1024 ** 4); // default 1 TB
-               const pct = Math.min(100, Math.round((used / cap) * 100 || 0));
-               const fmt = (n: number) => {
-                 const kb = 1024, mb = 1024 ** 2, gb = 1024 ** 3, tb = 1024 ** 4;
-                 if (n >= tb) return (n / tb).toFixed(1) + ' TB';
-                 if (n >= gb) return (n / gb).toFixed(1) + ' GB';
-                 if (n >= mb) return (n / mb).toFixed(1) + ' MB';
-                 if (n >= kb) return (n / kb).toFixed(1) + ' KB';
-                 return n + ' B';
-               };
-               return (
-                 <div className="flex items-center justify-between">
-                   <span>{fmt(used)} of {fmt(cap)}</span>
-                   <span className="font-semibold text-[hsl(var(--foreground))]">{pct}%</span>
-                 </div>
-               );
-             })()}
-           </div>
- 
-           {/* progress bar */}
-           {(() => {
-             const used = storageUsedBytes ?? 0;
-             const cap = storageCapacityBytes ?? (1024 ** 4);
-             const pct = Math.min(100, Math.round((used / cap) * 100 || 0));
-             return (
-               <div className="mt-3 h-2 w-full rounded-full bg-[hsl(var(--border))]/50 overflow-hidden">
-                 <div
-                   className="h-full w-0 bg-gradient-to-r from-green-500 to-blue-500 transition-[width] duration-700"
-                   style={{ width: `${pct}%` }}
-                 />
-               </div>
-             );
-           })()}
-         </div>
+
+          <div className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">
+            {(() => {
+              const used = storageUsedBytes ?? 0
+              const cap = storageCapacityBytes ?? (1024 ** 4)
+              const pct = Math.min(100, Math.round((used / cap) * 100 || 0))
+              const fmt = (n: number) => {
+                const kb = 1024, mb = 1024 ** 2, gb = 1024 ** 3, tb = 1024 ** 4
+                if (n >= tb) return (n / tb).toFixed(1) + ' TB'
+                if (n >= gb) return (n / gb).toFixed(1) + ' GB'
+                if (n >= mb) return (n / mb).toFixed(1) + ' MB'
+                if (n >= kb) return (n / kb).toFixed(1) + ' KB'
+                return n + ' B'
+              }
+              return (
+                <div className="flex items-center justify-between">
+                  <span>{fmt(used)} of {fmt(cap)}</span>
+                  <span className="font-semibold text-[hsl(var(--foreground))]">{pct}%</span>
+                </div>
+              )
+            })()}
+          </div>
+
+          {(() => {
+            const used = storageUsedBytes ?? 0
+            const cap = storageCapacityBytes ?? (1024 ** 4)
+            const pct = Math.min(100, Math.round((used / cap) * 100 || 0))
+            return (
+              <div className="mt-3 h-2 w-full rounded-full bg-[hsl(var(--border))]/50 overflow-hidden">
+                <div
+                  className="h-full w-0 bg-gradient-to-r from-green-500 to-blue-500 transition-[width] duration-700"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )
+          })()}
+        </div>
 
       </div>
     </nav>

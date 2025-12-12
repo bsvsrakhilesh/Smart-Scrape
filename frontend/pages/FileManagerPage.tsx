@@ -16,6 +16,7 @@ import PropertiesModal from "../components/filemanager/PropertiesModal";
 import FileSidebar from "../components/filemanager/FileSidebar";
 import PageTransition from '../components/motion/PageTransition';
 import { useExplorerHistory } from '../hooks/useExplorerHistory';
+import { formatBytes } from "../utils/fileHelpers";
 
 const DEFAULT_PAGE_SIZE = 15;
 const getLS = <T,>(k: string, v: T) => {
@@ -77,7 +78,7 @@ export default function FileManagerPage() {
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const [density, setDensity] = useState<'comfortable' | 'compact'>(() => getLS('fm:density', 'comfortable'));
+  const [density, setDensity] = useState<'cozy' | 'compact'>(() => getLS('fm:density', 'cozy'));
   useEffect(() => setLS('fm:density', density), [density]);
 
   // quick search query (header input)
@@ -167,6 +168,14 @@ export default function FileManagerPage() {
   const selectedIds = useMemo(() => new Set(selected.map(f => f.id)), [selected]);
   const [clipboard, setClipboard] = useState<{ mode: 'copy' | 'cut'; files: FileItem[] } | null>(null);
   const [emptyBgMenu, setEmptyBgMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const selectedBytes = useMemo(() => {
+    return selected.reduce((acc, f) => {
+      const isFolder =
+        (f as any)?.mimeType === "folder" || String(f.id).startsWith("folder:");
+      return acc + (isFolder ? 0 : typeof f.size === "number" ? f.size : 0);
+    }, 0);
+  }, [selected]);
 
   // ---- Select-all helper (shim) ----
   const handleSelectAll = () => {
@@ -874,13 +883,12 @@ export default function FileManagerPage() {
         </div>
       </motion.header>
 
-      {/* Content */}
-      <div className="max-w-7xl w-full mx-auto mt-4 grid grid-cols-12 gap-4 lg:gap-6">
-        
+            {/* Content */}
+      <div className="max-w-7xl w-full mx-auto mt-4 ex-grid">
         {/* Left: Quick Access + Folder tree */}
-        <aside className="col-span-12 lg:col-span-3 flex flex-col">
+        <aside className="ex-sidebar">
           <motion.div
-            className="h-full rounded-[28px] bg-white/80 border border-slate-100 shadow-[0_18px_60px_rgba(15,23,42,0.18)] p-4 md:p-5 backdrop-blur-xl"
+            className="ex-sidebar-surface p-4 md:p-5"
             initial={{ x: -10, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.6, duration: 0.6, ease: "easeOut" }}
@@ -894,61 +902,74 @@ export default function FileManagerPage() {
           </motion.div>
         </aside>
 
-      {/* Center: Files area */}
-      <div className="bg-white/50 rounded-3xl p-4 md:p-6 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur-lg col-span-12 lg:col-span-9">
-      <section className="col-span-12 lg:col-span-9 flex flex-col space-y-3">
-          {/* Sticky toolbar - Enhanced with glassmorphism and animations */}
-          <div className="mb-2">
-              <ExplorerBreadcrumbs
-                path={breadcrumb.map((b, idx) => ({
-                  id: b.id ?? `home-${idx}`,
-                  label: idx === 0 ? "Home" : b.name,
-                  onClick: () => onCrumbClick(idx),
-                }))}
-                currentFolderId={currentFolderId ?? null}
-                onBack={handleBack}
-                onForward={handleForward}
-                backEnabled={historyIndex > 0}
-                forwardEnabled={historyIndex < history.length - 1}
-                onResolvePathText={async (text) => {
-                  const parts = text.split(/[\\/]+/).map(s => s.trim()).filter(Boolean);
-                  const last = parts[parts.length - 1]?.toLowerCase();
-                  const match = [...breadcrumb].reverse().find(c => (c.name || '').toLowerCase() === last);
-                  return match?.id ?? null;
-                }}
-                onNavigate={async (folderId) => {
-                  setCurrentFolderId(folderId ?? undefined);
-                  setPage(1);
-                  const bc = await buildBreadcrumb(folderId ?? undefined);
-                  setBreadcrumb(bc);
-                }}
-                onSearchSubmit={(q) => setSearch(q)}
-                initialSearch={search}
-              />
-          </div>
+        {/* Right: Explorer */}
+        <section className="ex-main">
+          <div className="ex-main-surface p-4 md:p-5">
+            {/* Sticky address bar + command bar */}
+            <div className="ex-sticky-top">
+              <div className="ex-addressbar">
+                <ExplorerBreadcrumbs
+                  path={breadcrumb.map((b, idx) => ({
+                    id: b.id ?? `home-${idx}`,
+                    label: idx === 0 ? "Home" : b.name,
+                    onClick: () => onCrumbClick(idx),
+                  }))}
+                  currentFolderId={currentFolderId ?? null}
+                  onBack={handleBack}
+                  onForward={handleForward}
+                  backEnabled={historyIndex > 0}
+                  forwardEnabled={historyIndex < history.length - 1}
+                  onResolvePathText={async (text) => {
+                    const parts = text
+                      .split(/[\\/]+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const last = parts[parts.length - 1]?.toLowerCase();
+                    const match = [...breadcrumb]
+                      .reverse()
+                      .find((c) => (c.name || "").toLowerCase() === last);
+                    return match?.id ?? null;
+                  }}
+                  onNavigate={async (folderId) => {
+                    setCurrentFolderId(folderId ?? undefined);
+                    setPage(1);
+                    const bc = await buildBreadcrumb(folderId ?? undefined);
+                    setBreadcrumb(bc);
+                  }}
+                  onSearchSubmit={(q) => setSearch(q)}
+                  initialSearch={search}
+                />
+              </div>
 
-          {/* Secondary command row (Up, New, Upload, Sort, View toggle) */}
-          <div className="mb-2">
-            <ExplorerCommandBar
-              layout={layout as any}
-              onLayoutChange={(next) => {
-                setLayout(next as Layout);
-                setPage(1);
-              }}            
-              onNew={handleNewFolder}
-              onUpload={() => setShowUpload(true)}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onSortKeyChange={(k) => { setSortKey(k as SortKey); setPage(1); }}
-              onSortDirChange={() => { setSortDir(d => d === "asc" ? "desc" : "asc"); setPage(1); }}
-              isAllSelected={selected.length === allFiles.length && allFiles.length > 0}
-              onSelectAll={handleSelectAll}
-              density={density}
-              onDensityChange={(d) => setDensity(d)}
-            />
-          </div>
+              <div className="ex-commandbar">
+                <ExplorerCommandBar
+                  layout={layout as any}
+                  onLayoutChange={(next) => {
+                    setLayout(next as Layout);
+                    setPage(1);
+                  }}
+                  onNew={handleNewFolder}
+                  onUpload={() => setShowUpload(true)}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSortKeyChange={(k) => {
+                    setSortKey(k as SortKey);
+                    setPage(1);
+                  }}
+                  onSortDirChange={() => {
+                    setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                    setPage(1);
+                  }}
+                  isAllSelected={selected.length === allFiles.length && allFiles.length > 0}
+                  onSelectAll={handleSelectAll}
+                  density={density}
+                  onDensityChange={(d) => setDensity(d)}
+                />
+              </div>
+            </div>
 
-          <div className="space-y-4" data-density={density} data-layout={layout}>
+            {/* Workspace */}
+            <div className="ex-workspace space-y-4" data-density={density} data-layout={layout}>
 
           {/* NEW: Bulk action bar (appears when you have a selection) */}
           {selected.length > 0 && (
@@ -1004,8 +1025,8 @@ export default function FileManagerPage() {
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  className={`fm-chip-density ${density === 'comfortable' ? 'fm-chip-density-active' : ''}`}
-                  onClick={() => setDensity('comfortable')}
+                  className={`fm-chip-density ${density === 'cozy' ? 'fm-chip-density-active' : ''}`}
+                  onClick={() => setDensity('cozy')}
                 >
                   Cozy
                 </button>
@@ -1083,7 +1104,7 @@ export default function FileManagerPage() {
                 <Large_IconView
                   files={visibleFiles}
                   variant={layout === 'icons' ? 'icons' : 'large'} 
-                  density={density === 'compact' ? 'compact' : 'comfortable'}
+                  density={density === 'compact' ? 'compact' : 'cozy'}
                   onOpen={(f) => {
                     const isFolder = String(f.id).startsWith('folder:');
                     if (isFolder) {
@@ -1172,55 +1193,71 @@ export default function FileManagerPage() {
           )}
           </motion.div>
 
-          {/* Pagination - Enhanced with glassmorphism and animations */}
-          <motion.div
-            className="mt-2 border-t border-slate-200 flex items-center justify-between text-sm text-slate-700"
-            initial={{ y: 10, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.9, duration: 0.4 }}
-          >
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg flex items-center justify-center bg-blue-500/20 text-blue-700 font-semibold">
-                <span className="font-medium-bold text-s">{page}</span>
-              </div>
-              <span className="font-medium">of {pageCount} pages</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Show:</span>
-                <select
-                  className="bg-white/80 dark:bg-slate-700/80 backdrop-blur-sm rounded-xl border border-white/40 dark:border-slate-600/40 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
-                  value={pageSize}
-                  onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-                >
-                  {[15, 30, 60, 100].map(n => <option key={n} value={n}>{n}/page</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-1">
-                <ToolbarButton
-                  variant="ghost"
-                  className="px-3 py-1.5 rounded-xl hover:bg-surface/20 transition-all flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Prev
-                </ToolbarButton>
-                <ToolbarButton
-                  variant="ghost"
-                  className="px-3 py-1.5 rounded-xl hover:bg-surface/20 transition-all flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                  disabled={page >= pageCount}
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </ToolbarButton>
-              </div>
-            </div>
-          </motion.div>
-          </div>
-      </section>
-      </div>
+              {/* Status bar (Explorer-style) */}
+              <motion.div
+                className="ex-statusbar"
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.9, duration: 0.4 }}
+              >
+                <div className="ex-status-left">
+                  <span className="ex-status-pill">
+                    {visibleFiles.length} item{visibleFiles.length === 1 ? "" : "s"}
+                  </span>
+
+                  {selected.length > 0 && (
+                    <span className="ex-status-pill ex-status-pill--accent">
+                      {selected.length} selected • {formatBytes(selectedBytes)}
+                    </span>
+                  )}
+
+                  <span className="ex-status-pill">
+                    Total • {formatBytes(totalBytes)}
+                  </span>
+                </div>
+
+                <div className="ex-status-right">
+                  <select
+                    className="ex-page-size"
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                  >
+                    {[15, 30, 60, 100].map((n) => (
+                      <option key={n} value={n}>
+                        {n}/page
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="flex items-center gap-1">
+                    <ToolbarButton
+                      variant="ghost"
+                      className="px-3 py-1.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Prev
+                    </ToolbarButton>
+
+                    <ToolbarButton
+                      variant="ghost"
+                      className="px-3 py-1.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                      disabled={page >= pageCount}
+                    >
+                      Next
+                      <ChevronRight className="w-4 h-4" />
+                    </ToolbarButton>
+                  </div>
+                </div>
+              </motion.div>
+            </div> 
+          </div> 
+        </section>
       </div>
 
       {/* Preview modal */}

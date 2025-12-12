@@ -2,8 +2,7 @@
 "use client";
 import { useMemo } from "react";
 import {
-  Plus, Upload, ChevronDown, LayoutGrid, Square, List, Rows3, ArrowUpDown, Check, Filter, SlidersHorizontal, Sparkles,
-} from "lucide-react";
+  Plus, Upload, ChevronDown, LayoutGrid, Square, List, Rows3, ArrowUpDown, Check, SlidersHorizontal} from "lucide-react";
 
 type LayoutKind = "large" | "icons" | "details" | "list"; 
 
@@ -25,11 +24,9 @@ type Props = {
   onSelectAll?: (checked: boolean) => void;
 
   /** density */
-  density?: "comfortable" | "compact";
-  onDensityChange?: (d: "comfortable" | "compact") => void;
+  density?: "cozy" | "compact";
+  onDensityChange?: (d: "cozy" | "compact") => void;
 
-  /** quick filters */
-  onQuickFilter?: (key: string) => void;
 };
 
 const SORT_KEYS: Array<{ key: string; label: string }> = [
@@ -37,14 +34,6 @@ const SORT_KEYS: Array<{ key: string; label: string }> = [
   { key: "name", label: "Name" },
   { key: "type", label: "Type" },
   { key: "size", label: "Size" },
-];
-
-const QUICK_FILTERS: Array<{ key: string; label: string }> = [
-  { key: "recent", label: "Recent" },
-  { key: "images", label: "Images" },
-  { key: "videos", label: "Videos" },
-  { key: "docs", label: "Docs" },
-  { key: "starred", label: "Starred" },
 ];
 
 export default function CommandBar({
@@ -59,9 +48,8 @@ export default function CommandBar({
   onSortDirChange,
   isAllSelected,
   onSelectAll,
-  density = "comfortable",
+  density = "cozy",
   onDensityChange,
-  onQuickFilter,
 }: Props) {
 
   const setLayout = (next: LayoutKind) => {
@@ -78,7 +66,7 @@ export default function CommandBar({
   };
 
   const densityLabel = useMemo(
-    () => (density === "compact" ? "Compact" : "Comfortable"),
+    () => (density === "compact" ? "Compact" : "Cozy"),
     [density]
   );
 
@@ -158,9 +146,9 @@ export default function CommandBar({
           {/* Density */}
           <div className="hidden md:flex items-center gap-1.5">
            <button
-             className={`fm-segmented ${density === "comfortable" ? "fm-seg-active" : ""}`}
-             onClick={() => onDensityChange?.("comfortable")}
-             title="Comfortable"
+             className={`fm-segmented ${density === "cozy" ? "fm-seg-active" : ""}`}
+             onClick={() => onDensityChange?.("cozy")}
+             title="Cozy"
            >
              <SlidersHorizontal className="h-4 w-4" />
            </button>
@@ -221,22 +209,6 @@ export default function CommandBar({
           </button>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto fm-no-scrollbar py-1 pl-1">
-          {QUICK_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              className="fm-chip"
-              onClick={() => onQuickFilter?.(f.key)}
-              title={`Filter: ${f.label}`}
-            >
-              <Filter className="h-3.5 w-3.5 mr-1" />
-              {f.label}
-            </button>
-          ))}
-          <span className="text-[11px] text-[hsl(var(--muted-foreground))] ml-1 inline-flex items-center gap-1">
-            <Sparkles className="h-3.5 w-3.5" /> smart filters
-          </span>
-        </div>
       </div>
     </div>
   );

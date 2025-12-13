@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import CollectionPickerModal from '../savedurls/CollectionPickerModal';
 import { getCollections, createCollection, addUrlToCollection } from '../../utils/collections';
 import { SearchResult } from '../../types';
@@ -66,7 +66,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   const selected = onToggleRow || onToggleAll ? selectedUrls : localSelected;
 
   const [isSaving, setIsSaving] = useState(false);
-  const [rowSaving] = useState<string | null>(null);
+  const [rowSaving, setRowSaving] = useState<string | null>(null);
   const [rowSaved, setRowSaved] = useState<Record<string, boolean>>({});
   const [sortKeyLocal, setSortKeyLocal] = useState<SortKey>('original');
   const sortKey = (sortKeyProp ?? sortKeyLocal) as SortKey;
@@ -82,6 +82,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   const [pickerMode, setPickerMode] = useState<'text' | 'pdf'>('text');
   const [pickerTarget, setPickerTarget] = useState<{ url: string; title: string }>({ url: '', title: '' });
   const [captureBusy, setCaptureBusy] = useState<string | null>(null);
+
+  // Non-blocking notifications (replaces alert())
+  const [notice, setNotice] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+
+  const pushNotice = (type: 'success' | 'error' | 'info', message: string) => {
+    setNotice({ type, message });
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4500);
+  };
 
   const allSelected = useMemo(
     () => results.length > 0 && selected.size === results.length,
@@ -135,6 +145,9 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   const onPickConfirm = async (collectionId: string) => {
     if (!pendingRows) return;
     setCollectionPickerOpen(false);
+    const isSingle = pendingRows.length === 1;
+    if (isSingle) setRowSaving(pendingRows[0].url);
+
     setIsSaving(true);
     try {
       const res: SaveUrlsResponse = await saveUrls(pendingRows);
@@ -144,10 +157,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         addUrlToCollection(collectionId, r.url);
       });
       setRowSaved(prev => ({ ...prev, ...mark }));
-      alert(`✅ Added: ${res.added}  •  Skipped: ${res.skipped}`);
+      pushNotice('success', `Saved ${res.added} URL${res.added === 1 ? '' : 's'} (skipped ${res.skipped}).`);
     } catch (e: any) {
-      alert(`❌ Failed to save URLs: ${e?.message ?? 'Unknown error'}`);
+      pushNotice('error', `Failed to save URLs: ${e?.message ?? 'Unknown error'}`);
     } finally {
+      setRowSaving(null);
       setIsSaving(false);
       setPendingRows(null);
     }
@@ -159,7 +173,12 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   };
 
   const copyUrl = async (url: string) => {
-    try { await navigator.clipboard.writeText(url); } catch {}
+    try {
+      await navigator.clipboard.writeText(url);
+      pushNotice('info', 'Copied URL to clipboard.');
+    } catch {
+      pushNotice('error', 'Copy failed (clipboard not available).');
+    }
   };
 
   // open modal to choose destination + filename (existing capture flow)
@@ -184,9 +203,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       }
       // mark as saved (visual cue like others)
       setRowSaved(prev => ({ ...prev, [url]: true }));
+      pushNotice('success', 'Captured and saved successfully.');
     } catch (e) {
       console.error(e);
-      alert('Capture failed. See console for details.');
+      pushNotice('error', 'Capture failed. See console for details.');
     } finally {
       setCaptureBusy(null);
     }
@@ -198,6 +218,30 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   return (
     <div className="w-full">
+      {notice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={[
+            'mb-3 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm',
+            notice.type === 'success'
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : notice.type === 'error'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-gray-200 bg-gray-50 text-gray-800',
+          ].join(' ')}
+        >
+          <div className="min-w-0">{notice.message}</div>
+          <button
+            type="button"
+            className="shrink-0 rounded-md px-2 py-1 text-xs font-medium hover:bg-black/5"
+            onClick={() => setNotice(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

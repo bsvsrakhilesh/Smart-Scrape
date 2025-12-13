@@ -461,12 +461,6 @@ export default function Large_IconView({
       }
 
       items.push(
-        {
-          type: "item",
-          id: "preview",
-          label: "Preview",
-          onSelect: () => onPreview?.(file),
-        },
         { type: "separator" },
         {
           type: "item",

@@ -448,12 +448,6 @@ export default function Details_ListView({
           shortcut: "Enter",
           onSelect: () => handleRowDoubleClick(file),
         },
-        {
-          type: "item",
-          id: "preview",
-          label: "Preview",
-          onSelect: () => onPreview?.(file),
-        },
         { type: "separator" },
         {
           type: "item",

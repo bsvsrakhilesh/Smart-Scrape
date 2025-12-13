@@ -339,7 +339,7 @@ export default function FileManagerPage() {
     setError(null);
 
     const params = new URLSearchParams();
-    if (currentFolderId) params.set('folderId', String(currentFolderId));
+    params.set('folderId', currentFolderId ? String(currentFolderId) : 'root');
     params.set('page', String(page));
     params.set('pageSize', String(pageSize));
     // Map frontend sortKey to backend expected values

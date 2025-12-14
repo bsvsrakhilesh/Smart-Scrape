@@ -67,12 +67,20 @@ const authLimiter   = rateLimit({ windowMs: 60_000, limit: 60 });
 const crawlLimiter  = rateLimit({ windowMs: 60_000, limit: 30 });
 const uploadLimiter = rateLimit({ windowMs: 60_000, limit: 30 });
 
+const searchLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: 'RATE_LIMITED', message: 'Too many searches. Please wait a minute and try again.' },
+});
+
 app.use('/api/auth',   authLimiter);
 app.use('/api/crawl',  crawlLimiter);
 app.use('/api/files',  uploadLimiter);
 
 app.use('/api', urlRoutes);
-app.use('/api/search', searchRoutes);
+app.use('/api/search', searchLimiter, searchRoutes);
 app.use('/api', fileRoutes);
 app.use('/api', crawlRoutes);
 app.use('/api', notebookRoutes);

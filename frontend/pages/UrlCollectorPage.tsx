@@ -17,6 +17,11 @@ type PersistShape = {
   selected: string[];         // persist Set<string> as array
   sortKey?: SortKey;
   lastRunAt?: string;
+
+  lastQuery?: string;
+  nextPage?: number | null;
+  totalResults?: number | null;
+
 };
 
 const UrlCollectorPage: React.FC = () => {
@@ -34,6 +39,11 @@ const UrlCollectorPage: React.FC = () => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [nextPage, setNextPage] = useState<number | null>(null);
+  const [totalResults, setTotalResults] = useState<number | null>(null);
+  const [lastQuery, setLastQuery] = useState<string>('');
 
   // Selection must be Set<string> for ResultsTable
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
@@ -56,6 +66,10 @@ const UrlCollectorPage: React.FC = () => {
       if (p.results) setSearchResults(p.results);
       if (p.selected) setSelectedUrls(new Set(p.selected));
       if (p.sortKey) setSortKey(p.sortKey);
+      if (typeof p.lastQuery === 'string') setLastQuery(p.lastQuery);
+      if (typeof p.nextPage !== 'undefined') setNextPage(p.nextPage ?? null);
+      if (typeof p.totalResults !== 'undefined') setTotalResults(p.totalResults ?? null);
+
     } catch {
       /* ignore */
     }
@@ -70,9 +84,14 @@ const UrlCollectorPage: React.FC = () => {
       selected: Array.from(selectedUrls),
       sortKey,
       lastRunAt: hasSearched ? new Date().toISOString() : undefined,
+
+      lastQuery,
+      nextPage,
+      totalResults,
+
     };
     try { localStorage.setItem(LS_KEY, JSON.stringify(payload)); } catch {}
-  }, [website, keywords, searchResults, selectedUrls, sortKey, hasSearched]);
+  }, [website, keywords, searchResults, selectedUrls, sortKey, hasSearched, lastQuery, nextPage, totalResults]);
 
   /* ---------- Global shortcuts (without touching SearchForm.tsx) ---------- */
   useEffect(() => {
@@ -96,6 +115,9 @@ const UrlCollectorPage: React.FC = () => {
     if (!site && !kws) {
       setError('Enter a website and/or keywords to search.');
       setHasSearched(false);
+      setIsLoadingMore(false);
+      setNextPage(null);
+      setTotalResults(null);
       return;
     }
 
@@ -113,11 +135,14 @@ const UrlCollectorPage: React.FC = () => {
 
     try {
       const q = `${site ? `site:${site} ` : ''}${kws}`.trim();
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=1`, {
         headers: { Accept: 'application/json' },
         signal: controller.signal,
       });
       if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error('RATE_LIMITED');
+        }
         const text = await res.text().catch(() => '');
         throw new Error(`Proxy error ${res.status}: ${text || res.statusText}`);
       }
@@ -130,6 +155,13 @@ const UrlCollectorPage: React.FC = () => {
             snippet: it.snippet ?? '',
           }))
         : [];
+            setLastQuery(q);
+
+      const npRaw = res.headers.get('x-next-page');
+      setNextPage(npRaw ? Number(npRaw) : null);
+
+      const totalRaw = res.headers.get('x-total-results');
+      setTotalResults(totalRaw ? Number(totalRaw) : null);
 
       setSearchResults(results);
       setSelectedUrls(new Set());
@@ -139,16 +171,74 @@ const UrlCollectorPage: React.FC = () => {
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        const msg = typeof e?.message === 'string' ? e.message : 'Search failed';
-        setError(msg.includes('Failed to fetch')
-          ? 'Network error. Is your server running and reachable?'
-          : msg);
+        if (e?.message === 'RATE_LIMITED') {
+          setError('Too many searches too quickly. Please wait 60 seconds and try again.');
+        } else {
+          const msg = typeof e?.message === 'string' ? e.message : 'Search failed';
+          setError(msg.includes('Failed to fetch')
+            ? 'Network error. Is your server running and reachable?'
+            : msg);
+        }
       }
     } finally {
       if (fetchAbortRef.current === controller) fetchAbortRef.current = null;
       setIsLoading(false);
     }
   }, [navigate, website, keywords]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!nextPage || !lastQuery) return;
+
+    setIsLoadingMore(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(lastQuery)}&page=${nextPage}`, {
+        headers: { Accept: 'application/json' },
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Proxy error ${res.status}: ${text || res.statusText}`);
+      }
+
+      const data = (await res.json()) as SearchResult[];
+      const newRows: SearchResult[] = Array.isArray(data)
+        ? data.map(it => ({
+            title: it.title ?? '(no title)',
+            url: it.url ?? '',
+            snippet: it.snippet ?? '',
+          }))
+        : [];
+
+      setSearchResults(prev => {
+        const seen = new Set(prev.map(r => r.url));
+        const merged = [...prev];
+        for (const r of newRows) {
+          if (r.url && !seen.has(r.url)) {
+            seen.add(r.url);
+            merged.push(r);
+          }
+        }
+        return merged;
+      });
+
+      const npRaw = res.headers.get('x-next-page');
+      setNextPage(npRaw ? Number(npRaw) : null);
+
+      const totalRaw = res.headers.get('x-total-results');
+      setTotalResults(totalRaw ? Number(totalRaw) : null);
+
+      if (newRows.length === 0) setNextPage(null);
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : 'Load more failed';
+      setError(msg.includes('Failed to fetch')
+        ? 'Network error. Is your server running and reachable?'
+        : msg);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [nextPage, lastQuery]);
 
   /* ---------- Selection handlers ---------- */
   const onToggleRow = useCallback((url: string) => {
@@ -173,6 +263,10 @@ const UrlCollectorPage: React.FC = () => {
     setSelectedUrls(new Set());
     setHasSearched(false);
     setError(null);
+    setIsLoadingMore(false);
+    setNextPage(null);
+    setTotalResults(null);
+    setLastQuery('');
     setWebsite('');
     setKeywords('');
     try { localStorage.removeItem(LS_KEY); } catch {}
@@ -180,7 +274,7 @@ const UrlCollectorPage: React.FC = () => {
   }, [navigate]);
 
   return (
-      <main className="space-y-6">
+      <main className="space-y-6 pb-8">
       {/* Top loading bar (micro-feedback) */}
       {isLoading && (
         <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-40 h-1 overflow-hidden">
@@ -269,17 +363,43 @@ const UrlCollectorPage: React.FC = () => {
               <div className="py-12 text-center text-gray-600 dark:text-gray-300">
                 Start by entering a website and keywords above.
               </div>
-            ) : (
-              <ResultsTable
-                results={searchResults}
-                selectable
-                selectedUrls={selectedUrls}
-                onToggleRow={onToggleRow}
-                onToggleAll={onToggleAll}
-                onClear={handleClear}
-                sortKey={sortKey}
-                onSortChange={(k) => setSortKey(k)}
-              />
+              ) : (
+              <>
+                <ResultsTable
+                  results={searchResults}
+                  selectable
+                  selectedUrls={selectedUrls}
+                  onToggleRow={onToggleRow}
+                  onToggleAll={onToggleAll}
+                  onClear={handleClear}
+                  sortKey={sortKey}
+                  onSortChange={(k) => setSortKey(k)}
+                />
+
+                {hasSearched && searchResults.length > 0 && (
+                  <div className="mt-4 flex flex-col items-center gap-2 pb-2">
+                    {typeof totalResults === 'number' && !Number.isNaN(totalResults) && (
+                      <div className="text-xs text-gray-600 dark:text-gray-300">
+                        Showing {searchResults.length} of {totalResults.toLocaleString()} results
+                      </div>
+                    )}
+
+                    {nextPage ? (
+                      <button
+                        type="button"
+                        onClick={handleLoadMore}
+                        disabled={isLoading || isLoadingMore}
+                        className="btn-primary rounded-full px-5 py-2 disabled:opacity-60"
+                        title="Load more results"
+                      >
+                        {isLoadingMore ? 'Loading…' : 'Load more'}
+                      </button>
+                    ) : (
+                      <div className="text-xs text-gray-500">No more results</div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </SmartCard>

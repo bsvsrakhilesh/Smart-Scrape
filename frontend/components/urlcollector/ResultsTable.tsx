@@ -123,8 +123,9 @@ function exportToCsv(rows: SearchResult[], filename = 'results') {
   URL.revokeObjectURL(url);
 }
 
-type SortKey = 'original' | 'title' | 'domain';
 type SavedFilter = 'all' | 'saved' | 'unsaved';
+type SortKey = 'original' | 'title' | 'domain';
+type SortDir = 'asc' | 'desc';
 
 /* ---------------- component ---------------- */
 
@@ -149,6 +150,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   const [sortKeyLocal, setSortKeyLocal] = useState<SortKey>('original');
   const sortKey = (sortKeyProp ?? sortKeyLocal) as SortKey;
   const setSortKey = onSortChange ?? setSortKeyLocal;
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // Collection picker state (Save)
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
@@ -252,11 +254,35 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   const sorted = useMemo(() => {
     if (sortKey === 'original') return results;
+    const dir = sortDir === 'asc' ? 1 : -1;
     const clone = [...results];
-    if (sortKey === 'title') clone.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-    if (sortKey === 'domain') clone.sort((a, b) => host(a.url).localeCompare(host(b.url)));
+  
+    if (sortKey === 'title') {
+      // Stable-ish sort: tie-break by URL so ordering doesn't flicker
+      clone.sort((a, b) => {
+        const tA = (a.title || '').toLowerCase();
+        const tB = (b.title || '').toLowerCase();
+        if (tA === tB) return a.url.localeCompare(b.url) * dir;
+        return tA.localeCompare(tB) * dir;
+      });
+    }
+  
+    if (sortKey === 'domain') {
+      clone.sort((a, b) => {
+        const dA = host(a.url).toLowerCase();
+        const dB = host(b.url).toLowerCase();
+        if (dA === dB) {
+          const tA = (a.title || '').toLowerCase();
+          const tB = (b.title || '').toLowerCase();
+          if (tA === tB) return a.url.localeCompare(b.url) * dir;
+          return tA.localeCompare(tB) * dir;
+        }
+        return dA.localeCompare(dB) * dir;
+      });
+    }
+  
     return clone;
-  }, [results, sortKey]);
+  }, [results, sortKey, sortDir]);
 
   // Dedupe + duplicate counters
   const { displayed, dupCountByUrl, duplicatesRemoved } = useMemo(() => {
@@ -324,16 +350,40 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     });
   }, [displayed, filterQuery, filterDomain, savedFilter, selectedOnly, selected, rowSaved]);
 
+  // Pagination (10 per page)
+  const PAGE_SIZE = 10;
+  const [page, setPage] = useState(1);
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)), [filtered.length]);
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const pageEnd = Math.min(filtered.length, pageStart + PAGE_SIZE);
+  const pageRows = useMemo(() => filtered.slice(pageStart, pageStart + PAGE_SIZE), [filtered, pageStart]);
+  
+  // When filters/sort/dedupe change, jump back to page 1 so the user doesn't land on an empty page.
+  useEffect(() => {
+    setPage(1);
+  }, [filterQuery, filterDomain, savedFilter, selectedOnly, sortKey, sortDir, hideDuplicates, results.length]);
+
   const allSelected = useMemo(() => {
-    if (filtered.length === 0) return false;
-    for (const r of filtered) if (!selected.has(r.url)) return false;
+    if (pageRows.length === 0) return false;
+    for (const r of pageRows) if (!selected.has(r.url)) return false;
     return true;
   }, [filtered, selected]);
 
   const toggleAll = () => {
+    // Parent-controlled selection: keep existing behavior.
+    // Local selection: toggle only the current page to match pagination UX.
     if (onToggleAll) return onToggleAll();
-    if (allSelected) setLocalSelected(new Set());
-    else setLocalSelected(new Set(filtered.map((r) => r.url)));
+    
+    if (allSelected) {
+      const next = new Set(localSelected);
+      pageRows.forEach((r) => next.delete(r.url));
+      setLocalSelected(next);
+    } else {
+      const next = new Set(localSelected);
+      pageRows.forEach((r) => next.add(r.url));
+      setLocalSelected(next);
+    }
   };
 
   const toggleRow = (url: string) => {
@@ -566,8 +616,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           <div className="text-sm text-gray-600">
             {results.length ? (
               <>
-                Showing <span className="font-medium text-gray-900">{filtered.length}</span> of{' '}
-                <span className="font-medium text-gray-900">{displayed.length}</span>
+                Showing{' '}
+                <span className="font-medium text-gray-900">
+                  {filtered.length === 0 ? 0 : pageStart + 1}-{pageEnd}
+                </span>{' '}
+                of <span className="font-medium text-gray-900">{filtered.length}</span>
                 {hideDuplicates && duplicatesRemoved > 0 && (
                   <span className="ml-2 text-xs text-gray-500">
                     ({duplicatesRemoved} duplicate{duplicatesRemoved === 1 ? '' : 's'} hidden)
@@ -668,20 +721,36 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
               <ListFilterIcon className="h-4 w-4 text-gray-500" />
               <select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                onChange={(e) => {
+                  const next = e.target.value as SortKey;
+                  setSortKey(next);
+                  if (next === 'original') setSortDir('asc');
+                }}
                 className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-200"
                 aria-label="Sort results"
               >
-                <option value="original">Original order</option>
+                <option value="original">Relevance</option>
                 <option value="title">Title</option>
                 <option value="domain">Domain</option>
               </select>
+              
+              {sortKey !== 'original' && (
+                <button
+                  type="button"
+                  onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                  className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-200"
+                  aria-label={sortDir === 'asc' ? 'Sort descending' : 'Sort ascending'}
+                  title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
+                >
+                  {sortDir === 'asc' ? 'A→Z' : 'Z→A'}
+                </button>
+              )}
             </div>
 
             {selectable && filtered.length > 0 && (
               <label className="ml-1 flex cursor-pointer select-none items-center gap-2 text-sm text-gray-700">
                 <input type="checkbox" className="h-4 w-4" checked={allSelected} onChange={toggleAll} />
-                Select all (filtered)
+                Select all ({onToggleAll ? 'loaded' : 'page'})
               </label>
             )}
           </div>
@@ -705,9 +774,58 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         </div>
       </div>
 
+      {/* Pagination */}
+      {filtered.length > 0 && totalPages > 1 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-white/70 px-3 py-2 text-sm">
+          <div className="text-gray-600">
+            Page <span className="font-medium text-gray-900">{safePage}</span> of{' '}
+            <span className="font-medium text-gray-900">{totalPages}</span>
+          </div>
+      
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage(1)}
+              disabled={safePage <= 1}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              aria-label="First page"
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Previous page"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Next page"
+            >
+              Next
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(totalPages)}
+              disabled={safePage >= totalPages}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+              aria-label="Last page"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Results */}
       <StaggerList as="ul" className="space-y-2 m-0 p-0">
-        {filtered.map((r) => {
+        {pageRows.map((r) => {
           const h = host(r.url);
           const isChecked = selected.has(r.url);
           const isSaved = !!rowSaved[r.url];

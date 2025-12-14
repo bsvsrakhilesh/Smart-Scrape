@@ -8,6 +8,10 @@ import SmartCard  from '../components/ui/SmartCard';
 
 const LS_KEY = 'uc:v1';
 
+// UX targets
+const RESULTS_PER_PAGE = 10;
+const INITIAL_RESULTS_TARGET = 50; // fetch up to this many automatically on a single Search
+
 type SortKey = 'original' | 'title' | 'domain';
 
 type PersistShape = {
@@ -45,6 +49,9 @@ const UrlCollectorPage: React.FC = () => {
   const [totalResults, setTotalResults] = useState<number | null>(null);
   const [lastQuery, setLastQuery] = useState<string>('');
 
+  // Auto-prefetch progress (so the UI can say "Loading 30/50 results…")
+  const [prefetchCount, setPrefetchCount] = useState<number>(0);
+
   // Selection must be Set<string> for ResultsTable
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
 
@@ -53,6 +60,9 @@ const UrlCollectorPage: React.FC = () => {
 
   // Abort in-flight searches when a new one starts
   const fetchAbortRef = useRef<AbortController | null>(null);
+
+  // Scroll target for the results section
+  const resultsSectionRef = useRef<HTMLElement | null>(null);
 
   /* ---------- Restore persisted state ---------- */
   useEffect(() => {
@@ -135,40 +145,88 @@ const UrlCollectorPage: React.FC = () => {
 
     try {
       const q = `${site ? `site:${site} ` : ''}${kws}`.trim();
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=1`, {
-        headers: { Accept: 'application/json' },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        if (res.status === 429) {
-          throw new Error('RATE_LIMITED');
+
+      // Helper to fetch a specific page from the backend
+      const fetchPage = async (page: number) => {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&page=${page}`, {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 429) throw new Error('RATE_LIMITED');
+          const text = await res.text().catch(() => '');
+          throw new Error(`Proxy error ${res.status}: ${text || res.statusText}`);
         }
-        const text = await res.text().catch(() => '');
-        throw new Error(`Proxy error ${res.status}: ${text || res.statusText}`);
-      }
 
-      const data = (await res.json()) as SearchResult[];
-      const results: SearchResult[] = Array.isArray(data)
-        ? data.map(it => ({
-            title: it.title ?? '(no title)',
-            url: it.url ?? '',
-            snippet: it.snippet ?? '',
-          }))
-        : [];
-            setLastQuery(q);
+        const data = (await res.json()) as SearchResult[];
+        const rows: SearchResult[] = Array.isArray(data)
+          ? data.map(it => ({
+              title: it.title ?? '(no title)',
+              url: it.url ?? '',
+              snippet: it.snippet ?? '',
+            }))
+          : [];
 
-      const npRaw = res.headers.get('x-next-page');
-      setNextPage(npRaw ? Number(npRaw) : null);
+        const npRaw = res.headers.get('x-next-page');
+        const next = npRaw ? Number(npRaw) : null;
 
-      const totalRaw = res.headers.get('x-total-results');
-      setTotalResults(totalRaw ? Number(totalRaw) : null);
+        const totalRaw = res.headers.get('x-total-results');
+        const total = totalRaw ? Number(totalRaw) : null;
 
-      setSearchResults(results);
+        return { rows, nextPage: next, totalResults: total };
+      };
+
+      setLastQuery(q);
+      setPrefetchCount(0);
+
+      // 1) Fetch page 1 immediately
+      const p1 = await fetchPage(1);
+      setSearchResults(p1.rows);
       setSelectedUrls(new Set());
+      setNextPage(p1.nextPage);
+      setTotalResults(p1.totalResults);
+      setPrefetchCount(p1.rows.length);
 
-      if (results.length === 0) {
+      // Scroll the results into view once we have something to show
+      requestAnimationFrame(() => {
+        resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      if (p1.rows.length === 0) {
         setError('No results found. Try different keywords or remove the site: filter.');
+        return;
       }
+
+      // 2) Auto-prefetch up to 50 results (5 pages x 10 results)
+      const seen = new Set(p1.rows.map(r => r.url));
+      let merged = [...p1.rows];
+      let np = p1.nextPage;
+      const maxPages = Math.ceil(INITIAL_RESULTS_TARGET / RESULTS_PER_PAGE);
+      let pagesFetched = 1;
+
+      while (!controller.signal.aborted && np && merged.length < INITIAL_RESULTS_TARGET && pagesFetched < maxPages) {
+        const pn = await fetchPage(np);
+        pagesFetched += 1;
+
+        for (const r of pn.rows) {
+          if (r.url && !seen.has(r.url)) {
+            seen.add(r.url);
+            merged.push(r);
+            if (merged.length >= INITIAL_RESULTS_TARGET) break;
+          }
+        }
+
+        setSearchResults([...merged]);
+        setPrefetchCount(merged.length);
+        setNextPage(pn.nextPage);
+        if (typeof pn.totalResults === 'number') setTotalResults(pn.totalResults);
+        np = pn.nextPage;
+
+        // If a page returns no rows, stop trying.
+        if (pn.rows.length === 0) break;
+      }
+
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         if (e?.message === 'RATE_LIMITED') {
@@ -183,6 +241,7 @@ const UrlCollectorPage: React.FC = () => {
     } finally {
       if (fetchAbortRef.current === controller) fetchAbortRef.current = null;
       setIsLoading(false);
+      setPrefetchCount(0);
     }
   }, [navigate, website, keywords]);
 
@@ -313,9 +372,16 @@ const UrlCollectorPage: React.FC = () => {
           onWebsiteChange={setWebsite}
           onKeywordsChange={setKeywords}
         />
-        <div className="mt-3 flex items-center gap-3" role="status" aria-live="polite">
+        <div className="mt-3 flex flex-wrap items-center gap-3" role="status" aria-live="polite">
           {isLoading && <Spinner />}
           {error && <span className="text-red-700 dark:text-red-300 text-sm">{error}</span>}
+
+          {isLoading && !error && hasSearched && (
+            <span className="text-gray-600 dark:text-gray-300 text-sm">
+              Loading {prefetchCount || Math.min(searchResults.length, INITIAL_RESULTS_TARGET)}/{INITIAL_RESULTS_TARGET} results…
+            </span>
+          )}
+
           {!isLoading && hasSearched && (
             <span className="text-gray-600 dark:text-gray-300 text-sm">
               {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
@@ -328,7 +394,7 @@ const UrlCollectorPage: React.FC = () => {
       </section>
 
       {/* Results (sticky toolbar inside the card) */}
-      <section aria-labelledby="results-title" className="space-y-4">
+      <section ref={resultsSectionRef} aria-labelledby="results-title" className="space-y-4">
          <SmartCard as="div" className="fm-panel !bg-transparent !border-none !shadow-none overflow-hidden">
           {/* Sticky header row */}
           <div className="flex items-center sticky top-0 z-10 px-3 sm:px-4 py-3 backdrop-blur-sm">

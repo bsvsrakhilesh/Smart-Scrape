@@ -75,9 +75,8 @@ services:
     environment:
       PORT: 7071
       REDIS_URL: redis://redis:6379/0
-      # Optional (enables LLM-based reranking):
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LLM_MODEL: ${LLM_MODEL}
+    env_file:
+      - ./ai-tagger/.env.example
     ports:
       - "7071:7071"
     depends_on:

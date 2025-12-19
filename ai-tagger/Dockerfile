@@ -13,6 +13,9 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+# Install spaCy English model so noun_chunks + NER actually work
+RUN python -m spacy download en_core_web_sm
+
 # Code
 COPY . /app
 RUN chown -R appuser:appuser /app

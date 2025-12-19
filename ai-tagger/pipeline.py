@@ -29,6 +29,15 @@ except Exception:  # pragma: no cover
 
 log = logging.getLogger("pipeline")
 TAGGER_VERSION = os.getenv("TAGGER_VERSION", "0.2.1")
+# Optional advanced candidate generator (KeyBERT/YAKE/spaCy).
+# Safe: if deps/models aren't available it simply won't be used.
+try:
+    from candidates import generate_candidates  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        from .candidates import generate_candidates  # type: ignore
+    except Exception:  # pragma: no cover
+        generate_candidates = None  # type: ignore
 
 # simple tokenizer (letters/digits/hyphen/+/underscore); no trailing dots
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9\-+/_]*")
@@ -45,6 +54,55 @@ sometimes somewhere still such t than that the their theirs them themselves then
 they this those though through to too under until up us very via was wasn we well were weren what when
 where whether which while who whom whose why will with within without won would wouldn you your yours yourself yourselves
 """.split())
+
+# High-signal tokens/phrases that often appear only once but should still surface as tags:
+# - Acronyms: DPCC, CPCB, IIT
+# - Acronym + Word: IIT Bombay
+# - Alphanum: PM10, PM2.5
+# - Proper noun sequences: Delhi Pollution Control Committee
+_ACRONYM_RE = re.compile(r"\b[A-Z]{2,10}\b")
+_ACRONYM_WITH_WORD_RE = re.compile(r"\b([A-Z]{2,10})\s+([A-Z][a-z]{2,})\b")
+_ALPHANUM_RE = re.compile(r"\b[A-Z]{1,6}\d+(?:\.\d+)?\b")
+_TITLE_SEQ_RE = re.compile(r"\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b")
+
+
+def _extract_signal_terms(text: str, limit: int = 60000) -> List[str]:
+    """Extract rare-but-important terms in order of appearance; de-duped."""
+    if not text:
+        return []
+
+    t = text[:limit]
+    out: List[str] = []
+    seen = set()
+
+    def add(s: str) -> None:
+        s = (s or "").strip()
+        if not s:
+            return
+        k = s.casefold()
+        if k in seen:
+            return
+        if len(s) < 3:
+            return
+        if " " not in s and k in _STOPWORDS:
+            return
+        seen.add(k)
+        out.append(s)
+
+    # Most specific first
+    for m in _ACRONYM_WITH_WORD_RE.finditer(t):
+        add(f"{m.group(1)} {m.group(2)}")
+
+    for m in _TITLE_SEQ_RE.finditer(t):
+        add(m.group(0))
+
+    for m in _ALPHANUM_RE.finditer(t):
+        add(m.group(0))
+
+    for m in _ACRONYM_RE.finditer(t):
+        add(m.group(0))
+
+    return out[:80]
 
 def _tokenize(text: str) -> List[str]:
     return [m.group(0).lower() for m in _WORD_RE.finditer(text)]
@@ -132,8 +190,30 @@ def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = Non
 
     unigrams = _extract_unigrams(tokens, topk=200)
     phrases  = _extract_phrases(tokens, topk=200)
-    raw_tags = _pick_top_tags(phrases, unigrams, topk=topk)
-    tags     = apply_taxonomy(raw_tags)
+
+    # NEW: rare-but-important signal terms (DPCC/CPCB/PM10/IIT Bombay/etc.)
+    signals = _extract_signal_terms(content)
+
+    # NEW: semantic/keyword candidates (KeyBERT/YAKE/spaCy) when available
+    adv: List[str] = []
+    if generate_candidates is not None:
+        try:
+            adv = generate_candidates(content, topn=min(180, max(40, topk * 10)))  # type: ignore
+        except Exception as e:
+            log.debug("generate_candidates failed: %s", e)
+            adv = []
+
+    # Combine sources in priority order; stable de-dupe
+    combined: List[str] = []
+    combined = []
+    for seq in (signals, adv, phrases, unigrams):
+        for s in seq:
+            if s and s not in combined:
+                combined.append(s)
+
+    # Apply taxonomy normalization and take top-k
+    tags = apply_taxonomy(combined)[:topk]
+    raw_tags = combined[: max(60, topk * 8)]
 
     llm_used = False
     llm_model: Optional[str] = None

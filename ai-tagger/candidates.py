@@ -60,7 +60,8 @@ def _lazy_spacy():
     try:
         import spacy  # type: ignore
         try:
-            _NLP = spacy.load("en_core_web_sm", disable=["tagger", "parser", "lemmatizer"])
+            # Keep parser + ner enabled (noun_chunks and ents need them). Only drop lemmatizer for speed.
+            _NLP = spacy.load("en_core_web_sm", disable=["lemmatizer"])
         except Exception:
             _NLP = None
         if _NLP is not None:

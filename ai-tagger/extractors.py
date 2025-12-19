@@ -1,29 +1,136 @@
 # ai-tagger/extractors.py
-"""
-Lightweight content extraction helpers used by the pipeline.
-
-We expose three compatibility functions expected elsewhere:
-- from_text(text)           -> str
-- from_url(url)             -> str
-- from_file(file_bytes, file_name=None) -> str
-
-Internally we also support PDF/DOCX and optional OCR fallback.
-"""
-
 from __future__ import annotations
 
 import io
 import os
 from typing import Optional
 
+import re
+
+try:
+    # trafilatura depends on lxml in practice; this lets us pre-clean HTML safely
+    from lxml import html as lxml_html  # type: ignore
+except Exception:  # pragma: no cover
+    lxml_html = None  # type: ignore
+
 import requests
 import trafilatura
-from docx import Document
 from pdfminer.high_level import extract_text as pdfminer_extract
 
 # Toggle OCR with an env var if your images/PDFs need it
 OCR_ENABLED = os.getenv("OCR_ENABLED", "false").lower() == "true"
 
+# Remove common publisher chrome before extraction (nav/footer/live widgets/etc.)
+_DROP_TAGS = {
+    "script", "style", "noscript", "svg", "iframe",
+    "header", "footer", "nav", "aside", "form", "button"
+}
+
+# Match class/id/aria/role hints that usually indicate chrome/ads/widgets
+_DROP_HINT_RE = re.compile(
+    r"(nav|menu|footer|header|subscribe|newsletter|sign[\s-]?in|login|cookie|consent|"
+    r"share|social|follow|advert|ad-|ads|promo|banner|related|trending|recommended|"
+    r"live|election|results)",
+    flags=re.IGNORECASE,
+)
+
+# Candidate containers that often hold the main article body
+_MAIN_XPATHS = [
+    "//article",
+    "//main",
+    "//*[@role='main']",
+    "//div[contains(@class,'article') or contains(@id,'article')]",
+    "//div[contains(@class,'content') or contains(@id,'content')]",
+]
+
+
+def _strip_boilerplate_html(html: str) -> str:
+    """
+    Pre-clean HTML to reduce non-article text leaking into extraction.
+    Safe fallback: if lxml isn't available, return original HTML unchanged.
+    """
+    if not html or lxml_html is None:
+        return html
+
+    try:
+        tree = lxml_html.fromstring(html)
+
+        # Drop obvious chrome tags
+        for tag in _DROP_TAGS:
+            for el in tree.xpath(f"//{tag}"):
+                el.drop_tree()
+
+        # Drop elements with chrome-like class/id/labels
+        for el in list(tree.iter()):
+            cls = el.get("class", "") or ""
+            _id = el.get("id", "") or ""
+            role = el.get("role", "") or ""
+            aria = el.get("aria-label", "") or ""
+            hay = " ".join([cls, _id, role, aria])
+            if hay and _DROP_HINT_RE.search(hay):
+                el.drop_tree()
+
+        # Prefer a main container if it exists (article/main/etc.)
+        best = None
+        best_len = 0
+        for xp in _MAIN_XPATHS:
+            for node in tree.xpath(xp):
+                txt = " ".join(node.itertext()).strip()
+                L = len(txt)
+                if L > best_len:
+                    best_len = L
+                    best = node
+
+        if best is not None and best_len >= 400:
+            tree = best
+
+        result = lxml_html.tostring(tree, encoding="unicode", method="html")
+        return result if isinstance(result, str) else str(result)
+    except Exception:
+        return html
+
+# Heuristic boilerplate filters for common publisher chrome that can leak into
+# extraction (e.g., "Election results", "Live", nav/footer blocks).
+_NOISE_LINE_PATTERNS = [
+    r"\belection\b",
+    r"\blive\b",
+    r"\blive updates\b",
+    r"\bresults\b",
+    r"\bsubscribe\b",
+    r"\bprivacy policy\b",
+    r"\bterms of use\b",
+    r"\bnewsletter\b",
+]
+_NOISE_LINE_RE = re.compile("|".join(_NOISE_LINE_PATTERNS), flags=re.IGNORECASE)
+
+def _cleanup_extracted_text(text: str) -> str:
+    """Drop obvious boilerplate lines that still slip through extraction."""
+    if not text:
+        return ""
+
+    out_lines = []
+    seen = set()
+    for raw in text.splitlines():
+        line = (raw or "").strip()
+        if not line:
+            continue
+
+        # Very short nav-ish fragments
+        if len(line) <= 2:
+            continue
+
+        # Common publisher chrome / widgets
+        if _NOISE_LINE_RE.search(line):
+            continue
+
+        # De-dupe repeated header/footer lines
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out_lines.append(line)
+
+    return "\n".join(out_lines)
 
 # ---------------------------
 # Primitive extractors
@@ -50,6 +157,11 @@ def _from_docx_bytes(data: bytes) -> str:
     """Extract text from DOCX bytes."""
     try:
         with io.BytesIO(data) as bio:
+            # Local import to avoid top-level import errors if python-docx is absent
+            try:
+                from docx import Document  # lazy import
+            except Exception:
+                return ""
             doc = Document(bio)
             return "\n".join(p.text for p in doc.paragraphs)
     except Exception:
@@ -79,8 +191,30 @@ def from_url(url: str) -> str:
     html = resp.text or ""
     if not html:
         return ""
-    return trafilatura.extract(html, include_comments=False, include_tables=False) or ""
-
+    
+    html = _strip_boilerplate_html(html)
+    # Try a precision-first extraction to reduce chrome leakage.
+    txt = trafilatura.extract(
+        html,
+        url=url,
+        include_comments=False,
+        include_tables=False,
+        favor_precision=True,
+        deduplicate=True,
+    )
+    
+    # Fallback: sometimes precision is too aggressive on certain publishers.
+    if not txt or len(txt) < 250:
+        txt = trafilatura.extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            favor_recall=True,
+            deduplicate=True,
+        )
+    
+    return _cleanup_extracted_text(txt or "")
 
 def from_file(file_bytes: bytes, file_name: Optional[str] = None) -> str:
     """

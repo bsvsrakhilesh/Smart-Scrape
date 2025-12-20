@@ -167,7 +167,6 @@ def _from_docx_bytes(data: bytes) -> str:
     except Exception:
         return ""
 
-
 # ---------------------------
 # Public API (compatibility)
 # ---------------------------

@@ -8,7 +8,7 @@ import * as cheerio from "cheerio";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import puppeteer, { Browser, LaunchOptions, Page } from "puppeteer";
-import { scheduleFileAutoTag } from "../services/tag.service"; 
+import { scheduleAiTagForFile } from "../services/aiTagAuto.service"; 
 import dns from "node:dns/promises";
 import * as ipaddr from "ipaddr.js";
 import robotsParser from "robots-parser";
@@ -300,11 +300,8 @@ export async function crawlTextHandler(req: Request, res: Response, next: NextFu
       }
     }
 
-    // 5) Background auto-tagging
-    scheduleFileAutoTag(prisma, fileRec.id).catch((e) =>
-      log.error('crawl_pdf_schedule_autotag_failed', {
-    ...requestMeta(req),  fileId: fileRec.id,   error: String(e),
-    }));
+    // 5) Background auto-tagging (Python ai-tagger)
+    scheduleAiTagForFile(String(fileRec.id));
 
     // 6) Return latest (after any tag copy)
     const latest = await prisma.storedFile.findUnique({ where: { id: fileRec.id } });
@@ -437,10 +434,8 @@ const tryMakePdf = async () => {
       }
     }
 
-    // 3) Background auto-tagging
-    scheduleFileAutoTag(prisma, fileRec.id).catch((e) =>
-      console.error("[crawlPdf] scheduleFileAutoTag failed", fileRec.id, e)
-    );
+    // 3) Background auto-tagging (Python ai-tagger)
+    scheduleAiTagForFile(String(fileRec.id));
 
     // 4) Return latest
     const latest = await prisma.storedFile.findUnique({ where: { id: fileRec.id } });

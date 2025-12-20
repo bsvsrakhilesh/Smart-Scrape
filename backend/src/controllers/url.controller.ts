@@ -10,6 +10,7 @@ import {
   GetAllOpts,
   UpdateUrlInput,
 } from '../services/url.service';
+import { extractPreviewFromUrl } from '../services/extract.service';
 
 /* ----------------------- helpers ----------------------- */
 
@@ -186,6 +187,18 @@ export async function updateUrlByIdHandler(req: Request, res: Response, next: Ne
     }
     const updated = await updateUrlById(id, payload);
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function previewUrlHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { url } = (req.body ?? {}) as { url?: string };
+    if (!url) return res.status(400).json({ message: 'Body must include { url }' });
+
+    const { title, snippet } = await extractPreviewFromUrl(url);
+    res.json({ url, title, snippet });
   } catch (err) {
     next(err);
   }

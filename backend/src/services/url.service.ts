@@ -106,16 +106,12 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
     }
   }
 
-  // 🔹 Non-blocking phrase-aware + unigram tagging
-  for (const { id, url } of created) {
-    setImmediate(async () => {
-      try {
-        const { tagUrlRecord } = await import('./tag.service');
-        await tagUrlRecord(id, url);
-      } catch (err) {
-        console.error('tagUrlRecord failed (bulk create)', id, err);
-      }
-    });
+  // 🔹 Non-blocking tagging via Python ai-tagger
+  try {
+    const { scheduleAiTagForUrl } = await import("./aiTagUrlAuto.service");
+    for (const { id } of created) scheduleAiTagForUrl(id);
+  } catch (err) {
+    console.error("scheduleAiTagForUrl import failed (bulk create)", err);
   }
 
   return { added, skipped, skippedUrls };

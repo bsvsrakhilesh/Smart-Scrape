@@ -265,16 +265,12 @@ r.post('/files/upload/chunk', chunkUpload.single('chunk'), async (req, res, next
         create: createData,
       });
 
-      // Kick async tagging (does not block API)
+      // Kick async tagging via Python ai-tagger (does not block API)
       try {
-        const { tagFileRecord } = await import('../services/tag.service');
-        const fileId = String(rec.id);
-        const filePath = String(rec.storagePath);
-        const mimeNow = updateData.mimeType || createData.mimeType || 'application/octet-stream';
-        setImmediate(() => tagFileRecord(String(fingerprint), String(finalPath), String(mimeNow))
-          .catch(err => console.error('tagFileRecord (chunked finalize) failed', fingerprint, err)));
+        const { scheduleAiTagForFile } = await import("../services/aiTagAuto.service");
+        scheduleAiTagForFile(String(rec.id));
       } catch (e) {
-        console.error('tag service import failed', e);
+        console.error("aiTagAuto import failed", e);
       }
     }
 
@@ -384,17 +380,14 @@ r.post('/files/finalize', async (req, res, next) => {
 
     res.json(record);
 
-    // 🔹 Kick async tagging for non-chunk flow
+    // Kick async tagging via Python ai-tagger (does not block API)
     try {
-      const { tagFileRecord } = await import('../services/tag.service');
-      const fileId = String(record.id);
-      const filePath = String(record.storagePath);
-      const mimeNow = record.mimeType || updateData.mimeType || 'application/octet-stream';
-      setImmediate(() => tagFileRecord(String(record.id), String(record.storagePath), String(mimeNow))
-        .catch(err => console.error('tagFileRecord (finalize) failed', record.id, err)));
+      const { scheduleAiTagForFile } = await import("../services/aiTagAuto.service");
+      scheduleAiTagForFile(String(record.id));
     } catch (e) {
-      console.error('tag service import failed', e);
+      console.error("aiTagAuto import failed", e);
     }
+
   } catch (err) {
     next(err);
   }

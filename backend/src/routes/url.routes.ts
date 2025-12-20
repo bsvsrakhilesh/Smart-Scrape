@@ -6,6 +6,7 @@ import {
   deleteUrlByIdHandler,
   deleteUrlsBulkHandler,
   updateUrlByIdHandler,
+  previewUrlHandler,
 } from '../controllers/url.controller';
 import { z } from 'zod';
 import { validate } from '../middlewares/validate';
@@ -19,7 +20,12 @@ const createUrlsBody = z.object({
   })).min(1),
 });
 
+const previewUrlBody = z.object({
+  url: z.string().url(),
+});
+
 // Mounted at /api
+r.post('/urls/preview', validate({ body: previewUrlBody }), previewUrlHandler);
 r.get('/urls', getUrlsHandler);
 r.get('/urls/:id', getUrlByIdHandler);
 r.post('/urls', validate({ body: createUrlsBody }), createUrlsHandler);

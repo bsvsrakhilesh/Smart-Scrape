@@ -6,6 +6,7 @@ import os
 from typing import Optional
 
 import re
+import json
 
 try:
     # trafilatura depends on lxml in practice; this lets us pre-clean HTML safely
@@ -33,6 +34,18 @@ _DROP_HINT_RE = re.compile(
     r"live|election|results)",
     flags=re.IGNORECASE,
 )
+
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
 
 # Candidate containers that often hold the main article body
 _MAIN_XPATHS = [
@@ -88,6 +101,68 @@ def _strip_boilerplate_html(html: str) -> str:
         return result if isinstance(result, str) else str(result)
     except Exception:
         return html
+
+def _jsonld_fallback(html: str) -> str:
+    """
+    Many publishers render the page with JS but still embed usable content in JSON-LD.
+    We try to extract articleBody/description/headline from <script type="application/ld+json"> blocks.
+    """
+    if not html:
+        return ""
+
+    scripts = re.findall(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    chunks = []
+    for raw in scripts:
+        raw = (raw or "").strip()
+        if not raw:
+            continue
+
+        # Some sites include multiple JSON objects or invalid trailing commas.
+        # Try a couple of normalizations.
+        candidates = [raw]
+        candidates.append(raw.replace("\n", " ").strip())
+
+        obj = None
+        for c in candidates:
+            try:
+                obj = json.loads(c)
+                break
+            except Exception:
+                obj = None
+
+        if obj is None:
+            continue
+
+        def walk(x):
+            if isinstance(x, dict):
+                yield x
+                for v in x.values():
+                    yield from walk(v)
+            elif isinstance(x, list):
+                for it in x:
+                    yield from walk(it)
+
+        for d in walk(obj):
+            # Common fields for articles
+            for k in ("articleBody", "description", "headline", "name"):
+                v = d.get(k)
+                if isinstance(v, str) and len(v.strip()) >= 80:
+                    chunks.append(v.strip())
+
+    # de-dupe while preserving order
+    seen = set()
+    out = []
+    for c in chunks:
+        if c not in seen:
+            seen.add(c)
+            out.append(c)
+
+    return "\n\n".join(out).strip()
 
 # Heuristic boilerplate filters for common publisher chrome that can leak into
 # extraction (e.g., "Election results", "Live", nav/footer blocks).
@@ -183,15 +258,23 @@ def from_url(url: str) -> str:
     """
     resp = requests.get(
         url,
-        timeout=15,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; SmartScrapeBot/1.0)"},
+        timeout=(10, 25),
+        headers=_DEFAULT_HEADERS,
+        allow_redirects=True,
     )
     resp.raise_for_status()
     html = resp.text or ""
     if not html:
         return ""
+    # Keep original HTML; our pre-clean can be too aggressive for some publishers.
+    orig_html = html
+    cleaned = _strip_boilerplate_html(html)
     
-    html = _strip_boilerplate_html(html)
+    # Only use cleaned HTML if it didn't destroy most of the page
+    if cleaned and len(cleaned) >= int(0.35 * len(orig_html)):
+        html = cleaned
+    else:
+        html = orig_html
     # Try a precision-first extraction to reduce chrome leakage.
     txt = trafilatura.extract(
         html,
@@ -212,6 +295,12 @@ def from_url(url: str) -> str:
             favor_recall=True,
             deduplicate=True,
         )
+    
+    # Final fallback: JSON-LD often contains the article text even when HTML is JS-heavy
+    if not txt or len(txt) < 250:
+        jsonld_txt = _jsonld_fallback(orig_html)
+        if jsonld_txt:
+            txt = jsonld_txt
     
     return _cleanup_extracted_text(txt or "")
 

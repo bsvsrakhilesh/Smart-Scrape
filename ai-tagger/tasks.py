@@ -129,11 +129,22 @@ def process_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         # ---- New: idempotency check before work ----
         fp = _fingerprint_payload(payload)
         cached = _cache_get(fp)
+        
         if cached:
-            # Non-breaking: we don't alter the shape, but we can annotate if desired
-            cached.setdefault("cached", True)
-            log.info("idempotent_cache_hit", extra={"fingerprint": fp})
-            return cached
+            # If we previously cached an *empty* extraction for a URL, drop it and re-run.
+            # This prevents permanent "empty hash" loops.
+            if (payload.get("input_type") == "url") and int(cached.get("length") or 0) == 0:
+                log.warning("idempotent_cache_empty_drop", extra={"fingerprint": fp, "url": payload.get("url")})
+                try:
+                    _r.delete(_cache_key(fp))
+                except Exception:
+                    pass
+                cached = None
+            else:
+                # IMPORTANT: override cached flag so cache hits don't show cached=False
+                cached["cached"] = True
+                log.info("idempotent_cache_hit", extra={"fingerprint": fp})
+                return cached
 
         # Optional advanced pipeline
         try:
@@ -192,8 +203,22 @@ def process_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         # ---- New: save result in cache (idempotent) ----
         # Keep response shape as-is; we may annotate 'cached': False for tracing.
         out = dict(out) if isinstance(out, dict) else {"result": out}
-        out.setdefault("cached", False)
-        _cache_set(fp, out, CACHE_TTL)
+        
+        # response should show whether this call used cache
+        out["cached"] = False
+
+        # never store "cached" in Redis (cache metadata is per-response)
+        cache_data = dict(out)
+        cache_data.pop("cached", None)
+
+        # don't cache empty URL extractions
+        should_cache = True
+        if input_type == "url" and int(out.get("length") or 0) == 0:
+            should_cache = False
+            log.warning("skip_cache_empty_extraction", extra={"url": payload.get("url"), "fingerprint": fp})
+        
+        if should_cache:
+            _cache_set(fp, cache_data, CACHE_TTL)
 
         return out
 

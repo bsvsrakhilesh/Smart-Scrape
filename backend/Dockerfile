@@ -53,7 +53,7 @@ ENV FILE_STORAGE_DIR=/data
 # Copy runtime bits
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY backend/package.json backend/package-lock.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
 
 VOLUME ["/data"]

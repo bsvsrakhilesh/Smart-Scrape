@@ -75,6 +75,30 @@ export async function getUrlById(id: number): Promise<BackendUrlRow> {
 export async function deleteUrlsBulk(ids: number[]): Promise<void> {
   await api.delete('/api/urls', { data: { ids } });
 }
+export type UrlTaggingSummary = {
+  total: number;
+  untagged: number;
+  byStatus: Record<string, number>;
+  inProgress: number;
+  failed: number;
+  failedSample: Array<{
+    id: number;
+    url: string;
+    title: string | null;
+    taggingError: string | null;
+    updatedAt: string;
+  }>;
+};
+
+export async function getUrlTaggingSummary(): Promise<UrlTaggingSummary> {
+  const res = await api.get('/api/urls/tagging/summary');
+  return res.data as UrlTaggingSummary;
+}
+
+export async function retryFailedUrlTagging(body: { ids?: number[]; limit?: number } = {}) {
+  const res = await api.post('/api/urls/tagging/retry-failed', body);
+  return res.data as { scheduled: number; ids: number[]; failures?: Array<{ id: number; error: string }> };
+}
 
 export type SaveUrlsRequestRow = { url: string; title: string; snippet?: string };
 export type SaveUrlsResponse = { added: number; skipped: number };

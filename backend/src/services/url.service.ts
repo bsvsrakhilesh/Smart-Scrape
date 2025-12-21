@@ -1,5 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-import { scheduleAiTagForUrl } from "./aiTagUrlAuto.service";
+import { PrismaClient, Prisma, TaggingStatus } from '@prisma/client';
+import { scheduleAiTagForUrl } from './aiTagUrlAuto.service';
 
 const prisma = new PrismaClient();
 
@@ -170,6 +170,103 @@ export async function deleteUrlsBulk(ids: number[]) {
     }
   }
   return { deleted, failures };
+}
+
+/* -------------------------- tagging health -------------------------- */
+
+export type UrlTaggingSummary = {
+  total: number;
+  untagged: number;
+  byStatus: Record<string, number>;
+  inProgress: number;
+  failed: number;
+  failedSample: Array<{
+    id: number;
+    url: string;
+    title: string | null;
+    taggingError: string | null;
+    updatedAt: Date;
+  }>;
+};
+
+export async function getUrlTaggingSummary(): Promise<UrlTaggingSummary> {
+  const [total, untagged, grouped, failedSample] = await Promise.all([
+    prisma.url.count(),
+    prisma.url.count({ where: { tags: { isEmpty: true } } }),
+    prisma.url.groupBy({
+      by: ['taggingStatus'],
+      _count: { _all: true },
+    }),
+    prisma.url.findMany({
+      where: { taggingStatus: TaggingStatus.FAILED },
+      select: { id: true, url: true, title: true, taggingError: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+    }),
+  ]);
+
+  const byStatus: Record<string, number> = {
+    [TaggingStatus.NONE]: 0,
+    [TaggingStatus.PENDING]: 0,
+    [TaggingStatus.RUNNING]: 0,
+    [TaggingStatus.SUCCESS]: 0,
+    [TaggingStatus.FAILED]: 0,
+  };
+
+  for (const g of grouped) {
+    const key = g.taggingStatus ?? TaggingStatus.NONE;
+    byStatus[key] = g._count._all;
+  }
+
+  const inProgress = (byStatus[TaggingStatus.PENDING] || 0) + (byStatus[TaggingStatus.RUNNING] || 0);
+  const failed = byStatus[TaggingStatus.FAILED] || 0;
+
+  return { total, untagged, byStatus, inProgress, failed, failedSample };
+}
+
+export async function retryFailedUrlTagging(opts: { ids?: number[]; limit?: number } = {}) {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+
+  let targetIds: number[] = [];
+  if (Array.isArray(opts.ids) && opts.ids.length) {
+    targetIds = opts.ids.map(Number).filter((n) => Number.isFinite(n));
+  } else {
+    const rows = await prisma.url.findMany({
+      where: { taggingStatus: TaggingStatus.FAILED },
+      select: { id: true },
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+    });
+    targetIds = rows.map((r) => r.id);
+  }
+
+  if (!targetIds.length) {
+    return { scheduled: 0, ids: [] as number[] };
+  }
+
+  // Flip state immediately so UI can reflect "retrying" even before tagger finishes
+  await prisma.url.updateMany({
+    where: { id: { in: targetIds } },
+    data: {
+      taggingStatus: TaggingStatus.PENDING,
+      taggingError: null,
+      taggingJobId: null,
+    },
+  });
+
+  const scheduled: number[] = [];
+  const failures: Array<{ id: number; error: string }> = [];
+
+  for (const id of targetIds) {
+    try {
+      scheduleAiTagForUrl(id, { force: true });
+      scheduled.push(id);
+    } catch (e: any) {
+      failures.push({ id, error: e?.message || 'schedule failed' });
+    }
+  }
+
+  return { scheduled: scheduled.length, ids: scheduled, failures };
 }
 
 /** Keep exported: canonical URL normalizer (if other code imports it) */

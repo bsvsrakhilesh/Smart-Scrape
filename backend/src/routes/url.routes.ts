@@ -7,6 +7,8 @@ import {
   deleteUrlsBulkHandler,
   updateUrlByIdHandler,
   previewUrlHandler,
+  getUrlTaggingSummaryHandler,
+  retryFailedUrlTaggingHandler,
 } from '../controllers/url.controller';
 import { z } from 'zod';
 import { validate } from '../middlewares/validate';
@@ -24,9 +26,18 @@ const previewUrlBody = z.object({
   url: z.string().url(),
 });
 
+const retryFailedBody = z.object({
+  ids: z.array(z.number().int().positive()).optional(),
+  limit: z.number().int().positive().max(500).optional(),
+}).default({});
+
 // Mounted at /api
 r.post('/urls/preview', validate({ body: previewUrlBody }), previewUrlHandler);
 r.get('/urls', getUrlsHandler);
+
+r.get('/urls/tagging/summary', getUrlTaggingSummaryHandler);
+r.post('/urls/tagging/retry-failed', validate({ body: retryFailedBody }), retryFailedUrlTaggingHandler);
+
 r.get('/urls/:id', getUrlByIdHandler);
 r.post('/urls', validate({ body: createUrlsBody }), createUrlsHandler);
 r.delete('/urls/:id', deleteUrlByIdHandler);

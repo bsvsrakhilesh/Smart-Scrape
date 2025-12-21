@@ -7,7 +7,7 @@ import CollectionSidebar from '../components/savedurls/CollectionSidebar';
 import CollectionPickerModal from '../components/savedurls/CollectionPickerModal';
 import BulkActionBar from '../components/common/BulkActionBar';
 import {fetchSavedUrls as apiFetchSavedUrls, saveUrls as apiSaveUrls, patchUrl, deleteUrlsBulk,
-  type BackendUrlRow, crawlSavePdf, crawlSaveText, getUrlTagJob, startUrlTagJob, getUrlById} from '../lib/api';
+  type BackendUrlRow, type UrlTaggingSummary, getUrlTaggingSummary, retryFailedUrlTagging, crawlSavePdf, crawlSaveText, getUrlTagJob, startUrlTagJob, getUrlById} from '../lib/api';
 import FolderPickerModal from '../components/savedurls/FolderPickerModal';
 import { getCollections, createCollection, getUrlCollections, addUrlToCollection, setUrlCollections,} from '../utils/collections';
 import { StaggerList, StaggerItem } from '../components/motion/StaggerList';
@@ -52,6 +52,11 @@ const SavedUrlsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Tagging health banner
+  const [tagSummary, setTagSummary] = useState<UrlTaggingSummary | null>(null);
+  const [tagSummaryLoading, setTagSummaryLoading] = useState(false);
+  const [tagSummaryError, setTagSummaryError] = useState<string | null>(null);
+
   // Collections (left sidebar)
   const [collections, setCollections] = useState<Collection[]>(getCollections());
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | undefined>(undefined);
@@ -91,12 +96,43 @@ const SavedUrlsPage: React.FC = () => {
   const [pickerMode, setPickerMode] = useState<'text' | 'pdf'>('text');
   const [pickerTarget, setPickerTarget] = useState<UISavedUrl | null>(null);
 
+  const refreshTaggingSummary = useCallback(async () => {
+    try {
+      const s = await getUrlTaggingSummary();
+      setTagSummary(s);
+      setTagSummaryError(null);
+    } catch (e: any) {
+      setTagSummaryError(e?.message ?? 'Failed to load tagging summary');
+    }
+  }, []);
+
+  const handleRetryFailedTagging = useCallback(async () => {
+    try {
+      setTagSummaryLoading(true);
+      const out = await retryFailedUrlTagging(); // default retries newest failed (limit 50)
+      await refreshTaggingSummary();
+
+      // refresh rows so tags/status update on screen
+      const rows = await apiFetchSavedUrls();
+      setUrls(rows.map(toUISaved));
+
+      if (out?.scheduled === 0) {
+        alert('No failed items to retry.');
+      }
+    } catch (e: any) {
+      alert(e?.message ?? 'Retry failed');
+    } finally {
+      setTagSummaryLoading(false);
+    }
+  }, [refreshTaggingSummary]);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
         const rows = await apiFetchSavedUrls();
         setUrls(rows.map(toUISaved));
+        await refreshTaggingSummary();
         setError(null);
       } catch (e: any) {
         setError(e?.message ?? 'Failed to load saved URLs');
@@ -104,7 +140,15 @@ const SavedUrlsPage: React.FC = () => {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [refreshTaggingSummary]);
+
+  useEffect(() => {
+    if (!tagSummary || tagSummary.inProgress <= 0) return;
+    const id = window.setInterval(() => {
+      refreshTaggingSummary();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [tagSummary?.inProgress, refreshTaggingSummary]);
 
   useEffect(() => {
     const needsPolling = (rows: UISavedUrl[]) => {
@@ -473,7 +517,7 @@ const onAutoTagSelected = useCallback(async (ids: string[]) => {
         <p className="page-header-kicker">Library</p>
         <h1 className="page-header-title">Saved URLs</h1>
         <p className="page-header-subtitle">
-          Browse, filter, and organise all the links you’ve collected from searches and uploads.
+          Browse, filter, and organise all the links you have collected from searches and uploads.
         </p>
       </div>
 
@@ -490,6 +534,33 @@ const onAutoTagSelected = useCallback(async (ids: string[]) => {
         )}
       </div>
     </header>
+
+    {tagSummary && (tagSummary.inProgress > 0 || tagSummary.failed > 0) && (
+      <div className="fm-panel p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-900/10">
+        <div className="text-sm text-amber-950 dark:text-amber-100">
+          <span className="font-semibold">AI Tagging</span>
+          <span className="ml-2">
+            Pending <span className="font-semibold">{tagSummary.byStatus?.PENDING ?? 0}</span>,{' '}
+            Running <span className="font-semibold">{tagSummary.byStatus?.RUNNING ?? 0}</span>,{' '}
+            Failed <span className="font-semibold">{tagSummary.failed}</span>
+          </span>
+          {tagSummaryError && (
+            <span className="ml-2 opacity-70">({tagSummaryError})</span>
+          )}
+        </div>
+
+        {tagSummary.failed > 0 && (
+          <button
+            className="btn-primary px-4 py-2 rounded-lg disabled:opacity-60"
+            onClick={handleRetryFailedTagging}
+            disabled={tagSummaryLoading}
+            title="Re-run auto-tagging for failed URLs"
+          >
+            {tagSummaryLoading ? 'Retrying…' : 'Retry failed'}
+          </button>
+        )}
+      </div>
+    )}
 
     {/* Grid inside AppShell content */}
     <section className="grid grid-cols-12 gap-4 sm:gap-6">

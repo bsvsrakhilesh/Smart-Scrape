@@ -6,6 +6,8 @@ import {
   deleteUrlById,
   deleteUrlsBulk,
   updateUrlById,
+  getUrlTaggingSummary,
+  retryFailedUrlTagging,
   CreateUrlInput,
   GetAllOpts,
   UpdateUrlInput,
@@ -147,17 +149,6 @@ export async function getUrlByIdHandler(req: Request, res: Response, next: NextF
   }
 }
 
-/**
- * POST /api/urls
- * Accepts:
- *   - "https://a.com"
- *   - CSV/newline string
- *   - ["https://a.com", "https://b.com"]
- *   - { url, title?, snippet? }
- *   - [{ url, title?, snippet? }, ...]
- *   - { urls|links|items|data: (string[]|object[]) }
- * Also supports query fallback: ?url=... or ?urls=a,b
- */
 export async function createUrlsHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const rows = normalizeCreateBody(req.body, req)
@@ -221,6 +212,25 @@ export async function deleteUrlsBulkHandler(req: Request, res: Response, next: N
       return res.status(400).json({ message: 'Body must include { ids: number[] }' });
     }
     const result = await deleteUrlsBulk(ids.map(Number));
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getUrlTaggingSummaryHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const summary = await getUrlTaggingSummary();
+    res.json(summary);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function retryFailedUrlTaggingHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { ids, limit } = (req.body ?? {}) as { ids?: number[]; limit?: number };
+    const result = await retryFailedUrlTagging({ ids, limit });
     res.json(result);
   } catch (err) {
     next(err);

@@ -16,6 +16,7 @@ import searchRoutes from './routes/search.routes';
 import fileRoutes from './routes/file.routes';
 import crawlRoutes from './routes/crawl.routes';
 import aiTagRoutes from "./routes/aiTag.routes";
+import chunkRoutes from './routes/chunk.routes';
 
 const app = express();
 
@@ -84,6 +85,7 @@ app.use('/api/search', searchLimiter, searchRoutes);
 app.use('/api', fileRoutes);
 app.use('/api', crawlRoutes);
 app.use('/api', notebookRoutes);
+app.use('/api', chunkRoutes);
 app.use("/api", aiTagRoutes);
 
 // ---- Basic root + health endpoints (fix "Cannot GET /") ----

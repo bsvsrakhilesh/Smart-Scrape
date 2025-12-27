@@ -86,6 +86,25 @@ export async function updateNote(notebookId: string, noteId: string, p: { title?
   return prisma.note.update({ where: { id: noteId }, data: p });
 }
 
+export async function getSourceChunk(chunkId: string) {
+  return prisma.sourceChunk.findUnique({
+    where: { id: chunkId },
+    include: {
+      source: { include: { url: true, file: true } },
+    },
+  });
+}
+
+export async function pickNotebookCitations(notebookId: string, limit = 2) {
+  const chunks = await prisma.sourceChunk.findMany({
+    where: { source: { notebookId } },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: { id: true },
+  });
+  return chunks.map((c) => ({ chunkId: c.id }));
+}
+
 /* ---------- helpers ---------- */
 function splitText(text: string, maxChars = 1200) {
   const out: string[] = [];

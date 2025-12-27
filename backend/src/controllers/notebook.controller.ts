@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import {
   listNotebooks, createNotebook, getNotebook, updateNotebook,
   listSources, attachUrlSource, attachFileSource, deleteSource,
-  createNote, updateNote
+  createNote, updateNote, pickNotebookCitations
 } from '../services/notebook.service';
 
 export async function getNotebooksHandler(_req: Request, res: Response, next: NextFunction) {
@@ -33,14 +33,22 @@ export async function postNotebookSourceFileHandler(req: Request, res: Response,
 export async function deleteNotebookSourceHandler(req: Request, res: Response, next: NextFunction) {
   try { await deleteSource(req.params.id, req.params.sourceId); res.status(204).end(); } catch (e) { next(e); }
 }
-export async function postNotebookChatHandler(req: Request, res: Response) {
-  // Stubbed to keep the frontend unblocked. Replace with real RAG later.
-  res.json({
-    answer: `**Draft answer (backend)**\n\nYou asked: _${req.body?.message || ''}_`,
-    citations: [{ chunkId: 'c_demo_1' }, { chunkId: 'c_demo_2' }],
-    suggested: ['Give me a 5-bullet summary', 'List key terms', 'Create a study guide']
-  });
+export async function postNotebookChatHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const notebookId = req.params.id;
+
+    const citations = await pickNotebookCitations(notebookId, 2);
+
+    res.json({
+      answer: `**Draft answer (backend)**\n\nYou asked: _${req.body?.message || ''}_`,
+      citations,
+      suggested: []
+    });
+  } catch (e) {
+    next(e);
+  }
 }
+
 export async function postNotebookNoteHandler(req: Request, res: Response, next: NextFunction) {
   try { res.status(201).json(await createNote(req.params.id, req.body || {})); } catch (e) { next(e); }
 }

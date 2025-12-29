@@ -28,6 +28,22 @@ export type ChunkDetail = {
   source: NBSource;
 };
 
+export type ReaderChunk = {
+  id: ID;
+  idx: number;
+  text: string;
+};
+
+export type ChunkReader = {
+  sourceId: ID;
+  source: NBSource;
+  centerChunkId: ID;
+  centerIdx: number;
+  radius: number;
+  totalChunks: number;
+  chunks: ReaderChunk[];
+};
+
 export type NBNote = {
   id: ID;
   notebookId: ID;
@@ -57,6 +73,7 @@ export interface NotebookClient {
 
   chat(notebookId: ID, message: string): Promise<ChatAnswer>;
   getChunk(chunkId: ID): Promise<ChunkDetail>;
+  getChunkReader(chunkId: ID, radius?: number): Promise<ChunkReader>;
 
   createNote(notebookId: ID, p: { title?: string; content: string; citations?: any }): Promise<NBNote>;
   updateNote(notebookId: ID, noteId: ID, p: { title?: string; content?: string; citations?: any }): Promise<NBNote>;
@@ -120,6 +137,9 @@ export const notebookClient: NotebookClient = {
   },
   getChunk(chunkId) {
     return j<ChunkDetail>('GET', `/chunks/${chunkId}`);
+  },
+  getChunkReader(chunkId, radius = 3) {
+    return j<ChunkReader>('GET', `/chunks/${chunkId}/reader?radius=${encodeURIComponent(String(radius))}`);
   },
 
   // notes

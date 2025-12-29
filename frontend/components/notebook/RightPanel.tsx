@@ -7,6 +7,9 @@ export default function RightPanel({ notebookId }: { notebookId: string | null }
   const q = useQuery({ queryKey: ['nb:detail', notebookId], queryFn: () => api.getNotebook(notebookId!), enabled: !!notebookId });
 
   if (!notebookId) return <div className="p-3 text-sm text-gray-500">Select a notebook.</div>;
+  const openNote = (n: any) => {
+    window.dispatchEvent(new CustomEvent('nb:open-note', { detail: n }));
+  };
 
   return (
     <div className="flex-1 overflow-auto">
@@ -17,11 +20,20 @@ export default function RightPanel({ notebookId }: { notebookId: string | null }
 
       {tab==='notes' ? (
         <div className="p-3 space-y-2">
-          {q.data?.notes?.map(n => (
-            <div key={n.id} className="border rounded-xl p-3 bg-white shadow-sm">
+          {q.data?.notes?.map((n) => (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => openNote(n)}
+              className="w-full text-left border rounded-xl p-3 bg-white shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+              title="Open note"
+            >
               <div className="text-xs font-semibold truncate">{n.title || 'Untitled'}</div>
               <div className="text-[11px] text-gray-500">{new Date(n.updatedAt).toLocaleString()}</div>
-            </div>
+              <div className="text-[11px] text-slate-600 mt-1 line-clamp-2">
+                {(n.content || '').slice(0, 160)}
+              </div>
+            </button>
           ))}
           {!q.data?.notes?.length && <p className="text-xs text-gray-500">No notes yet.</p>}
         </div>

@@ -95,6 +95,40 @@ export async function getSourceChunk(chunkId: string) {
   });
 }
 
+export async function getChunkReader(chunkId: string, radius = 3) {
+  const center = await prisma.sourceChunk.findUnique({
+    where: { id: chunkId },
+    include: { source: { include: { url: true, file: true } } },
+  });
+
+  if (!center) return null;
+
+  const r = Math.max(0, Math.min(20, Number(radius || 3))); // clamp 0..20
+  const lo = Math.max(0, center.idx - r);
+  const hi = center.idx + r;
+
+  const chunks = await prisma.sourceChunk.findMany({
+    where: {
+      sourceId: center.sourceId,
+      idx: { gte: lo, lte: hi },
+    },
+    orderBy: { idx: 'asc' },
+    select: { id: true, idx: true, text: true },
+  });
+
+  const total = await prisma.sourceChunk.count({ where: { sourceId: center.sourceId } });
+
+  return {
+    sourceId: center.sourceId,
+    source: center.source,
+    centerChunkId: center.id,
+    centerIdx: center.idx,
+    radius: r,
+    totalChunks: total,
+    chunks,
+  };
+}
+
 export async function pickNotebookCitations(notebookId: string, limit = 2) {
   const chunks = await prisma.sourceChunk.findMany({
     where: { source: { notebookId } },

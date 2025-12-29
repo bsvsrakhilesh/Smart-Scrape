@@ -215,6 +215,14 @@ export default function NotebookPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const onManage = () => {
+      if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileTab('sources');
+    };
+    window.addEventListener('nb:manage-sources', onManage as any);
+    return () => window.removeEventListener('nb:manage-sources', onManage as any);
+  }, []);
+
   // Cmd/Ctrl+K opens picker (Shift selects Files)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -234,8 +242,7 @@ export default function NotebookPage() {
           <p className="page-header-kicker">Notebook</p>
           <h1 className="page-header-title">AI Research Notebook</h1>
           <p className="page-header-subtitle">
-            Pin sources on the left, chat in the centre, and write notes on the
-            right.
+            Pin sources on the left, chat in the centre, and write notes on the right.
           </p>
         </div>
 
@@ -628,7 +635,11 @@ export default function NotebookPage() {
                   : ""}
               </div>
             </div>
-            <ChatPanel notebookId={activeId} />
+            <ChatPanel
+              notebookId={activeId}
+              sourceIds={includedSourceIds}
+              totalSources={sources.length}
+            />
           </div>
 
           {/* Right (Notes) */}

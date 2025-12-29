@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { notebookClient as api } from '../../lib/notebookClient';
-import { Loader2 } from 'lucide-react';
-import CitationBadge from './CitationBadge';
-import MessageActions from './MessageActions';
-import SourceReaderDrawer from './SourceReaderDrawer';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { notebookClient as api } from "../../lib/notebookClient";
+import { Loader2 } from "lucide-react";
+import CitationBadge from "./CitationBadge";
+import MessageActions from "./MessageActions";
+import SourceReaderDrawer from "./SourceReaderDrawer";
 
 type Msg = {
   id: string;
   ts: number;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   html: string;
   citations?: { chunkId: string }[];
   suggested?: string[];
@@ -16,31 +16,47 @@ type Msg = {
 
 function uid() {
   // avoids crypto usage issues in some environments
-  return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  return `m_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 9)}`;
 }
 
 function renderMarkdown(md: string) {
-  const esc = md.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = md
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
   return esc
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\_(.+?)\_/g, '<em>$1</em>')
-    .replace(/\n/g, '<br/>');
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\_(.+?)\_/g, "<em>$1</em>")
+    .replace(/\n/g, "<br/>");
 }
 
 function clsx(...a: (string | false | null | undefined)[]) {
-  return a.filter(Boolean).join(' ');
+  return a.filter(Boolean).join(" ");
 }
 
 function fmtTime(ts: number) {
   try {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
-    return '';
+    return "";
   }
 }
 
-export default function ChatPanel({ notebookId }: { notebookId: string | null }) {
-  const [input, setInput] = useState('');
+export default function ChatPanel({
+  notebookId,
+  sourceIds,
+  totalSources,
+}: {
+  notebookId: string | null;
+  sourceIds?: string[];
+  totalSources?: number;
+}) {
+  const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
 
@@ -51,6 +67,9 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
 
   const [readerOpen, setReaderOpen] = useState(false);
   const [readerChunkId, setReaderChunkId] = useState<string | null>(null);
+
+  const includedCount = sourceIds?.length ?? 0;
+  const totalCount = totalSources ?? includedCount;
 
   // Persist composer draft per notebook
   const draftKey = notebookId ? `nb:chatDraft:${notebookId}` : null;
@@ -71,7 +90,7 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
-    el.style.height = '0px';
+    el.style.height = "0px";
     const next = Math.min(160, el.scrollHeight);
     el.style.height = `${next}px`;
   }, [input]);
@@ -86,14 +105,14 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
       setShowJump(!nearBottom);
     };
 
-    sc.addEventListener('scroll', onScroll, { passive: true });
+    sc.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => sc.removeEventListener('scroll', onScroll as any);
+    return () => sc.removeEventListener("scroll", onScroll as any);
   }, []);
 
   useEffect(() => {
     // If user is near bottom, keep them there when new tokens stream in
-    if (!showJump) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!showJump) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending, showJump]);
 
   const openSource = (chunkId: string) => {
@@ -102,28 +121,28 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
   };
 
   const addToNotes = (html: string) => {
-    const md = html.replace(/<br\/?>/g, '\n');
-    window.dispatchEvent(new CustomEvent('nb:add-note', { detail: md }));
+    const md = html.replace(/<br\/?>/g, "\n");
+    window.dispatchEvent(new CustomEvent("nb:add-note", { detail: md }));
   };
 
   const send = useCallback(
     async (q: string) => {
       if (!notebookId) return;
 
-      const userMsg: Msg = { id: uid(), ts: Date.now(), role: 'user', html: q };
+      const userMsg: Msg = { id: uid(), ts: Date.now(), role: "user", html: q };
       setMessages((m) => [...m, userMsg]);
       setPending(true);
 
       try {
-        const res = await api.chat(notebookId, q);
+        const res = await api.chat(notebookId, q, { sourceIds });
         const full = renderMarkdown(res.answer);
 
         const assistantId = uid();
         const base: Msg = {
           id: assistantId,
           ts: Date.now(),
-          role: 'assistant',
-          html: '',
+          role: "assistant",
+          html: "",
           citations: res.citations,
           suggested: res.suggested,
         };
@@ -153,11 +172,11 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!pending && notebookId && input.trim()) {
         const q = input.trim();
-        setInput('');
+        setInput("");
         send(q);
       }
     }
@@ -168,18 +187,48 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
     const prevUserIndex = [...messages.slice(0, i)]
       .map((m, j) => ({ m, j }))
       .reverse()
-      .find(({ m }) => m.role === 'user')?.j;
+      .find(({ m }) => m.role === "user")?.j;
     if (prevUserIndex == null) return;
     const q = messages[prevUserIndex].html;
     if (q) send(q);
   };
 
-  const jumpToBottom = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const jumpToBottom = () =>
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
 
   return (
     <div className="flex-1 flex flex-col bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.08),_rgba(59,130,246,0.06),_rgba(15,23,42,0.03))]">
+      <div className="px-4 md:px-6 py-3 border-b border-emerald-200/70 bg-white/60 backdrop-blur supports-[backdrop-filter]:bg-white/40">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] px-2.5 py-1 rounded-full border border-slate-200 bg-white text-slate-700">
+            Using {includedCount}/{totalCount} sources
+          </span>
+
+          {totalCount > 0 && includedCount === 0 ? (
+            <span className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1">
+              No sources selected — answers may be weak.
+            </span>
+          ) : null}
+
+          <div className="flex-1" />
+
+          <button
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent("nb:manage-sources"))
+            }
+            className="text-[11px] px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
+            title="Manage which sources are included"
+          >
+            Manage
+          </button>
+        </div>
+      </div>
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-4 md:px-6 py-5 relative">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto px-4 md:px-6 py-5 relative"
+      >
         {/* Jump to bottom */}
         {showJump && (
           <button
@@ -213,7 +262,8 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
                       Ask about your sources
                     </h2>
                     <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-                      Get summaries, extract insights, and turn sources into clean notes.
+                      Get summaries, extract insights, and turn sources into
+                      clean notes.
                     </p>
 
                     {!notebookId && (
@@ -233,70 +283,113 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
           {messages.map((m, i) => {
             const prev = messages[i - 1];
             const next = messages[i + 1];
-            const isUser = m.role === 'user';
+            const isUser = m.role === "user";
             const isFirstInGroup = !prev || prev.role !== m.role;
             const isLastInGroup = !next || next.role !== m.role;
 
             const bubbleRound = clsx(
-              'rounded-2xl',
-              isFirstInGroup && isLastInGroup && 'rounded-2xl',
-              isFirstInGroup && !isLastInGroup && (isUser ? 'rounded-br-lg' : 'rounded-bl-lg'),
-              !isFirstInGroup && isLastInGroup && (isUser ? 'rounded-tr-lg' : 'rounded-tl-lg'),
-              !isFirstInGroup && !isLastInGroup && (isUser ? 'rounded-r-lg' : 'rounded-l-lg')
+              "rounded-2xl",
+              isFirstInGroup && isLastInGroup && "rounded-2xl",
+              isFirstInGroup &&
+                !isLastInGroup &&
+                (isUser ? "rounded-br-lg" : "rounded-bl-lg"),
+              !isFirstInGroup &&
+                isLastInGroup &&
+                (isUser ? "rounded-tr-lg" : "rounded-tl-lg"),
+              !isFirstInGroup &&
+                !isLastInGroup &&
+                (isUser ? "rounded-r-lg" : "rounded-l-lg")
             );
 
             return (
-              <div key={m.id} className={clsx('flex gap-3', isUser ? 'justify-end' : 'justify-start')}>
+              <div
+                key={m.id}
+                className={clsx(
+                  "flex gap-3",
+                  isUser ? "justify-end" : "justify-start"
+                )}
+              >
                 {/* Avatar column */}
                 {!isUser ? (
-                  <div className={clsx('w-9 shrink-0', isFirstInGroup ? 'opacity-100' : 'opacity-0')}>
+                  <div
+                    className={clsx(
+                      "w-9 shrink-0",
+                      isFirstInGroup ? "opacity-100" : "opacity-0"
+                    )}
+                  >
                     <div className="w-9 h-9 rounded-2xl bg-slate-900 text-white grid place-items-center shadow-[0_14px_34px_rgba(15,23,42,0.25)]">
-                      <span className="text-[12px] font-bold tracking-tight">AI</span>
+                      <span className="text-[12px] font-bold tracking-tight">
+                        AI
+                      </span>
                     </div>
                   </div>
                 ) : (
-                  <div className={clsx('w-9 shrink-0', isFirstInGroup ? 'opacity-100' : 'opacity-0')}>
+                  <div
+                    className={clsx(
+                      "w-9 shrink-0",
+                      isFirstInGroup ? "opacity-100" : "opacity-0"
+                    )}
+                  >
                     <div className="w-9 h-9 rounded-2xl bg-gradient-to-b from-slate-600 to-slate-900 text-white grid place-items-center shadow-[0_14px_34px_rgba(15,23,42,0.22)]">
-                      <span className="text-[12px] font-bold tracking-tight">You</span>
+                      <span className="text-[12px] font-bold tracking-tight">
+                        You
+                      </span>
                     </div>
                   </div>
                 )}
 
                 {/* Bubble */}
-                <div className={clsx('max-w-[720px] w-full', isUser ? 'items-end' : 'items-start')}>
+                <div
+                  className={clsx(
+                    "max-w-[720px] w-full",
+                    isUser ? "items-end" : "items-start"
+                  )}
+                >
                   {isFirstInGroup && (
-                    <div className={clsx('mb-1 flex items-center gap-2', isUser ? 'justify-end' : 'justify-start')}>
+                    <div
+                      className={clsx(
+                        "mb-1 flex items-center gap-2",
+                        isUser ? "justify-end" : "justify-start"
+                      )}
+                    >
                       <div className="text-[11px] font-semibold text-slate-700">
-                        {isUser ? 'You' : 'Assistant'}
+                        {isUser ? "You" : "Assistant"}
                       </div>
-                      <div className="text-[11px] text-slate-500 tabular-nums">{fmtTime(m.ts)}</div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {fmtTime(m.ts)}
+                      </div>
                     </div>
                   )}
 
                   <div
                     className={clsx(
-                      'border shadow-[0_18px_60px_rgba(15,23,42,0.08)] px-4 py-3 text-sm leading-[1.65]',
+                      "border shadow-[0_18px_60px_rgba(15,23,42,0.08)] px-4 py-3 text-sm leading-[1.65]",
                       bubbleRound,
                       isUser
-                        ? 'bg-white border-slate-200 text-slate-900'
-                        : 'bg-white/80 backdrop-blur border-white/40 text-slate-900'
+                        ? "bg-white border-slate-200 text-slate-900"
+                        : "bg-white/80 backdrop-blur border-white/40 text-slate-900"
                     )}
-                    {...(m.role === 'assistant'
+                    {...(m.role === "assistant"
                       ? { dangerouslySetInnerHTML: { __html: m.html } }
                       : { children: m.html })}
                   />
 
                   {/* Citations */}
-                  {m.role === 'assistant' && m.citations?.length ? (
+                  {m.role === "assistant" && m.citations?.length ? (
                     <div className="mt-2 flex flex-wrap gap-1">
                       {m.citations.map((c, idx) => (
-                        <CitationBadge key={c.chunkId} index={idx + 1} chunkId={c.chunkId} onOpenSource={openSource} />
+                        <CitationBadge
+                          key={c.chunkId}
+                          index={idx + 1}
+                          chunkId={c.chunkId}
+                          onOpenSource={openSource}
+                        />
                       ))}
                     </div>
                   ) : null}
 
                   {/* Actions */}
-                  {m.role === 'assistant' ? (
+                  {m.role === "assistant" ? (
                     <MessageActions
                       content={m.html}
                       onRegenerate={() => onRegenerate(i)}
@@ -305,7 +398,7 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
                   ) : null}
 
                   {/* Suggested follow-ups */}
-                  {m.role === 'assistant' && m.suggested?.length ? (
+                  {m.role === "assistant" && m.suggested?.length ? (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {m.suggested.map((s, sIdx) => (
                         <button
@@ -332,7 +425,8 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
 
               <div className="max-w-[720px] w-full">
                 <div className="text-[11px] font-semibold text-slate-700 mb-1 flex items-center gap-2">
-                  Assistant <span className="text-slate-500 font-normal">thinking</span>
+                  Assistant{" "}
+                  <span className="text-slate-500 font-normal">thinking</span>
                 </div>
                 <div className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl border border-white/40 bg-white/80 backdrop-blur shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
                   <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
@@ -356,7 +450,11 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder={notebookId ? 'Ask about your sources…' : 'Create/select a notebook to start'}
+                placeholder={
+                  notebookId
+                    ? "Ask about your sources…"
+                    : "Create/select a notebook to start"
+                }
                 disabled={!notebookId}
                 className="w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-slate-400 disabled:text-slate-400"
                 rows={1}
@@ -369,7 +467,7 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
 
                 <div className="flex items-center gap-2">
                   <div className="text-[11px] text-slate-500 tabular-nums">
-                    {input.trim().length ? `${input.trim().length} chars` : ''}
+                    {input.trim().length ? `${input.trim().length} chars` : ""}
                   </div>
                 </div>
               </div>
@@ -381,15 +479,15 @@ export default function ChatPanel({ notebookId }: { notebookId: string | null })
               if (!notebookId || pending) return;
               const q = input.trim();
               if (!q) return;
-              setInput('');
+              setInput("");
               send(q);
             }}
             disabled={!notebookId || pending || !input.trim()}
             className={clsx(
-              'w-11 h-11 grid place-items-center rounded-2xl text-white shadow-[0_18px_50px_rgba(15,23,42,0.25)] transition-all',
+              "w-11 h-11 grid place-items-center rounded-2xl text-white shadow-[0_18px_50px_rgba(15,23,42,0.25)] transition-all",
               !notebookId || pending || !input.trim()
-                ? 'bg-slate-400 cursor-not-allowed opacity-70'
-                : 'bg-slate-900 hover:bg-black active:scale-[0.98]'
+                ? "bg-slate-400 cursor-not-allowed opacity-70"
+                : "bg-slate-900 hover:bg-black active:scale-[0.98]"
             )}
             aria-label="Send"
             title="Send"

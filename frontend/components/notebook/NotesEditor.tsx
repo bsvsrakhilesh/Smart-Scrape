@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { notebookClient as api } from '../../lib/notebookClient';
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { notebookClient as api } from "../../lib/notebookClient";
 
-export default function NotesEditor({ notebookId }: { notebookId: string | null }) {
+export default function NotesEditor({
+  notebookId,
+}: {
+  notebookId: string | null;
+}) {
   const qc = useQueryClient();
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
 
   // UX state (NotebookLM-style): draft vs saved note
@@ -20,8 +24,8 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
 
   const startNewNote = () => {
     setActiveNoteId(null);
-    setTitle('');
-    setContent('');
+    setTitle("");
+    setContent("");
     setDirty(false);
     setSaveError(null);
     setLastSavedAt(null);
@@ -38,16 +42,19 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
   }, [notebookId]);
 
   const saveM = useMutation({
-    mutationFn: async (vars: { mode: 'create' | 'update'; noteId?: string }) => {
+    mutationFn: async (vars: {
+      mode: "create" | "update";
+      noteId?: string;
+    }) => {
       setSaveError(null);
 
-      if (vars.mode === 'update') {
+      if (vars.mode === "update") {
         return api.updateNote(notebookId!, vars.noteId!, { title, content });
       }
       return api.createNote(notebookId!, { title, content });
     },
     onSuccess: (note, vars) => {
-      qc.invalidateQueries({ queryKey: ['nb:detail', notebookId] });
+      qc.invalidateQueries({ queryKey: ["nb:detail", notebookId] });
 
       setLastSavedAt(new Date(note.updatedAt));
       setDirty(false);
@@ -56,17 +63,17 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
       // clear local draft for this mode
       if (notebookId) {
         const base =
-          vars.mode === 'update'
+          vars.mode === "update"
             ? `nb:noteDraft:${notebookId}:note:${note.id}`
             : `nb:noteDraft:${notebookId}:new`;
         localStorage.removeItem(`${base}:title`);
         localStorage.removeItem(`${base}:content`);
       }
 
-      if (vars.mode === 'create') {
+      if (vars.mode === "create") {
         // Ready for next capture
-        setTitle('');
-        setContent('');
+        setTitle("");
+        setContent("");
         setLastDraftAt(null);
         setActiveNoteId(null);
       } else {
@@ -75,7 +82,7 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
       }
     },
     onError: (err: any) => {
-      setSaveError(err?.message || 'Save failed.');
+      setSaveError(err?.message || "Save failed.");
     },
   });
 
@@ -87,8 +94,8 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
       ? `nb:noteDraft:${notebookId}:note:${activeNoteId}`
       : `nb:noteDraft:${notebookId}:new`;
 
-    const t = localStorage.getItem(`${base}:title`) || '';
-    const c = localStorage.getItem(`${base}:content`) || '';
+    const t = localStorage.getItem(`${base}:title`) || "";
+    const c = localStorage.getItem(`${base}:content`) || "";
 
     if (t) setTitle(t);
     if (c) setContent(c);
@@ -114,12 +121,30 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
   // listen for Add-to-Notes events from Chat
   useEffect(() => {
     function onAdd(e: any) {
-      const md = String(e.detail || '');
-      setContent(prev => (prev ? prev + '\n\n' + md : md));
+      const d = e?.detail;
+
+      // Backwards compatible: detail can be a plain markdown string.
+      if (typeof d === "string") {
+        const md = d;
+        setContent((prev) => (prev ? prev + "\n\n" + md : md));
+        setDirty(true);
+        return;
+      }
+
+      // Studio / richer event: { title, content, mode }
+      const titleFromEvent = String(d?.title || "").trim();
+      const md = String(d?.content || "");
+      const mode = d?.mode === "replace" ? "replace" : "append";
+
+      if (titleFromEvent) setTitle(titleFromEvent);
+      setContent((prev) => {
+        if (mode === "replace") return md;
+        return prev ? prev + "\n\n" + md : md;
+      });
       setDirty(true);
     }
-    window.addEventListener('nb:add-note', onAdd as any);
-    return () => window.removeEventListener('nb:add-note', onAdd as any);
+    window.addEventListener("nb:add-note", onAdd as any);
+    return () => window.removeEventListener("nb:add-note", onAdd as any);
   }, []);
 
   // Open an existing note from the Recent notes list
@@ -129,35 +154,41 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
       if (!n || !n.id) return;
 
       setActiveNoteId(n.id);
-      setTitle(n.title || '');
-      setContent(n.content || '');
+      setTitle(n.title || "");
+      setContent(n.content || "");
       setDirty(false);
       setSaveError(null);
       setLastSavedAt(new Date(n.updatedAt));
       setLastDraftAt(null);
 
-      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    window.addEventListener('nb:open-note', onOpen as any);
-    return () => window.removeEventListener('nb:open-note', onOpen as any);
+    window.addEventListener("nb:open-note", onOpen as any);
+    return () => window.removeEventListener("nb:open-note", onOpen as any);
   }, []);
 
   // Cmd/Ctrl+S quick save
   useEffect(() => {
     function onKey() {
       if (!notebookId) return;
-        if (!title.trim() && !content.trim()) return;
-        if (activeNoteId && !dirty) return;
+      if (!title.trim() && !content.trim()) return;
+      if (activeNoteId && !dirty) return;
 
-        saveM.mutate({ mode: activeNoteId ? 'update' : 'create', noteId: activeNoteId || undefined });
+      saveM.mutate({
+        mode: activeNoteId ? "update" : "create",
+        noteId: activeNoteId || undefined,
+      });
     }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [notebookId, title, content, activeNoteId, dirty, saveM]);
 
   return (
-    <div ref={editorRef} className="p-4 flex flex-col gap-2 border-emerald-100/70 bg-white/75 rounded-xl shadow-md backdrop-blur supports-[backdrop-filter]:bg-white/55">
+    <div
+      ref={editorRef}
+      className="p-4 flex flex-col gap-2 border-emerald-100/70 bg-white/75 rounded-xl shadow-md backdrop-blur supports-[backdrop-filter]:bg-white/55"
+    >
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <div className="text-sm font-semibold">Notes</div>
@@ -185,29 +216,41 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
         </div>
         <div className="text-[11px] text-gray-500">
           {saveM.isPending
-            ? 'Saving…'
+            ? "Saving…"
             : saveError
-              ? `Save failed: ${saveError}`
-              : lastSavedAt
-                ? `Saved ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : dirty
-                  ? (lastDraftAt
-                      ? `Draft saved ${lastDraftAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                      : 'Draft')
-                  : '—'}
+            ? `Save failed: ${saveError}`
+            : lastSavedAt
+            ? `Saved ${lastSavedAt.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : dirty
+            ? lastDraftAt
+              ? `Draft saved ${lastDraftAt.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : "Draft"
+            : "—"}
         </div>
       </div>
-      
+
       <input
         value={title}
-        onChange={(e)=>{ setTitle(e.target.value); setDirty(true); }}
+        onChange={(e) => {
+          setTitle(e.target.value);
+          setDirty(true);
+        }}
         placeholder="Note title"
         className="border rounded-xl px-3 py-2 text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
         disabled={!notebookId}
       />
       <textarea
         value={content}
-        onChange={(e)=>{ setContent(e.target.value); setDirty(true); }}
+        onChange={(e) => {
+          setContent(e.target.value);
+          setDirty(true);
+        }}
         placeholder="Write notes (markdown allowed)…"
         className="h-40 border rounded-xl p-3 text-sm shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
         disabled={!notebookId}
@@ -215,7 +258,10 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
       <div className="flex justify-end">
         <button
           onClick={() =>
-            saveM.mutate({ mode: activeNoteId ? 'update' : 'create', noteId: activeNoteId || undefined })
+            saveM.mutate({
+              mode: activeNoteId ? "update" : "create",
+              noteId: activeNoteId || undefined,
+            })
           }
           disabled={
             !notebookId ||
@@ -225,7 +271,11 @@ export default function NotesEditor({ notebookId }: { notebookId: string | null 
           }
           className="px-6 py-2.5 rounded-full bg-slate-500 text-white text-sm disabled:opacity-60 shadow hover:bg-slate-600"
         >
-          {saveM.isPending ? 'Saving…' : activeNoteId ? 'Update note' : 'Save note'}
+          {saveM.isPending
+            ? "Saving…"
+            : activeNoteId
+            ? "Update note"
+            : "Save note"}
         </button>
       </div>
     </div>

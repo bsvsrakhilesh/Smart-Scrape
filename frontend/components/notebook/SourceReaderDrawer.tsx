@@ -1,18 +1,44 @@
-import { useEffect, useMemo, useState } from 'react';
-import { notebookClient as api, ChunkReader } from '../../lib/notebookClient';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { notebookClient as api, ChunkReader } from "../../lib/notebookClient";
 
 function clsx(...a: (string | false | null | undefined)[]) {
-  return a.filter(Boolean).join(' ');
+  return a.filter(Boolean).join(" ");
 }
 
-function sourceTitle(s: ChunkReader['source']) {
-  if (s.kind === 'URL') return s.url?.title || s.url?.url || 'URL Source';
-  return s.file?.fileName || 'File Source';
+function sourceTitle(s: ChunkReader["source"]) {
+  if (s.kind === "URL") return s.url?.title || s.url?.url || "URL Source";
+  return s.file?.fileName || "File Source";
 }
 
-function sourceSub(s: ChunkReader['source']) {
-  if (s.kind === 'URL') return s.url?.url || '';
-  return s.file?.mimeType || '';
+function sourceSub(s: ChunkReader["source"]) {
+  if (s.kind === "URL") return s.url?.url || "";
+  return s.file?.mimeType || "";
+}
+
+// Quick heuristic "key points" extractor (replace with LLM later if needed)
+function extractKeyPoints(chunks: { text: string }[], max = 6) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const c of chunks) {
+    const t = (c.text || "").replace(/\s+/g, " ").trim();
+    if (!t) continue;
+
+    // Take first “sentence-ish” snippet
+    const m = t.match(/^(.+?)([.!?]\s|$)/);
+    const s = (m?.[1] || t).trim();
+
+    if (s.length < 30) continue;
+
+    const key = s.toLowerCase().slice(0, 90);
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(s);
+    if (out.length >= max) break;
+  }
+
+  return out;
 }
 
 export default function SourceReaderDrawer({
@@ -28,12 +54,14 @@ export default function SourceReaderDrawer({
   const [err, setErr] = useState<string | null>(null);
   const [reader, setReader] = useState<ChunkReader | null>(null);
   const [radius, setRadius] = useState(3);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
+
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (!open) return;
     setRadius(3);
-    setQuery('');
+    setQuery("");
     setReader(null);
     setErr(null);
   }, [open, chunkId]);
@@ -50,7 +78,7 @@ export default function SourceReaderDrawer({
         const data = await api.getChunkReader(chunkId, radius);
         if (!cancelled) setReader(data);
       } catch (e: any) {
-        if (!cancelled) setErr(e?.message || 'Failed to load source reader.');
+        if (!cancelled) setErr(e?.message || "Failed to load source reader.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -61,30 +89,55 @@ export default function SourceReaderDrawer({
     };
   }, [open, chunkId, radius]);
 
-  const title = useMemo(() => (reader ? sourceTitle(reader.source) : 'Source'), [reader]);
-  const sub = useMemo(() => (reader ? sourceSub(reader.source) : ''), [reader]);
+  const title = useMemo(() => (reader ? sourceTitle(reader.source) : "Source"), [reader]);
+  const sub = useMemo(() => (reader ? sourceSub(reader.source) : ""), [reader]);
 
   const jumpToSourceCard = () => {
     if (!reader) return;
-    window.dispatchEvent(new CustomEvent('nb:focus-source', { detail: reader.sourceId }));
+    window.dispatchEvent(new CustomEvent("nb:focus-source", { detail: reader.sourceId }));
+    onClose();
   };
 
   const copyHighlighted = async () => {
     if (!reader) return;
     const center = reader.chunks.find((c) => c.id === reader.centerChunkId);
     if (!center) return;
-    await navigator.clipboard.writeText(center.text || '');
+    await navigator.clipboard.writeText(center.text || "");
   };
 
   const filteredChunks = useMemo(() => {
     if (!reader) return [];
     const q = query.trim().toLowerCase();
     if (!q) return reader.chunks;
-    return reader.chunks.filter((c) => (c.text || '').toLowerCase().includes(q));
+    return reader.chunks.filter((c) => (c.text || "").toLowerCase().includes(q));
   }, [reader, query]);
 
   const canExpand =
     !!reader && (reader.centerIdx - radius > 0 || reader.centerIdx + radius < reader.totalChunks - 1);
+
+  const keyPoints = useMemo(() => (reader ? extractKeyPoints(reader.chunks) : []), [reader, radius]);
+
+  const addKeyPointsToNotes = () => {
+    if (!reader) return;
+
+    const md =
+      `## Key points — ${title}\n\n` +
+      (keyPoints.length ? keyPoints.map((k) => `- ${k}`).join("\n") : "- (No key points extracted)\n") +
+      (sub ? `\n\n_Source: ${sub}_\n` : "\n");
+
+    window.dispatchEvent(new CustomEvent("nb:add-note", { detail: md }));
+    onClose();
+  };
+
+  // Auto-scroll to highlighted chunk when loaded
+  useEffect(() => {
+    if (!open || !reader?.centerChunkId) return;
+    const el = rowRefs.current[reader.centerChunkId];
+    if (!el) return;
+
+    const t = setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    return () => clearTimeout(t);
+  }, [open, reader?.centerChunkId, radius]);
 
   if (!open) return null;
 
@@ -100,9 +153,9 @@ export default function SourceReaderDrawer({
       {/* panel */}
       <div
         className={clsx(
-          'absolute right-0 top-0 h-full w-full sm:w-[640px]',
-          'bg-white shadow-[0_40px_120px_rgba(15,23,42,0.35)]',
-          'border-l border-slate-200/80'
+          "absolute right-0 top-0 h-full w-full sm:w-[640px]",
+          "bg-white shadow-[0_40px_120px_rgba(15,23,42,0.35)]",
+          "border-l border-slate-200/80"
         )}
       >
         <div className="h-full flex flex-col">
@@ -146,7 +199,15 @@ export default function SourceReaderDrawer({
                 disabled={!reader}
                 className="px-4 py-2 rounded-full border border-slate-200 bg-white text-slate-700 text-[12px] font-semibold hover:bg-slate-50 disabled:opacity-60"
               >
-                Copy highlighted
+                Copy cited chunk
+              </button>
+
+              <button
+                onClick={addKeyPointsToNotes}
+                disabled={!reader}
+                className="px-4 py-2 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800 text-[12px] font-semibold hover:bg-emerald-100 disabled:opacity-60"
+              >
+                Add key points to Notes
               </button>
 
               <div className="flex-1 min-w-[180px]" />
@@ -184,42 +245,71 @@ export default function SourceReaderDrawer({
             )}
 
             {reader && (
-              <div className="space-y-3">
-                {filteredChunks.map((c) => {
-                  const isCenter = c.id === reader.centerChunkId;
-                  return (
-                    <div
-                      key={c.id}
-                      className={clsx(
-                        'rounded-2xl border p-4 shadow-sm',
-                        isCenter
-                          ? 'border-emerald-200 bg-emerald-50/60 ring-1 ring-emerald-200'
-                          : 'border-slate-200 bg-white'
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[11px] text-slate-500">
-                          Chunk #{c.idx + 1} {isCenter ? '· highlighted citation' : ''}
+              <div className="space-y-4">
+                {/* Key points */}
+                <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/60 p-4 shadow-sm">
+                  <div className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wide">
+                    Key points from this source
+                  </div>
+
+                  {keyPoints.length ? (
+                    <ul className="mt-2 space-y-1 text-sm text-slate-900">
+                      {keyPoints.map((k, i) => (
+                        <li key={i} className="leading-relaxed">
+                          • {k}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-2 text-sm text-slate-600">No key points extracted yet.</div>
+                  )}
+                </div>
+
+                {/* Chunks */}
+                <div className="space-y-3">
+                  {filteredChunks.map((c) => {
+                    const isCenter = c.id === reader.centerChunkId;
+                    return (
+                      <div
+                        key={c.id}
+                        ref={(el) => {
+                          rowRefs.current[c.id] = el;
+                        }}
+                        className={clsx(
+                          "rounded-2xl border p-4 shadow-sm",
+                          isCenter
+                            ? "border-emerald-200 bg-emerald-50/60 ring-1 ring-emerald-200"
+                            : "border-slate-200 bg-white"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-[11px] text-slate-500">Chunk #{c.idx + 1}</div>
+
+                          {isCenter ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800 font-semibold">
+                              Cited
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-2 text-sm leading-relaxed text-slate-900 whitespace-pre-wrap">
+                          {c.text}
                         </div>
                       </div>
+                    );
+                  })}
 
-                      <div className="mt-2 text-sm leading-relaxed text-slate-900 whitespace-pre-wrap">
-                        {c.text}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {!filteredChunks.length && (
-                  <div className="text-sm text-slate-500">No chunks match your search.</div>
-                )}
+                  {!filteredChunks.length && (
+                    <div className="text-sm text-slate-500">No chunks match your search.</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
 
           {/* footer */}
           <div className="px-5 py-3 border-t border-slate-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/60 text-[11px] text-slate-500">
-            NotebookLM feel = click citation → read source context → save what matters.
+            NotebookLM feel: click citations → verify claims with surrounding context → save key points.
           </div>
         </div>
       </div>

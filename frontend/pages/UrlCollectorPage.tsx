@@ -334,7 +334,7 @@ const UrlCollectorPage: React.FC = () => {
   }, [navigate]);
 
   return (
-      <main className="space-y-6 pb-8">
+      <main className="space-y-6 pt-6 md:pt-8 pb-8">
       {/* Top loading bar (micro-feedback) */}
       {isLoading && (
         <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-40 h-1 overflow-hidden">

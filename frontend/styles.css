@@ -56,6 +56,8 @@ body,
   --color-fg: hsl(var(--text));
 
   --gutter-x: 20px;
+  --header-h: 96px;
+  --header-h-lg: 72px;
 
   /* === Modern Design Tokens === */
 
@@ -165,6 +167,42 @@ body,
   --ease-std: var(--easing-standard);
   --ease-emph: var(--easing-emphasized);
 }
+
+@media (min-width: 1024px) {
+  :root {
+    --header-h: var(--header-h-lg);
+  }
+}
+
+/* Header inner container: aligns with main content and animates with sidebar width */
+.app-header__inner {
+  padding-left: var(--gutter-x, 16px);
+  padding-right: var(--gutter-x, 16px);
+  transition: padding-left var(--duration-200) var(--easing-standard),
+    padding-right var(--duration-200) var(--easing-standard);
+}
+
+@media (min-width: 1024px) {
+  .app-header__inner {
+    /* Keep header content aligned with the main content (which is offset by the sidebar) */
+    padding-left: calc(var(--sidebar-w, 0px) + var(--gutter-x, 16px));
+  }
+}
+
+/* Main content inner container: matches header alignment + animates with sidebar width */
+.app-shell__inner {
+  padding-left: var(--gutter-x, 16px);
+  padding-right: var(--gutter-x, 16px);
+  transition: padding-left var(--duration-200) var(--easing-standard),
+    padding-right var(--duration-200) var(--easing-standard);
+}
+
+@media (min-width: 1024px) {
+  .app-shell__inner {
+    padding-left: calc(var(--sidebar-w, 0px) + var(--gutter-x, 16px));
+  }
+}
+
 .dark {
   /* Color Palette (Dark) */
   --background: 224 14% 10%;
@@ -2719,8 +2757,7 @@ body,
 /* ====== Page Headers (shared across app pages) ====== */
 
 .page-header {
-  max-width: 72rem; /* 1152px */
-  margin: 0 auto;
+  width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;

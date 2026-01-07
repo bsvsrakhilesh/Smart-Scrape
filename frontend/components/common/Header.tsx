@@ -13,8 +13,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNavigateHome, isSide
   return (
    <div className="app-header w-full z-[100] bg-background/80 backdrop-blur-xl border-b border-border/60 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
       <div
-        className="h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full transition-[height,padding] duration-200"
-        style={{ paddingLeft: 'var(--gutter-x,16px)', paddingRight: 'var(--gutter-x,16px)' }}
+        className="app-header__inner h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full transition-[height] duration-200"
       >
         {/* Left: hamburger + brand */}
         <div className="flex items-center gap-1">

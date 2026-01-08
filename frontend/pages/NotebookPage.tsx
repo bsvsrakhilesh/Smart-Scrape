@@ -21,6 +21,17 @@ function clsx(...a: (string | false | null | undefined)[]) {
 }
 const ACTIVE_KEY = "nb:lastId";
 
+// =========================================================
+// Step 2: NotebookLM-grade chrome (shared panel tokens)
+// =========================================================
+const PANEL_SHELL =
+  "rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.65)_inset,0_18px_65px_rgba(15,23,42,0.12)] backdrop-blur supports-[backdrop-filter]:bg-white/60";
+const PANEL_CONTENT = "flex flex-col overflow-hidden min-h-0";
+const PANEL_BAR =
+  "border-b border-slate-200/70 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/65 shadow-[0_1px_0_rgba(255,255,255,0.70)_inset,0_1px_0_rgba(15,23,42,0.06)]";
+const PANEL_STICKY =
+  "rounded-2xl border border-slate-200/70 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/65 shadow-[0_1px_0_rgba(255,255,255,0.70)_inset,0_12px_34px_rgba(15,23,42,0.10)]";
+
 export default function NotebookPage() {
   const qc = useQueryClient();
 
@@ -273,7 +284,12 @@ export default function NotebookPage() {
       <div className="h-full min-h-0 flex flex-col p-3 md:p-4">
         {/* Mobile panel switcher */}
         <div className="md:hidden mb-3">
-          <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur supports-[backdrop-filter]:bg-white/60">
+          <div
+            className={clsx(
+              PANEL_SHELL,
+              "px-3 py-2 flex items-center justify-between gap-3"
+            )}
+          >
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/5 border border-slate-200/70">
               {(["sources", "chat", "notes"] as const).map((t) => (
                 <button
@@ -322,7 +338,9 @@ export default function NotebookPage() {
           {/* Left rail */}
           <div
             className={clsx(
-              "rounded-2xl border border-slate-200/70 bg-white/70 shadow-[0_10px_30px_rgba(15,23,42,0.10)] p-3 flex flex-col overflow-hidden backdrop-blur-sm",
+              PANEL_SHELL,
+              PANEL_CONTENT,
+              "p-3",
               mobileTab === "sources" ? "flex" : "hidden",
               "md:flex"
             )}
@@ -451,8 +469,8 @@ export default function NotebookPage() {
             </div>
 
             {/* Sources (library panel) */}
-            <div className="mt-4 border-t pt-3 flex-1 min-h-0">
-              <div className="sticky top-0 z-10 mb-2 rounded-t-2xl border-b border-slate-200/70 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/60 shadow-[0_1px_0_rgba(15,23,42,0.06)]">
+            <div className="mt-4 border-t border-slate-200/70 pt-3 flex-1 min-h-0">
+              <div className={clsx(PANEL_STICKY, "sticky top-0 z-10 mb-2")}>
                 {/* Row 1: title + counts + add actions */}
                 <div className="px-2 pt-2 pb-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -692,12 +710,18 @@ export default function NotebookPage() {
           {/* Center (Chat) */}
           <div
             className={clsx(
-              "rounded-2xl border border-slate-200/70 bg-white/60 shadow-[0_10px_30px_rgba(15,23,42,0.08)] flex flex-col overflow-hidden min-h-0 backdrop-blur-sm",
+              PANEL_SHELL,
+              PANEL_CONTENT,
               mobileTab === "chat" ? "flex" : "hidden",
               "md:flex"
             )}
           >
-            <div className="border-b border-slate-200/70 px-5 py-3 flex items-center gap-3 bg-white/75 backdrop-blur supports-[backdrop-filter]:bg-white/55 sticky top-0 z-10 shadow-[0_1px_0_rgba(15,23,42,0.06)]">
+            <div
+              className={clsx(
+                PANEL_BAR,
+                "px-5 py-3 flex items-center gap-3 sticky top-0 z-10"
+              )}
+            >
               <input
                 value={detailQ.data?.notebook?.title || ""}
                 onChange={(e) =>
@@ -729,7 +753,8 @@ export default function NotebookPage() {
           <SmartCard
             as="section"
             className={clsx(
-              "rounded-2xl border border-slate-200/70 bg-white/70 shadow-[0_10px_30px_rgba(15,23,42,0.10)] flex flex-col overflow-hidden min-h-0 backdrop-blur-sm",
+              PANEL_SHELL,
+              PANEL_CONTENT,
               mobileTab === "notes" ? "flex" : "hidden",
               "md:flex"
             )}

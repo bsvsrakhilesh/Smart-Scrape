@@ -305,6 +305,83 @@ export default function NotebookPage() {
       window.removeEventListener("nb:manage-sources", onManage as any);
   }, []);
 
+  // =========================================================
+  // Instant source attach (no refresh): optimistic cache updates
+  // SourcePicker emits nb:sources-optimistic / confirmed / rollback
+  // =========================================================
+  useEffect(() => {
+    const onOptimistic = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { notebookId: string; sources: NBSource[] }
+        | undefined;
+      if (!d || !d.notebookId) return;
+      if (d.notebookId !== activeId) return;
+
+      qc.setQueryData(["nb:sources", d.notebookId], (prev: any) => {
+        const cur = Array.isArray(prev) ? (prev as NBSource[]) : [];
+        return [...d.sources, ...cur];
+      });
+    };
+
+    const onConfirmed = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { notebookId: string; sources: NBSource[] }
+        | undefined;
+      if (!d || !d.notebookId) return;
+      if (d.notebookId !== activeId) return;
+
+      qc.setQueryData(["nb:sources", d.notebookId], (prev: any) => {
+        const cur = Array.isArray(prev) ? (prev as NBSource[]) : [];
+        const real = d.sources || [];
+
+        const realUrlIds = new Set(
+          real
+            .filter((s) => s.kind === "URL" && s.url?.id)
+            .map((s) => String(s.url!.id))
+        );
+        const realFileIds = new Set(
+          real
+            .filter((s) => s.kind === "FILE" && s.file?.id)
+            .map((s) => String(s.file!.id))
+        );
+
+        const kept = cur.filter((s) => {
+          if (!String(s.id).startsWith("temp-")) return true;
+          if (s.kind === "URL") return !realUrlIds.has(String(s.url?.id));
+          if (s.kind === "FILE") return !realFileIds.has(String(s.file?.id));
+          return true;
+        });
+
+        return [...real, ...kept];
+      });
+
+      qc.invalidateQueries({ queryKey: ["nb:sources", d.notebookId] });
+      qc.invalidateQueries({ queryKey: ["nb:detail", d.notebookId] });
+    };
+
+    const onRollback = (e: Event) => {
+      const d = (e as CustomEvent).detail as { notebookId: string } | undefined;
+      const nbId = d?.notebookId;
+      if (!nbId) return;
+      if (nbId !== activeId) return;
+
+      qc.setQueryData(["nb:sources", nbId], (prev: any) => {
+        const cur = Array.isArray(prev) ? (prev as NBSource[]) : [];
+        return cur.filter((s) => !String(s.id).startsWith("temp-"));
+      });
+      qc.invalidateQueries({ queryKey: ["nb:sources", nbId] });
+    };
+
+    window.addEventListener("nb:sources-optimistic", onOptimistic as any);
+    window.addEventListener("nb:sources-confirmed", onConfirmed as any);
+    window.addEventListener("nb:sources-rollback", onRollback as any);
+    return () => {
+      window.removeEventListener("nb:sources-optimistic", onOptimistic as any);
+      window.removeEventListener("nb:sources-confirmed", onConfirmed as any);
+      window.removeEventListener("nb:sources-rollback", onRollback as any);
+    };
+  }, [activeId, qc]);
+
   // Cmd/Ctrl+K opens picker (Shift selects Files)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -45,6 +45,8 @@ export default function NotebookPage() {
   );
 
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({}); // sourceId -> element
+  // When there are zero notebooks, auto-create one so Chat is immediately usable.
+  const autoCreateRef = useRef(false);
 
   // ===== Sources Library UI state =====
   const [sourceQuery, setSourceQuery] = useState("");
@@ -99,18 +101,36 @@ export default function NotebookPage() {
     enabled: !!activeId,
   });
 
-  // restore last or default
+  // restore last selected notebook (can be stale if DB was reset)
   useEffect(() => {
     const saved = localStorage.getItem(ACTIVE_KEY);
     if (saved) setActiveId(saved);
   }, []);
 
+  // validate / choose active notebook once list loads
   useEffect(() => {
-    if (!activeId && listQ.data?.length) setActiveId(listQ.data[0].id);
-  }, [listQ.data, activeId]);
+    if (listQ.isLoading) return;
 
+    const list = listQ.data || [];
+
+    // If we have an activeId but it's not in the DB anymore, clear it (and localStorage)
+    if (activeId) {
+      const exists = list.some((n) => n.id === activeId);
+      if (!exists) {
+        localStorage.removeItem(ACTIVE_KEY);
+        setActiveId(list[0]?.id ?? null);
+      }
+      return;
+    }
+
+    // No activeId yet → pick the first notebook if any exist
+    if (list.length) setActiveId(list[0].id);
+  }, [listQ.isLoading, listQ.data, activeId]);
+
+  // persist active notebook id (and clean up when null)
   useEffect(() => {
     if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
+    else localStorage.removeItem(ACTIVE_KEY);
   }, [activeId]);
 
   // when switching notebooks on mobile, default to Chat
@@ -131,6 +151,24 @@ export default function NotebookPage() {
       setActiveId(nb.id);
     },
   });
+
+  // Auto-create the very first notebook (fresh user / empty DB).
+  useEffect(() => {
+    if (autoCreateRef.current) return;
+    if (activeId) return;
+    if (listQ.isLoading) return;
+
+    const hasAny = (listQ.data?.length || 0) > 0;
+    if (hasAny) return;
+
+    autoCreateRef.current = true;
+
+    createM.mutate({
+      title: "My first notebook",
+      description: "Auto-created to start chatting.",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, listQ.isLoading, listQ.data]);
 
   const updateTitle = useMutation({
     mutationFn: (p: { id: string; title: string }) =>

@@ -97,6 +97,7 @@ export interface NotebookClient {
     noteId: ID,
     p: { title?: string; content?: string; citations?: any }
   ): Promise<NBNote>;
+  deleteNote(notebookId: ID, noteId: ID): Promise<void>;
 
   // existing endpoints in your backend
   listAllUrls(): Promise<any[]>;
@@ -192,6 +193,9 @@ export const notebookClient: NotebookClient = {
   },
   updateNote(notebookId, noteId, p) {
     return j<NBNote>("PATCH", `/notebooks/${notebookId}/notes/${noteId}`, p);
+  },
+    deleteNote(notebookId, noteId) {
+    return j<void>("DELETE", `/notebooks/${notebookId}/notes/${noteId}`);
   },
 
   // existing resources

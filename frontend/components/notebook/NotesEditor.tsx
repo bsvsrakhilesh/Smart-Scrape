@@ -163,6 +163,14 @@ export default function NotesEditor({
     return () => window.removeEventListener("nb:open-note", onOpen as any);
   }, []);
 
+  useEffect(() => {
+    function onNew() {
+      startNewNote();
+    }
+    window.addEventListener("nb:new-note", onNew as any);
+    return () => window.removeEventListener("nb:new-note", onNew as any);
+  }, [startNewNote]);
+
   // Cmd/Ctrl+S quick save
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notebookClient as api } from "../../lib/notebookClient";
 
 function clsx(...a: (string | false | null | undefined)[]) {
@@ -289,6 +289,16 @@ function NotebookStudio() {
 }
 
 function RecentNotes({ notebookId, notes }: { notebookId: string; notes: any[] }) {
+  const qc = useQueryClient();
+
+  const delM = useMutation({
+    mutationFn: (noteId: string) => api.deleteNote(notebookId, noteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["nb:detail", notebookId] });
+      window.dispatchEvent(new CustomEvent("nb:new-note"));
+    },
+  });
+
   return (
     <div className="p-3 space-y-2">
       {notes.map((n) => (
@@ -296,21 +306,35 @@ function RecentNotes({ notebookId, notes }: { notebookId: string; notes: any[] }
           key={n.id}
           role="button"
           tabIndex={0}
-          onClick={() =>
-            window.dispatchEvent(new CustomEvent("nb:open-note", { detail: n }))
-          }
+          onClick={() => window.dispatchEvent(new CustomEvent("nb:open-note", { detail: n }))}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               window.dispatchEvent(new CustomEvent("nb:open-note", { detail: n }));
             }
           }}
-          className="border rounded-xl p-3 bg-white shadow-sm cursor-pointer hover:bg-slate-50"
+          className="group border rounded-xl p-3 bg-white shadow-sm cursor-pointer hover:bg-slate-50 flex items-start justify-between gap-3"
         >
-          <div className="text-xs font-semibold truncate">{n.title || "Untitled"}</div>
-          <div className="text-[11px] text-gray-500">{prettyTime(n.updatedAt)}</div>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold truncate">{n.title || "Untitled"}</div>
+            <div className="text-[11px] text-gray-500">{prettyTime(n.updatedAt)}</div>
+          </div>
+
+          <button
+            type="button"
+            className="text-[11px] text-red-600 hover:text-red-700 opacity-0 group-hover:opacity-100"
+            disabled={delM.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!confirm("Delete this note? This cannot be undone.")) return;
+              delM.mutate(n.id);
+            }}
+          >
+            {delM.isPending ? "Deleting…" : "Delete"}
+          </button>
         </div>
       ))}
+
       {!notes.length && <p className="text-xs text-gray-500">No notes yet.</p>}
     </div>
   );

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
 const prisma = new PrismaClient();
 
 export async function listNotebooks() {
@@ -66,11 +67,19 @@ export async function attachUrlSource(notebookId: string, urlId: number) {
     data: { notebookId, kind: "URL", urlId },
   });
 
-  // Seed chunks from basic data for now (replace with real fetch+extract later)
-  const text = `${url.title ?? ""}\n${url.url}\n${url.snippet ?? ""}`.trim();
-  void createChunksForSource(src.id, text).catch(() => {
-    // best-effort; chunking failures shouldn't block attaching sources
-  });
+  // Extract + chunk in the background (best-effort)
+  void (async () => {
+    try {
+      const fullText = await extractTextFromUrl(url.url);
+      await createChunksForSource(src.id, fullText);
+    } catch {
+      // Fall back to metadata if extraction fails
+      const fallback = `${url.title ?? ""}\n${url.url}\n${
+        url.snippet ?? ""
+      }`.trim();
+      await createChunksForSource(src.id, fallback);
+    }
+  })();
 
   return prisma.notebookSource.findUnique({
     where: { id: src.id },
@@ -86,11 +95,20 @@ export async function attachFileSource(notebookId: string, fileId: string) {
     data: { notebookId, kind: "FILE", fileId },
   });
 
-  // Seed chunks from metadata until extractor wired
-  const text = `File: ${file.fileName} (${file.mimeType})`;
-  void createChunksForSource(src.id, text).catch(() => {
-    // best-effort; chunking failures shouldn't block attaching sources
-  });
+  // Extract + chunk in the background (best-effort)
+  void (async () => {
+    try {
+      const fullText = await extractTextFromFile(
+        file.storagePath,
+        file.mimeType
+      );
+      const header = `FILE: ${file.fileName}\nMIME: ${file.mimeType}\n\n`;
+      await createChunksForSource(src.id, (header + fullText).trim());
+    } catch {
+      const fallback = `File: ${file.fileName} (${file.mimeType})`;
+      await createChunksForSource(src.id, fallback);
+    }
+  })();
 
   return prisma.notebookSource.findUnique({
     where: { id: src.id },
@@ -203,19 +221,36 @@ export async function pickNotebookCitations(
 }
 
 /* ---------- helpers ---------- */
-function splitText(text: string, maxChars = 1200) {
+function splitText(text: string, maxChars = 1400, overlap = 220) {
+  const clean = (text || "").replace(/\u0000/g, "").replace(/\r/g, "");
   const out: string[] = [];
-  for (let i = 0; i < text.length; i += maxChars)
-    out.push(text.slice(i, i + maxChars));
-  return out.filter(Boolean);
+  let i = 0;
+
+  while (i < clean.length) {
+    const end = Math.min(clean.length, i + maxChars);
+    let chunk = clean.slice(i, end).trim();
+
+    // Avoid tiny chunks
+    if (chunk.length >= 40) out.push(chunk);
+
+    if (end >= clean.length) break;
+    i = Math.max(0, end - overlap); // overlap
+  }
+
+  return out;
 }
+
 function roughTokens(s: string) {
   return Math.ceil((s || "").length / 4);
 }
 
 async function createChunksForSource(sourceId: string, text: string) {
-  const chunks = splitText(text || "", 1200);
+  const chunks = splitText(text || "", 1400, 220);
   if (!chunks.length) return;
+
+  // Re-ingestion safe: wipe old chunks then re-create
+  await prisma.sourceChunk.deleteMany({ where: { sourceId } });
+
   await prisma.$transaction(
     chunks.map((t, idx) =>
       prisma.sourceChunk.create({

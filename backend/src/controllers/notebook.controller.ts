@@ -6,6 +6,8 @@ import {
   createNote, updateNote, deleteNote, pickNotebookCitations
 } from '../services/notebook.service';
 
+import { runNotebookChat } from "../services/notebookChat.service";
+
 export async function getNotebooksHandler(_req: Request, res: Response, next: NextFunction) {
   try { res.json(await listNotebooks()); } catch (e) { next(e); }
 }
@@ -43,18 +45,19 @@ export async function postNotebookSourceFileHandler(req: Request, res: Response,
 export async function deleteNotebookSourceHandler(req: Request, res: Response, next: NextFunction) {
   try { await deleteSource(req.params.id, req.params.sourceId); res.status(204).end(); } catch (e) { next(e); }
 }
+
 export async function postNotebookChatHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const notebookId = req.params.id;
 
-    const sourceIds = Array.isArray(req.body?.sourceIds) ? req.body.sourceIds : undefined;
-    const citations = await pickNotebookCitations(notebookId, 2, sourceIds);
-
-    res.json({
-      answer: `**Draft answer (backend)**\n\nYou asked: _${req.body?.message || ''}_`,
-      citations,
-      suggested: []
+    const out = await runNotebookChat({
+      notebookId,
+      message: String(req.body?.message ?? ""),
+      history: Array.isArray(req.body?.history) ? req.body.history : undefined,
+      sourceIds: Array.isArray(req.body?.sourceIds) ? req.body.sourceIds : undefined,
     });
+
+    res.json(out);
   } catch (e) {
     next(e);
   }

@@ -4,6 +4,8 @@ import { zodTextFormat } from "openai/helpers/zod";
 import prisma from "../config/database";
 import { env } from "../config/env";
 import { openaiClient, defaultModel } from "./openaiClient";
+import { Prisma } from "@prisma/client";
+import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -81,15 +83,52 @@ function extractKeywords(q: string) {
     .slice(0, 8);
 }
 
+async function retrieveRelevantChunkIdsVector(p: {
+  notebookId: string;
+  query: string;
+  limit: number;
+  sourceIds?: string[];
+}) {
+  if (!env.OPENAI_ENABLED) return [];
+
+  const qEmb = await embedQuery(p.query);
+  if (!qEmb) return [];
+
+  const qVec = toPgVectorLiteral(qEmb);
+
+  // Vector search only over embedded chunks
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT sc.id
+    FROM "SourceChunk" sc
+    JOIN "NotebookSource" ns ON ns.id = sc."sourceId"
+    WHERE ns."notebookId" = ${p.notebookId}
+      AND sc."embedding" IS NOT NULL
+      ${
+        p.sourceIds?.length
+          ? Prisma.sql`AND sc."sourceId" IN (${Prisma.join(p.sourceIds)})`
+          : Prisma.empty
+      }
+    ORDER BY sc."embedding" <=> ${qVec}::vector
+    LIMIT ${p.limit}
+  `;
+
+  return rows.map((r) => r.id);
+}
+
 async function retrieveRelevantChunkIds(p: {
   notebookId: string;
   query: string;
   limit: number;
   sourceIds?: string[];
 }) {
+  // Try vector retrieval first 
+  const vecTop = await retrieveRelevantChunkIdsVector(p);
+  if (vecTop.length) return vecTop;
+
+  // Fallback to keyword retrieval (for older chunks not yet embedded)
   const kws = extractKeywords(p.query);
 
-  // Fallback: recent chunks if no good keywords
+  // Final fallback: recent chunks if no good keywords
   if (!kws.length) {
     return pickRecentChunkIds(p.notebookId, p.limit, p.sourceIds);
   }

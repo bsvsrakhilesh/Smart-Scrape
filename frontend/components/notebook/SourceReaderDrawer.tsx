@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { notebookClient as api, ChunkReader } from "../../lib/notebookClient";
 
 function clsx(...a: (string | false | null | undefined)[]) {
@@ -58,6 +59,35 @@ export default function SourceReaderDrawer({
 
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // Lock background scroll while the drawer is open (prevents scroll bleed / jank)
+  useEffect(() => {
+    if (!open) return;
+
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    const prevPaddingRight = body.style.paddingRight;
+
+    // Prevent layout shift when scrollbar disappears
+    const scrollbarW = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = "hidden";
+    if (scrollbarW > 0) body.style.paddingRight = `${scrollbarW}px`;
+
+    return () => {
+      body.style.overflow = prevOverflow;
+      body.style.paddingRight = prevPaddingRight;
+    };
+  }, [open]);
+
+  // ESC to close (expected modal behavior)
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   useEffect(() => {
     if (!open) return;
     setRadius(3);
@@ -89,12 +119,17 @@ export default function SourceReaderDrawer({
     };
   }, [open, chunkId, radius]);
 
-  const title = useMemo(() => (reader ? sourceTitle(reader.source) : "Source"), [reader]);
+  const title = useMemo(
+    () => (reader ? sourceTitle(reader.source) : "Source"),
+    [reader]
+  );
   const sub = useMemo(() => (reader ? sourceSub(reader.source) : ""), [reader]);
 
   const jumpToSourceCard = () => {
     if (!reader) return;
-    window.dispatchEvent(new CustomEvent("nb:focus-source", { detail: reader.sourceId }));
+    window.dispatchEvent(
+      new CustomEvent("nb:focus-source", { detail: reader.sourceId })
+    );
     onClose();
   };
 
@@ -109,20 +144,29 @@ export default function SourceReaderDrawer({
     if (!reader) return [];
     const q = query.trim().toLowerCase();
     if (!q) return reader.chunks;
-    return reader.chunks.filter((c) => (c.text || "").toLowerCase().includes(q));
+    return reader.chunks.filter((c) =>
+      (c.text || "").toLowerCase().includes(q)
+    );
   }, [reader, query]);
 
   const canExpand =
-    !!reader && (reader.centerIdx - radius > 0 || reader.centerIdx + radius < reader.totalChunks - 1);
+    !!reader &&
+    (reader.centerIdx - radius > 0 ||
+      reader.centerIdx + radius < reader.totalChunks - 1);
 
-  const keyPoints = useMemo(() => (reader ? extractKeyPoints(reader.chunks) : []), [reader, radius]);
+  const keyPoints = useMemo(
+    () => (reader ? extractKeyPoints(reader.chunks) : []),
+    [reader, radius]
+  );
 
   const addKeyPointsToNotes = () => {
     if (!reader) return;
 
     const md =
       `## Key points — ${title}\n\n` +
-      (keyPoints.length ? keyPoints.map((k) => `- ${k}`).join("\n") : "- (No key points extracted)\n") +
+      (keyPoints.length
+        ? keyPoints.map((k) => `- ${k}`).join("\n")
+        : "- (No key points extracted)\n") +
       (sub ? `\n\n_Source: ${sub}_\n` : "\n");
 
     window.dispatchEvent(new CustomEvent("nb:add-note", { detail: md }));
@@ -135,13 +179,16 @@ export default function SourceReaderDrawer({
     const el = rowRefs.current[reader.centerChunkId];
     if (!el) return;
 
-    const t = setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    const t = setTimeout(
+      () => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+      80
+    );
     return () => clearTimeout(t);
   }, [open, reader?.centerChunkId, radius]);
 
   if (!open) return null;
 
-  return (
+  const node = (
     <div className="fixed inset-0 z-[70]">
       {/* backdrop */}
       <button
@@ -166,12 +213,19 @@ export default function SourceReaderDrawer({
                 <div className="text-[11px] font-semibold text-slate-500 tracking-wide uppercase">
                   Source reader
                 </div>
-                <div className="mt-1 text-[16px] font-semibold text-slate-900 truncate">{title}</div>
-                {sub ? <div className="mt-1 text-[12px] text-slate-500 truncate">{sub}</div> : null}
+                <div className="mt-1 text-[16px] font-semibold text-slate-900 truncate">
+                  {title}
+                </div>
+                {sub ? (
+                  <div className="mt-1 text-[12px] text-slate-500 truncate">
+                    {sub}
+                  </div>
+                ) : null}
 
                 {reader ? (
                   <div className="mt-2 text-[11px] text-slate-500">
-                    Showing chunks around citation · {reader.chunks.length}/{reader.totalChunks} loaded
+                    Showing chunks around citation · {reader.chunks.length}/
+                    {reader.totalChunks} loaded
                   </div>
                 ) : null}
               </div>
@@ -231,7 +285,7 @@ export default function SourceReaderDrawer({
           </div>
 
           {/* body */}
-          <div className="flex-1 overflow-auto p-5">
+          <div className="flex-1 overflow-auto overscroll-contain p-5">
             {loading && (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                 Loading source context…
@@ -261,7 +315,9 @@ export default function SourceReaderDrawer({
                       ))}
                     </ul>
                   ) : (
-                    <div className="mt-2 text-sm text-slate-600">No key points extracted yet.</div>
+                    <div className="mt-2 text-sm text-slate-600">
+                      No key points extracted yet.
+                    </div>
                   )}
                 </div>
 
@@ -283,7 +339,9 @@ export default function SourceReaderDrawer({
                         )}
                       >
                         <div className="flex items-center justify-between gap-3">
-                          <div className="text-[11px] text-slate-500">Chunk #{c.idx + 1}</div>
+                          <div className="text-[11px] text-slate-500">
+                            Chunk #{c.idx + 1}
+                          </div>
 
                           {isCenter ? (
                             <span className="text-[11px] px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800 font-semibold">
@@ -300,7 +358,9 @@ export default function SourceReaderDrawer({
                   })}
 
                   {!filteredChunks.length && (
-                    <div className="text-sm text-slate-500">No chunks match your search.</div>
+                    <div className="text-sm text-slate-500">
+                      No chunks match your search.
+                    </div>
                   )}
                 </div>
               </div>
@@ -309,10 +369,12 @@ export default function SourceReaderDrawer({
 
           {/* footer */}
           <div className="px-5 py-3 border-t border-slate-200/80 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/60 text-[11px] text-slate-500">
-            NotebookLM feel: click citations → verify claims with surrounding context → save key points.
+            NotebookLM feel: click citations → verify claims with surrounding
+            context → save key points.
           </div>
         </div>
       </div>
     </div>
   );
+  return createPortal(node, document.body);
 }

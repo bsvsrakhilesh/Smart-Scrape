@@ -16,6 +16,24 @@ function sourceSub(s: ChunkReader["source"]) {
   return s.file?.mimeType || "";
 }
 
+function highlightQuote(text: string, quote?: string) {
+  if (!quote) return text;
+  const i = text.indexOf(quote);
+  if (i < 0) return text;
+
+  const a = text.slice(0, i);
+  const b = text.slice(i, i + quote.length);
+  const c = text.slice(i + quote.length);
+
+  return (
+    <>
+      {a}
+      <mark className="bg-yellow-200/70 rounded px-0.5">{b}</mark>
+      {c}
+    </>
+  );
+}
+
 // Quick heuristic "key points" extractor (replace with LLM later if needed)
 function extractKeyPoints(chunks: { text: string }[], max = 6) {
   const out: string[] = [];
@@ -44,11 +62,16 @@ function extractKeyPoints(chunks: { text: string }[], max = 6) {
 
 export default function SourceReaderDrawer({
   open,
-  chunkId,
+  citation,
   onClose,
 }: {
   open: boolean;
-  chunkId: string | null;
+  citation: {
+    chunkId: string;
+    quote?: string;
+    pageStart?: number | null;
+    pageEnd?: number | null;
+  } | null;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -94,10 +117,10 @@ export default function SourceReaderDrawer({
     setQuery("");
     setReader(null);
     setErr(null);
-  }, [open, chunkId]);
+  }, [open, citation?.chunkId]);
 
   useEffect(() => {
-    if (!open || !chunkId) return;
+    if (!open || !citation?.chunkId) return;
 
     let cancelled = false;
 
@@ -105,7 +128,7 @@ export default function SourceReaderDrawer({
       try {
         setLoading(true);
         setErr(null);
-        const data = await api.getChunkReader(chunkId, radius);
+        const data = await api.getChunkReader(citation.chunkId, radius);
         if (!cancelled) setReader(data);
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || "Failed to load source reader.");
@@ -117,18 +140,18 @@ export default function SourceReaderDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, chunkId, radius]);
+  }, [open, citation?.chunkId, radius]);
 
   const title = useMemo(
     () => (reader ? sourceTitle(reader.source) : "Source"),
-    [reader]
+    [reader],
   );
   const sub = useMemo(() => (reader ? sourceSub(reader.source) : ""), [reader]);
 
   const jumpToSourceCard = () => {
     if (!reader) return;
     window.dispatchEvent(
-      new CustomEvent("nb:focus-source", { detail: reader.sourceId })
+      new CustomEvent("nb:focus-source", { detail: reader.sourceId }),
     );
     onClose();
   };
@@ -145,7 +168,7 @@ export default function SourceReaderDrawer({
     const q = query.trim().toLowerCase();
     if (!q) return reader.chunks;
     return reader.chunks.filter((c) =>
-      (c.text || "").toLowerCase().includes(q)
+      (c.text || "").toLowerCase().includes(q),
     );
   }, [reader, query]);
 
@@ -156,7 +179,7 @@ export default function SourceReaderDrawer({
 
   const keyPoints = useMemo(
     () => (reader ? extractKeyPoints(reader.chunks) : []),
-    [reader, radius]
+    [reader, radius],
   );
 
   const addKeyPointsToNotes = () => {
@@ -181,7 +204,7 @@ export default function SourceReaderDrawer({
 
     const t = setTimeout(
       () => el.scrollIntoView({ behavior: "smooth", block: "center" }),
-      80
+      80,
     );
     return () => clearTimeout(t);
   }, [open, reader?.centerChunkId, radius]);
@@ -202,7 +225,7 @@ export default function SourceReaderDrawer({
         className={clsx(
           "absolute right-0 top-0 h-full w-full sm:w-[640px]",
           "bg-white shadow-[0_40px_120px_rgba(15,23,42,0.35)]",
-          "border-l border-slate-200/80"
+          "border-l border-slate-200/80",
         )}
       >
         <div className="h-full flex flex-col">
@@ -224,8 +247,12 @@ export default function SourceReaderDrawer({
 
                 {reader ? (
                   <div className="mt-2 text-[11px] text-slate-500">
-                    Showing chunks around citation · {reader.chunks.length}/
-                    {reader.totalChunks} loaded
+                    Showing chunks around citation
+                    {citation?.pageStart != null ? (
+                      <> · Page {citation.pageStart}</>
+                    ) : null}
+                    {" · "}
+                    {reader.chunks.length}/{reader.totalChunks} loaded
                   </div>
                 ) : null}
               </div>
@@ -335,7 +362,7 @@ export default function SourceReaderDrawer({
                           "rounded-2xl border p-4 shadow-sm",
                           isCenter
                             ? "border-emerald-200 bg-emerald-50/60 ring-1 ring-emerald-200"
-                            : "border-slate-200 bg-white"
+                            : "border-slate-200 bg-white",
                         )}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -351,7 +378,9 @@ export default function SourceReaderDrawer({
                         </div>
 
                         <div className="mt-2 text-sm leading-relaxed text-slate-900 whitespace-pre-wrap">
-                          {c.text}
+                          {isCenter
+                            ? highlightQuote(c.text, citation?.quote)
+                            : c.text}
                         </div>
                       </div>
                     );

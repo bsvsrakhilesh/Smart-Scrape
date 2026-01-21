@@ -40,6 +40,8 @@ services:
       FILE_STORAGE_DIR: /data
       # Talk to AI Tagger over the compose network
       TAGGER_PY_URL: http://ai-tagger:7071
+      REDIS_URL: redis://redis:6379/0
+
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
@@ -48,6 +50,31 @@ services:
     ports:
       - "4000:4000"
     depends_on:
+      db:
+        condition: service_healthy
+  
+  backend-embeddings-worker:
+    image: node:20-alpine
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: base
+    container_name: smartscrape_backend_embeddings_worker
+    working_dir: /app
+    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npx prisma generate && npm run worker:embeddings"
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379/0
+      TAGGER_PY_URL: http://ai-tagger:7071
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - ./backend/.env:/app/.env:ro
+    depends_on:
+      redis:
+        condition: service_started
       db:
         condition: service_healthy
 

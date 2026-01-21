@@ -1,5 +1,4 @@
-import { Worker } from "bullmq";
-import IORedis from "ioredis";
+import { Worker, type ConnectionOptions } from "bullmq";
 import prisma from "../config/database";
 import { env, requireOpenAI } from "../config/env";
 import {
@@ -8,7 +7,17 @@ import {
   toPgVectorLiteral,
 } from "../services/embeddings.service";
 
-const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
+function bullConnection(): ConnectionOptions {
+  const u = new URL(env.REDIS_URL);
+  return {
+    host: u.hostname,
+    port: Number(u.port || "6379"),
+    username: u.username || undefined,
+    password: u.password || undefined,
+    db: u.pathname ? Number(u.pathname.replace("/", "") || "0") : 0,
+    maxRetriesPerRequest: null,
+  };
+}
 
 export const embeddingWorker = new Worker(
   "embeddings",
@@ -18,18 +27,12 @@ export const embeddingWorker = new Worker(
     const { sourceId } = job.data as { sourceId: string };
     if (!sourceId) throw new Error("Missing sourceId");
 
-    // Upsert status row (durable state)
     await prisma.embeddingJob.upsert({
       where: { sourceId },
       create: { sourceId, status: "RUNNING", attemptCount: 1 },
-      update: {
-        status: "RUNNING",
-        attemptCount: { increment: 1 },
-        error: null,
-      },
+      update: { status: "RUNNING", attemptCount: { increment: 1 }, error: null },
     });
 
-    // Pull chunks that aren’t embedded yet
     const chunks = await prisma.sourceChunk.findMany({
       where: { sourceId, embeddedAt: null },
       orderBy: { idx: "asc" },
@@ -46,21 +49,19 @@ export const embeddingWorker = new Worker(
 
     const texts = chunks.map((c) => c.text);
     const embeddings = await embedTexts(texts, DEFAULT_EMBEDDING_MODEL);
-    if (!embeddings.length || embeddings.length !== chunks.length) {
-      throw new Error("Embedding generation failed or count mismatch.");
+    if (embeddings.length !== chunks.length) {
+      throw new Error("Embedding count mismatch.");
     }
 
     const now = new Date();
-
     await prisma.$transaction(
       chunks.map((row, i) => {
         const v = toPgVectorLiteral(embeddings[i]);
         return prisma.$executeRaw`
           UPDATE "SourceChunk"
-          SET
-            "embedding" = ${v}::vector,
-            "embeddingModel" = ${DEFAULT_EMBEDDING_MODEL},
-            "embeddedAt" = ${now}
+          SET "embedding" = ${v}::vector,
+              "embeddingModel" = ${DEFAULT_EMBEDDING_MODEL},
+              "embeddedAt" = ${now}
           WHERE "id" = ${row.id}
         `;
       })
@@ -71,7 +72,7 @@ export const embeddingWorker = new Worker(
       data: { status: "SUCCESS", error: null },
     });
   },
-  { connection, concurrency: env.EMBEDDING_QUEUE_CONCURRENCY }
+  { connection: bullConnection(), concurrency: env.EMBEDDING_QUEUE_CONCURRENCY }
 );
 
 embeddingWorker.on("failed", async (job, err) => {

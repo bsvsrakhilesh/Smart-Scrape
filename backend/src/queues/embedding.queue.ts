@@ -1,11 +1,20 @@
-import { Queue } from "bullmq";
-import IORedis from "ioredis";
+import { Queue, type ConnectionOptions } from "bullmq";
 import { env } from "../config/env";
 
-const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
+function bullConnection(): ConnectionOptions {
+  const u = new URL(env.REDIS_URL);
+  return {
+    host: u.hostname,
+    port: Number(u.port || "6379"),
+    username: u.username || undefined,
+    password: u.password || undefined,
+    db: u.pathname ? Number(u.pathname.replace("/", "") || "0") : 0,
+    maxRetriesPerRequest: null,
+  };
+}
 
 export const embeddingQueue = new Queue("embeddings", {
-  connection,
+  connection: bullConnection(),
   defaultJobOptions: {
     attempts: 5,
     backoff: { type: "exponential", delay: 2000 },
@@ -15,6 +24,5 @@ export const embeddingQueue = new Queue("embeddings", {
 });
 
 export async function enqueueEmbeddingJob(sourceId: string) {
-  // jobId = sourceId => idempotent enqueue (re-ingest won’t spam)
   await embeddingQueue.add("embed_source", { sourceId }, { jobId: sourceId });
 }

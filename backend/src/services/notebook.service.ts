@@ -1,11 +1,7 @@
 import prisma from "../config/database";
 import { env } from "../config/env";
 import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
-import {
-  DEFAULT_EMBEDDING_MODEL,
-  embedTexts,
-  toPgVectorLiteral,
-} from "./embeddings.service";
+import { enqueueEmbeddingJob } from "../queues/embedding.queue";
 
 export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });
@@ -266,27 +262,16 @@ async function createChunksForSource(sourceId: string, text: string) {
     )
   );
 
-  // If OpenAI disabled, skip embeddings cleanly
+    // Queue embeddings (durable + retryable)
   if (!env.OPENAI_ENABLED) return;
 
-  // Generate embeddings in the same order as `chunks`
-  const embeddings = await embedTexts(chunks, DEFAULT_EMBEDDING_MODEL);
-  if (!embeddings.length || embeddings.length !== created.length) return;
+  // Track embedding job state (durable)
+  await prisma.embeddingJob.upsert({
+    where: { sourceId },
+    create: { sourceId, status: "PENDING", attemptCount: 0 },
+    update: { status: "PENDING", error: null },
+  });
 
-  const now = new Date();
-
-  // Persist embeddings via SQL casts (pgvector)
-  await prisma.$transaction(
-    created.map((row, i) => {
-      const v = toPgVectorLiteral(embeddings[i]);
-      return prisma.$executeRaw`
-        UPDATE "SourceChunk"
-        SET
-          "embedding" = ${v}::vector,
-          "embeddingModel" = ${DEFAULT_EMBEDDING_MODEL},
-          "embeddedAt" = ${now}
-        WHERE "id" = ${row.id}
-      `;
-    })
-  );
+  // Enqueue idempotently
+  await enqueueEmbeddingJob(sourceId);
 }

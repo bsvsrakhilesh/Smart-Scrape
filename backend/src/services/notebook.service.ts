@@ -7,10 +7,7 @@ export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });
 }
 
-export async function createNotebook(p: {
-  title: string;
-  description?: string;
-}) {
+export async function createNotebook(p: { title: string; description?: string }) {
   return prisma.notebook.create({
     data: { title: p.title || "Untitled", description: p.description ?? "" },
   });
@@ -72,13 +69,11 @@ export async function attachUrlSource(notebookId: string, urlId: number) {
   void (async () => {
     try {
       const fullText = await extractTextFromUrl(url.url);
-      await createChunksForSource(src.id, fullText);
+      await createChunksForSource(src.id, { fullText });
     } catch {
       // Fall back to metadata if extraction fails
-      const fallback = `${url.title ?? ""}\n${url.url}\n${
-        url.snippet ?? ""
-      }`.trim();
-      await createChunksForSource(src.id, fallback);
+      const fallback = `${url.title ?? ""}\n${url.url}\n${url.snippet ?? ""}`.trim();
+      await createChunksForSource(src.id, { fullText: fallback });
     }
   })();
 
@@ -99,15 +94,12 @@ export async function attachFileSource(notebookId: string, fileId: string) {
   // Extract + chunk in the background (best-effort)
   void (async () => {
     try {
-      const fullText = await extractTextFromFile(
-        file.storagePath,
-        file.mimeType
-      );
+      const fullText = await extractTextFromFile(file.storagePath, file.mimeType);
       const header = `FILE: ${file.fileName}\nMIME: ${file.mimeType}\n\n`;
-      await createChunksForSource(src.id, (header + fullText).trim());
+      await createChunksForSource(src.id, { fullText: (header + fullText).trim() });
     } catch {
       const fallback = `File: ${file.fileName} (${file.mimeType})`;
-      await createChunksForSource(src.id, fallback);
+      await createChunksForSource(src.id, { fullText: fallback });
     }
   })();
 
@@ -122,7 +114,12 @@ export async function deleteSource(notebookId: string, sourceId: string) {
     where: { id: sourceId },
   });
   if (!src || src.notebookId !== notebookId) return;
+
+  // If you added SourcePage model, clean it too (or rely on cascade)
   await prisma.sourceChunk.deleteMany({ where: { sourceId } });
+  // @ts-ignore - will exist after prisma migrate+generate if SourcePage is added
+  await prisma.sourcePage?.deleteMany?.({ where: { sourceId } });
+
   await prisma.notebookSource.delete({ where: { id: sourceId } });
 }
 
@@ -146,8 +143,7 @@ export async function updateNote(
   p: { title?: string; content?: string; citations?: any }
 ) {
   const note = await prisma.note.findUnique({ where: { id: noteId } });
-  if (!note || note.notebookId !== notebookId)
-    throw new Error("Note not found");
+  if (!note || note.notebookId !== notebookId) throw new Error("Note not found");
   return prisma.note.update({ where: { id: noteId }, data: p });
 }
 
@@ -222,20 +218,26 @@ export async function pickNotebookCitations(
 }
 
 /* ---------- helpers ---------- */
-function splitText(text: string, maxChars = 1400, overlap = 220) {
-  const clean = (text || "").replace(/\u0000/g, "").replace(/\r/g, "");
-  const out: string[] = [];
-  let i = 0;
 
+function splitTextWithOffsets(text: string, maxChars = 1400, overlap = 220) {
+  const clean = (text || "").replace(/\u0000/g, "").replace(/\r/g, "");
+  const out: { text: string; start: number; end: number }[] = [];
+
+  let i = 0;
   while (i < clean.length) {
     const end = Math.min(clean.length, i + maxChars);
-    let chunk = clean.slice(i, end).trim();
+    const raw = clean.slice(i, end);
+    const chunk = raw.trim();
 
-    // Avoid tiny chunks
-    if (chunk.length >= 40) out.push(chunk);
+    if (chunk.length >= 40) {
+      const leftTrim = raw.indexOf(chunk);
+      const start = i + Math.max(0, leftTrim);
+      const finish = start + chunk.length;
+      out.push({ text: chunk, start, end: finish });
+    }
 
     if (end >= clean.length) break;
-    i = Math.max(0, end - overlap); // overlap
+    i = Math.max(0, end - overlap);
   }
 
   return out;
@@ -245,33 +247,105 @@ function roughTokens(s: string) {
   return Math.ceil((s || "").length / 4);
 }
 
-async function createChunksForSource(sourceId: string, text: string) {
-  const chunks = splitText(text || "", 1400, 220);
+async function createChunksForSource(
+  sourceId: string,
+  payload: { fullText: string; pages?: { pageNumber: number; text: string }[] }
+) {
+  const fullText = payload.fullText || "";
+  const chunks = splitTextWithOffsets(fullText, 1400, 220);
   if (!chunks.length) return;
 
-  // Re-ingestion safe: wipe old chunks then re-create
+  // Re-ingestion safe: wipe old chunks + pages then re-create
   await prisma.sourceChunk.deleteMany({ where: { sourceId } });
+  // @ts-ignore - will exist after prisma migrate+generate if SourcePage is added
+  await prisma.sourcePage?.deleteMany?.({ where: { sourceId } });
 
-  // Create chunks and keep their IDs in the same order as `chunks`
-  const created = await prisma.$transaction(
-    chunks.map((t, idx) =>
-      prisma.sourceChunk.create({
-        data: { sourceId, idx, text: t, tokens: roughTokens(t) },
+  // If we have pages, store them with global offsets
+  let pageRanges:
+    | { pageNumber: number; globalStart: number; globalEnd: number }[]
+    | null = null;
+
+  if (payload.pages?.length) {
+    let offset = 0;
+    const SEP = "\n\n"; // MUST match how fullText is constructed (join with \n\n)
+    pageRanges = [];
+
+    // @ts-ignore - prisma.sourcePage exists after schema/migrate/generate
+    const pageCreates = payload.pages.map((p, idx) => {
+      const start = offset;
+      const isLast = idx === payload.pages!.length - 1;
+      const pageText = (p.text || "") + (isLast ? "" : SEP);
+      offset += pageText.length;
+      const end = offset;
+
+      pageRanges!.push({ pageNumber: p.pageNumber, globalStart: start, globalEnd: end });
+
+      return prisma.sourcePage.create({
+        data: {
+          sourceId,
+          pageNumber: p.pageNumber,
+          text: p.text || "",
+          globalStart: start,
+          globalEnd: end,
+        },
+      });
+    });
+
+    await prisma.$transaction(pageCreates);
+  }
+
+  function mapGlobalStart(globalPos: number) {
+    if (!pageRanges?.length) return null;
+    const r =
+      pageRanges.find((x) => globalPos >= x.globalStart && globalPos < x.globalEnd) ??
+      pageRanges[pageRanges.length - 1];
+    return { pageNumber: r.pageNumber, char: Math.max(0, globalPos - r.globalStart) };
+  }
+
+  function mapGlobalEnd(globalPos: number) {
+    if (!pageRanges?.length) return null;
+    const pos = Math.max(0, globalPos - 1); // end boundary: map to the preceding char
+    const r =
+      pageRanges.find((x) => pos >= x.globalStart && pos < x.globalEnd) ??
+      pageRanges[pageRanges.length - 1];
+    return { pageNumber: r.pageNumber, char: Math.max(0, globalPos - r.globalStart) };
+  }
+
+  await prisma.$transaction(
+    chunks.map((c, idx) => {
+      const s = mapGlobalStart(c.start);
+      const e = mapGlobalEnd(c.end);
+
+      return prisma.sourceChunk.create({
+        data: {
+          sourceId,
+          idx,
+          text: c.text,
+          tokens: roughTokens(c.text),
+
+          // ---- Evidence mapping (Phase 2) ----
+          // These fields must exist in Prisma schema + migration:
+          globalStart: c.start,
+          globalEnd: c.end,
+
+          pageStart: s?.pageNumber ?? null,
+          pageEnd: e?.pageNumber ?? null,
+          charStart: s?.char ?? null,
+          charEnd: e?.char ?? null,
+        } as any, // keep TS happy until prisma generate picks up new fields
         select: { id: true },
-      })
-    )
+      });
+    })
   );
 
-    // Queue embeddings (durable + retryable)
+  // Queue embeddings (durable + retryable)
   if (!env.OPENAI_ENABLED) return;
 
-  // Track embedding job state (durable)
   await prisma.embeddingJob.upsert({
     where: { sourceId },
     create: { sourceId, status: "PENDING", attemptCount: 0 },
     update: { status: "PENDING", error: null },
   });
 
-  // Enqueue idempotently
   await enqueueEmbeddingJob(sourceId);
 }

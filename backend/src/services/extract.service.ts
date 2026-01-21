@@ -6,6 +6,8 @@ import { Readability } from '@mozilla/readability';
 import pdf from 'pdf-parse';
 import dns from 'dns/promises';
 import net from 'net';
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
+import fs from "node:fs/promises";
 
 const MAX_HTML_BYTES = Number(process.env.EXTRACT_MAX_HTML_BYTES || 5 * 1024 * 1024); // 5MB
 const PREVIEW_SNIPPET_CHARS = Number(process.env.EXTRACT_PREVIEW_CHARS || 260);
@@ -149,4 +151,29 @@ export async function extractTextFromFile(filePath: string, mimeType: string): P
   } catch {
     return '';
   }
+}
+
+export async function extractPdfPagesFromFile(storagePath: string): Promise<
+  { pageNumber: number; text: string }[]
+> {
+  const buf = await fs.readFile(storagePath);
+  const loadingTask = pdfjsLib.getDocument({ data: buf });
+  const pdf = await loadingTask.promise;
+
+  const pages: { pageNumber: number; text: string }[] = [];
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+
+    // Join items in reading order (good enough for v1)
+    const strings = content.items
+      .map((it: any) => (typeof it.str === "string" ? it.str : ""))
+      .filter(Boolean);
+
+    const text = strings.join(" ").replace(/\s+/g, " ").trim();
+    pages.push({ pageNumber: i, text });
+  }
+
+  return pages;
 }

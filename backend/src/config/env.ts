@@ -15,6 +15,11 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional().default("gpt-5.2"),
   OPENAI_TIMEOUT_MS: z.coerce.number().optional().default(30_000),
+  
+  // Redis (queues)
+  REDIS_URL: z.string().optional().default("redis://localhost:6379/0"),
+  EMBEDDING_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
+
 });
 
 const parsed = EnvSchema.safeParse(process.env);

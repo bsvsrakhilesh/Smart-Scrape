@@ -42,7 +42,8 @@
     "puppeteer": "^24.17.0",
     "robots-parser": "^3.0.1",
     "unzipper": "^0.12.3",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "@types/archiver": "^6.0.3",

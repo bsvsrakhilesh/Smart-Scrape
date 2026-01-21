@@ -97,7 +97,6 @@ model NotebookSource {
   notebookId String
   kind       SourceKind
 
-  // Match your existing ID types:
   url   Url? @relation("UrlNotebookSources", fields: [urlId], references: [id])
   urlId Int?
 
@@ -106,6 +105,8 @@ model NotebookSource {
 
   chunks       SourceChunk[]
   embeddingJob EmbeddingJob?
+  pages        SourcePage[]
+  ingestionJob IngestionJob?
   createdAt    DateTime      @default(now())
 
   @@unique([notebookId, urlId])
@@ -124,6 +125,13 @@ model SourceChunk {
   embeddingModel String?
   embeddedAt     DateTime?
   fts            Unsupported("tsvector")?
+  globalStart    Int?
+  globalEnd      Int?
+
+  pageStart Int?
+  pageEnd   Int?
+  charStart Int?
+  charEnd   Int?
 
   createdAt DateTime @default(now())
 
@@ -141,6 +149,35 @@ model EmbeddingJob {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model IngestionJob {
+  id       String         @id @default(cuid())
+  source   NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId String         @unique
+
+  status       TaggingStatus @default(PENDING)
+  attemptCount Int           @default(0)
+  error        String?
+  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime      @default(now())
+}
+
+model SourcePage {
+  id         String         @id @default(cuid())
+  source     NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId   String
+  pageNumber Int
+  text       String
+
+  // global offsets into the concatenated fullText (including page separators)
+  globalStart Int
+  globalEnd   Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([sourceId, pageNumber])
+  @@index([sourceId])
 }
 
 model Note {

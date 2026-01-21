@@ -23,7 +23,7 @@ type Msg = {
   ts: number;
   role: "user" | "assistant";
   html: string;
-  citations?: { chunkId: string }[];
+  citations?: import("../../lib/notebookClient").Citation[];
   suggested?: string[];
 };
 
@@ -79,7 +79,9 @@ export default function ChatPanel({
   const [showJump, setShowJump] = useState(false);
 
   const [readerOpen, setReaderOpen] = useState(false);
-  const [readerChunkId, setReaderChunkId] = useState<string | null>(null);
+  const [readerCitation, setReaderCitation] = useState<
+    import("../../lib/notebookClient").Citation | null
+  >(null);
 
   const includedCount = sourceIds?.length ?? 0;
   const totalCount = totalSources ?? includedCount;
@@ -171,8 +173,8 @@ export default function ChatPanel({
     if (!showJump) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending, showJump]);
 
-  const openSource = (chunkId: string) => {
-    setReaderChunkId(chunkId);
+  const openSource = (c: import("../../lib/notebookClient").Citation) => {
+    setReaderCitation(c);
     setReaderOpen(true);
   };
 
@@ -184,7 +186,7 @@ export default function ChatPanel({
   const send = useCallback(
     async (
       q: string,
-      saveToNotes?: { title: string; mode: "append" | "replace" }
+      saveToNotes?: { title: string; mode: "append" | "replace" },
     ) => {
       if (!notebookId) return;
 
@@ -222,7 +224,7 @@ export default function ChatPanel({
                   content: res.answer,
                   mode: saveToNotes.mode,
                 },
-              })
+              }),
             );
           }
 
@@ -240,7 +242,7 @@ export default function ChatPanel({
         setPending(false);
       }
     },
-    [notebookId]
+    [notebookId],
   );
 
   // Notebook Guide / Studio can fire a "send this prompt" event.
@@ -412,7 +414,7 @@ export default function ChatPanel({
                   (isUser ? "rounded-tr-lg" : "rounded-tl-lg"),
                 !isFirstInGroup &&
                   !isLastInGroup &&
-                  (isUser ? "rounded-r-lg" : "rounded-l-lg")
+                  (isUser ? "rounded-r-lg" : "rounded-l-lg"),
               );
 
               return (
@@ -420,7 +422,7 @@ export default function ChatPanel({
                   key={m.id}
                   className={clsx(
                     "flex gap-3",
-                    isUser ? "justify-end" : "justify-start"
+                    isUser ? "justify-end" : "justify-start",
                   )}
                 >
                   {/* Avatar column */}
@@ -428,7 +430,7 @@ export default function ChatPanel({
                     <div
                       className={clsx(
                         "w-9 shrink-0",
-                        isFirstInGroup ? "opacity-100" : "opacity-0"
+                        isFirstInGroup ? "opacity-100" : "opacity-0",
                       )}
                     >
                       <div className="w-9 h-9 rounded-2xl bg-slate-900 text-white grid place-items-center shadow-[0_14px_34px_rgba(15,23,42,0.25)]">
@@ -441,7 +443,7 @@ export default function ChatPanel({
                     <div
                       className={clsx(
                         "w-9 shrink-0",
-                        isFirstInGroup ? "opacity-100" : "opacity-0"
+                        isFirstInGroup ? "opacity-100" : "opacity-0",
                       )}
                     >
                       <div className="w-9 h-9 rounded-2xl bg-gradient-to-b from-slate-600 to-slate-900 text-white grid place-items-center shadow-[0_14px_34px_rgba(15,23,42,0.22)]">
@@ -456,14 +458,14 @@ export default function ChatPanel({
                   <div
                     className={clsx(
                       isUser ? "max-w-[520px] w-full" : "max-w-[720px] w-full",
-                      isUser ? "items-end" : "items-start"
+                      isUser ? "items-end" : "items-start",
                     )}
                   >
                     {isFirstInGroup && (
                       <div
                         className={clsx(
                           "mb-1 flex items-center gap-2",
-                          isUser ? "justify-end" : "justify-start"
+                          isUser ? "justify-end" : "justify-start",
                         )}
                       >
                         <div className="text-[11px] font-semibold text-slate-700">
@@ -481,7 +483,7 @@ export default function ChatPanel({
                         bubbleRound,
                         isUser
                           ? "bg-white border-slate-200 text-slate-900"
-                          : "bg-white/80 backdrop-blur border-white/40 text-slate-900"
+                          : "bg-white/80 backdrop-blur border-white/40 text-slate-900",
                       )}
                       {...(m.role === "assistant"
                         ? { dangerouslySetInnerHTML: { __html: m.html } }
@@ -495,7 +497,7 @@ export default function ChatPanel({
                           <CitationBadge
                             key={c.chunkId}
                             index={idx + 1}
-                            chunkId={c.chunkId}
+                            citation={c}
                             onOpenSource={openSource}
                           />
                         ))}
@@ -607,7 +609,7 @@ export default function ChatPanel({
                 "w-11 h-11 grid place-items-center rounded-2xl text-white shadow-[0_18px_50px_rgba(15,23,42,0.25)] transition-all",
                 !notebookId || pending || !input.trim()
                   ? "bg-slate-400 cursor-not-allowed opacity-70"
-                  : "bg-slate-900 hover:bg-black active:scale-[0.98]"
+                  : "bg-slate-900 hover:bg-black active:scale-[0.98]",
               )}
               aria-label="Send"
               title="Send"
@@ -625,7 +627,7 @@ export default function ChatPanel({
         </div>
         <SourceReaderDrawer
           open={readerOpen}
-          chunkId={readerChunkId}
+          citation={readerCitation}
           onClose={() => setReaderOpen(false)}
         />
       </div>

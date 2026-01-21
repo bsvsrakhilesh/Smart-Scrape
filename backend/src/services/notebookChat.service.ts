@@ -18,7 +18,7 @@ const ChatAnswerSchema = z.object({
     .array(
       z.object({
         chunkId: z.string().min(1),
-      })
+      }),
     )
     .describe("List of cited chunk IDs used to answer."),
   suggested: z
@@ -192,7 +192,7 @@ async function retrieveRelevantChunkIdsHybrid(p: {
 async function pickRecentChunkIds(
   notebookId: string,
   limit: number,
-  sourceIds?: string[]
+  sourceIds?: string[],
 ): Promise<string[]> {
   const rows = await prisma.sourceChunk.findMany({
     where: {
@@ -204,6 +204,103 @@ async function pickRecentChunkIds(
     select: { id: true },
   });
   return rows.map((r) => r.id);
+}
+
+const RerankSchema = z.object({
+  ranked: z.array(
+    z.object({
+      chunkId: z.string().min(1),
+      score: z.number().min(0).max(100),
+    }),
+  ),
+});
+
+async function rerankChunkIds(p: {
+  query: string;
+  candidateChunkIds: string[];
+  finalLimit: number;
+}) {
+  const candidateIds = p.candidateChunkIds.slice(0, 40); // cap cost
+  if (!candidateIds.length) return [];
+
+  // Load chunk text for reranking
+  const rows = await prisma.sourceChunk.findMany({
+    where: { id: { in: candidateIds } },
+    select: { id: true, text: true },
+  });
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = candidateIds.map((id) => byId.get(id)).filter(Boolean) as {
+    id: string;
+    text: string;
+  }[];
+
+  // If OpenAI disabled, do a simple lexical overlap scoring (fallback)
+  if (!env.OPENAI_ENABLED) {
+    const kws = extractKeywords(p.query);
+    const scored = ordered
+      .map((c) => {
+        const t = c.text.toLowerCase();
+        let s = 0;
+        for (const k of kws) {
+          const hits = t.split(k).length - 1;
+          s += hits * 3;
+          if (t.slice(0, 200).includes(k)) s += 2;
+        }
+        return { id: c.id, score: s };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.id);
+
+    return scored.slice(0, p.finalLimit);
+  }
+
+  // LLM rerank (cross-check)
+  const system = [
+    "You are a strict reranker for retrieval chunks.",
+    "Your job: rank chunks by how well they answer the user query.",
+    "Prefer chunks with direct, explicit evidence (exact names, numbers, definitions).",
+    "Do NOT hallucinate. You must only score based on provided chunk text.",
+    "Return JSON only.",
+  ].join("\n");
+
+  const items = ordered
+    .map((c, i) => {
+      const trimmed = (c.text ?? "").slice(0, 900);
+      return `ITEM ${i + 1}\nCHUNK_ID: ${c.id}\nTEXT:\n${trimmed}\n----`;
+    })
+    .join("\n");
+
+  const user = [
+    `QUERY:\n${p.query}`,
+    "",
+    "CANDIDATES:",
+    items,
+    "",
+    `Return JSON as { ranked: [{ chunkId, score }] } with highest score = most relevant.`,
+  ].join("\n");
+
+  const resp = await openaiClient().responses.parse({
+    model: defaultModel(),
+    input: [
+      { role: "system" as const, content: system },
+      { role: "user" as const, content: user },
+    ],
+    text: { format: zodTextFormat(RerankSchema, "rerank") },
+  });
+
+  const out = resp.output_parsed;
+  if (!out) return ordered.map((c) => c.id).slice(0, p.finalLimit);
+
+  const allowed = new Set(candidateIds);
+  const ranked = out.ranked
+    .filter((r) => allowed.has(r.chunkId))
+    .sort((a, b) => b.score - a.score)
+    .map((r) => r.chunkId);
+
+  // Ensure we don’t drop everything if model behaves oddly
+  const merged = uniq([...ranked, ...ordered.map((c) => c.id)]);
+  return merged.slice(0, p.finalLimit);
 }
 
 async function loadChunksForContext(chunkIds: string[]) {
@@ -221,7 +318,7 @@ async function loadChunksForContext(chunkIds: string[]) {
 }
 
 function formatContext(
-  chunks: Awaited<ReturnType<typeof loadChunksForContext>>
+  chunks: Awaited<ReturnType<typeof loadChunksForContext>>,
 ) {
   if (!chunks.length) return "NO_SOURCES_AVAILABLE";
 
@@ -256,7 +353,7 @@ export async function runNotebookChat(p: {
   const sourceIds = p.sourceIds;
 
   // Always compute some citations to keep UI usable even if OpenAI disabled
-  const candidateChunkIds = await retrieveRelevantChunkIds({
+  const candidateChunkIds = await retrieveRelevantChunkIdsHybrid({
     notebookId,
     query: message,
     limit: 8,
@@ -320,7 +417,7 @@ export async function runNotebookChat(p: {
   const out = resp.output_parsed;
   if (!out) {
     throw new Error(
-      "OpenAI did not return a valid structured response (output_parsed is null)."
+      "OpenAI did not return a valid structured response (output_parsed is null).",
     );
   }
 

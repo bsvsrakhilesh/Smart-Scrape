@@ -170,8 +170,15 @@ export async function crawlSaveText(
   url: string,
   folderId?: string,
   fileName?: string,
-): Promise<FileItem> {
-  const res = await api.post("/api/crawl/text", { url, folderId, fileName });
+  urlId?: number,
+) {
+  const res = await api.post("/api/crawl/text", {
+    url,
+    folderId,
+    fileName,
+    urlId,
+  });
+
   return toFileItem(res.data as BackendStoredFile);
 }
 
@@ -179,16 +186,19 @@ export async function crawlSavePdf(
   url: string,
   folderId?: string,
   fileName?: string,
-  fullPage: boolean = true,
-  reader: boolean = true,
-): Promise<FileItem> {
+  fullPage?: boolean,
+  reader?: boolean,
+  urlId?: number,
+) {
   const res = await api.post("/api/crawl/pdf", {
     url,
     folderId,
     fileName,
     fullPage,
     reader,
+    urlId,
   });
+
   return toFileItem(res.data as BackendStoredFile);
 }
 

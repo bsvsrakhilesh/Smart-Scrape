@@ -1,7 +1,12 @@
 import { Worker, type ConnectionOptions } from "bullmq";
 import prisma from "../config/database";
 import { env } from "../config/env";
-import { extractTextFromUrl, extractTextFromFile, extractPdfPagesFromFile } from "../services/extract.service";
+import {
+  extractTextFromUrl,
+  extractTextFromFile,
+  extractPdfPagesFromFile,
+  detectScannedPdf,
+} from "../services/extract.service";
 import { createChunksForSource } from "../services/notebook.service";
 
 function bullConnection(): ConnectionOptions {
@@ -31,7 +36,11 @@ export const ingestionWorker = new Worker(
     await prisma.ingestionJob.upsert({
       where: { sourceId },
       create: { sourceId, status: "RUNNING", attemptCount: 1 },
-      update: { status: "RUNNING", attemptCount: { increment: 1 }, error: null },
+      update: {
+        status: "RUNNING",
+        attemptCount: { increment: 1 },
+        error: null,
+      },
     });
 
     const src = await prisma.notebookSource.findUnique({
@@ -51,7 +60,10 @@ export const ingestionWorker = new Worker(
       const fullText = (fullTextRaw || "").replace(/\s+/g, " ").trim();
 
       await createChunksForSource(sourceId, { fullText });
-      await prisma.ingestionJob.update({ where: { sourceId }, data: { status: "SUCCESS", error: null } });
+      await prisma.ingestionJob.update({
+        where: { sourceId },
+        data: { status: "SUCCESS", error: null },
+      });
       return;
     }
 
@@ -61,21 +73,37 @@ export const ingestionWorker = new Worker(
 
     if (isPdf(f.mimeType, f.fileName)) {
       const pages = await extractPdfPagesFromFile(f.storagePath);
+      const scan = detectScannedPdf(pages);
 
-      const totalChars = pages.reduce((acc, p) => acc + (p.text?.length || 0), 0);
-      if (totalChars < 50) {
-        // Phase 3: no silent failure.
+      if (scan.isScannedLikely) {
+        // Phase 3: no silent failure. Either OCR or a clean FAILED state.
         if (!env.OCR_ENABLED) {
-          throw new Error("PDF appears scanned / has near-zero extractable text. OCR is disabled (OCR_ENABLED=false).");
+          throw new Error(
+            `PDF appears scanned (pageCount=${scan.pageCount}, totalChars=${scan.totalChars}, avgCharsPerPage=${scan.avgCharsPerPage.toFixed(
+              1,
+            )}). OCR is disabled (OCR_ENABLED=false).`,
+          );
         }
-        throw new Error("OCR_ENABLED=true but OCR pipeline is not implemented yet.");
+
+        // OCR path will be implemented next; for now fail explicitly (no junk output)
+        throw new Error(
+          `PDF appears scanned (pageCount=${scan.pageCount}, totalChars=${scan.totalChars}, avgCharsPerPage=${scan.avgCharsPerPage.toFixed(
+            1,
+          )}). OCR_ENABLED=true but OCR pipeline is not implemented yet.`,
+        );
       }
 
       // IMPORTANT: keep page separator to preserve global offsets for page mapping
-      const fullText = pages.map((p) => (p.text || "").trim()).join("\n\n").trim();
+      const fullText = pages
+        .map((p) => (p.text || "").trim())
+        .join("\n\n")
+        .trim();
 
       await createChunksForSource(sourceId, { fullText, pages });
-      await prisma.ingestionJob.update({ where: { sourceId }, data: { status: "SUCCESS", error: null } });
+      await prisma.ingestionJob.update({
+        where: { sourceId },
+        data: { status: "SUCCESS", error: null },
+      });
       return;
     }
 
@@ -85,9 +113,15 @@ export const ingestionWorker = new Worker(
     const fullText = (header + (bodyRaw || "")).replace(/\s+/g, " ").trim();
 
     await createChunksForSource(sourceId, { fullText });
-    await prisma.ingestionJob.update({ where: { sourceId }, data: { status: "SUCCESS", error: null } });
+    await prisma.ingestionJob.update({
+      where: { sourceId },
+      data: { status: "SUCCESS", error: null },
+    });
   },
-  { connection: bullConnection(), concurrency: env.INGESTION_QUEUE_CONCURRENCY },
+  {
+    connection: bullConnection(),
+    concurrency: env.INGESTION_QUEUE_CONCURRENCY,
+  },
 );
 
 ingestionWorker.on("failed", async (job, err) => {

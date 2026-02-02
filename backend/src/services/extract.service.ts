@@ -177,3 +177,22 @@ export async function extractPdfPagesFromFile(storagePath: string): Promise<
 
   return pages;
 }
+
+export function detectScannedPdf(pages: { pageNumber: number; text: string }[]) {
+  const pageCount = pages.length || 0;
+  const totalChars = pages.reduce((acc, p) => acc + (p.text?.trim().length || 0), 0);
+  const avgCharsPerPage = pageCount ? totalChars / pageCount : 0;
+
+  // Heuristic thresholds:
+  // - scanned PDFs often yield ~0–30 chars per page in pdf-parse/page extractors
+  // - real text PDFs usually have hundreds/thousands of chars per page
+  const isScannedLikely = totalChars < 200 || avgCharsPerPage < 40;
+
+  return {
+    pageCount,
+    totalChars,
+    avgCharsPerPage,
+    isScannedLikely,
+  };
+}
+

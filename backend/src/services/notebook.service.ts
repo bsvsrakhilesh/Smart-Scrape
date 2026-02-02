@@ -2,12 +2,16 @@ import prisma from "../config/database";
 import { env } from "../config/env";
 import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
 import { enqueueEmbeddingJob } from "../queues/embedding.queue";
+import { enqueueIngestionJob } from "../queues/ingestion.queue";
 
 export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });
 }
 
-export async function createNotebook(p: { title: string; description?: string }) {
+export async function createNotebook(p: {
+  title: string;
+  description?: string;
+}) {
   return prisma.notebook.create({
     data: { title: p.title || "Untitled", description: p.description ?? "" },
   });
@@ -33,7 +37,7 @@ export async function getNotebook(id: string) {
 
 export async function updateNotebook(
   id: string,
-  p: { title?: string; description?: string }
+  p: { title?: string; description?: string },
 ) {
   return prisma.notebook.update({ where: { id }, data: p });
 }
@@ -65,17 +69,14 @@ export async function attachUrlSource(notebookId: string, urlId: number) {
     data: { notebookId, kind: "URL", urlId },
   });
 
-  // Extract + chunk in the background (best-effort)
-  void (async () => {
-    try {
-      const fullText = await extractTextFromUrl(url.url);
-      await createChunksForSource(src.id, { fullText });
-    } catch {
-      // Fall back to metadata if extraction fails
-      const fallback = `${url.title ?? ""}\n${url.url}\n${url.snippet ?? ""}`.trim();
-      await createChunksForSource(src.id, { fullText: fallback });
-    }
-  })();
+  // Durable ingestion (Phase 3): enqueue job + track status
+  await prisma.ingestionJob.upsert({
+    where: { sourceId: src.id },
+    create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
+    update: { status: "PENDING", error: null },
+  });
+
+  await enqueueIngestionJob(src.id);
 
   return prisma.notebookSource.findUnique({
     where: { id: src.id },
@@ -91,17 +92,14 @@ export async function attachFileSource(notebookId: string, fileId: string) {
     data: { notebookId, kind: "FILE", fileId },
   });
 
-  // Extract + chunk in the background (best-effort)
-  void (async () => {
-    try {
-      const fullText = await extractTextFromFile(file.storagePath, file.mimeType);
-      const header = `FILE: ${file.fileName}\nMIME: ${file.mimeType}\n\n`;
-      await createChunksForSource(src.id, { fullText: (header + fullText).trim() });
-    } catch {
-      const fallback = `File: ${file.fileName} (${file.mimeType})`;
-      await createChunksForSource(src.id, { fullText: fallback });
-    }
-  })();
+  // Durable ingestion (Phase 3): enqueue job + track status
+  await prisma.ingestionJob.upsert({
+    where: { sourceId: src.id },
+    create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
+    update: { status: "PENDING", error: null },
+  });
+
+  await enqueueIngestionJob(src.id);
 
   return prisma.notebookSource.findUnique({
     where: { id: src.id },
@@ -125,7 +123,7 @@ export async function deleteSource(notebookId: string, sourceId: string) {
 
 export async function createNote(
   notebookId: string,
-  p: { title?: string; content: string; citations?: any }
+  p: { title?: string; content: string; citations?: any },
 ) {
   return prisma.note.create({
     data: {
@@ -140,10 +138,11 @@ export async function createNote(
 export async function updateNote(
   notebookId: string,
   noteId: string,
-  p: { title?: string; content?: string; citations?: any }
+  p: { title?: string; content?: string; citations?: any },
 ) {
   const note = await prisma.note.findUnique({ where: { id: noteId } });
-  if (!note || note.notebookId !== notebookId) throw new Error("Note not found");
+  if (!note || note.notebookId !== notebookId)
+    throw new Error("Note not found");
   return prisma.note.update({ where: { id: noteId }, data: p });
 }
 
@@ -203,7 +202,7 @@ export async function getChunkReader(chunkId: string, radius = 3) {
 export async function pickNotebookCitations(
   notebookId: string,
   limit = 2,
-  sourceIds?: string[]
+  sourceIds?: string[],
 ) {
   const chunks = await prisma.sourceChunk.findMany({
     where: {
@@ -249,7 +248,7 @@ function roughTokens(s: string) {
 
 export async function createChunksForSource(
   sourceId: string,
-  payload: { fullText: string; pages?: { pageNumber: number; text: string }[] }
+  payload: { fullText: string; pages?: { pageNumber: number; text: string }[] },
 ) {
   const fullText = payload.fullText || "";
   const chunks = splitTextWithOffsets(fullText, 1400, 220);
@@ -278,7 +277,11 @@ export async function createChunksForSource(
       offset += pageText.length;
       const end = offset;
 
-      pageRanges!.push({ pageNumber: p.pageNumber, globalStart: start, globalEnd: end });
+      pageRanges!.push({
+        pageNumber: p.pageNumber,
+        globalStart: start,
+        globalEnd: end,
+      });
 
       return prisma.sourcePage.create({
         data: {
@@ -297,9 +300,13 @@ export async function createChunksForSource(
   function mapGlobalStart(globalPos: number) {
     if (!pageRanges?.length) return null;
     const r =
-      pageRanges.find((x) => globalPos >= x.globalStart && globalPos < x.globalEnd) ??
-      pageRanges[pageRanges.length - 1];
-    return { pageNumber: r.pageNumber, char: Math.max(0, globalPos - r.globalStart) };
+      pageRanges.find(
+        (x) => globalPos >= x.globalStart && globalPos < x.globalEnd,
+      ) ?? pageRanges[pageRanges.length - 1];
+    return {
+      pageNumber: r.pageNumber,
+      char: Math.max(0, globalPos - r.globalStart),
+    };
   }
 
   function mapGlobalEnd(globalPos: number) {
@@ -308,7 +315,10 @@ export async function createChunksForSource(
     const r =
       pageRanges.find((x) => pos >= x.globalStart && pos < x.globalEnd) ??
       pageRanges[pageRanges.length - 1];
-    return { pageNumber: r.pageNumber, char: Math.max(0, globalPos - r.globalStart) };
+    return {
+      pageNumber: r.pageNumber,
+      char: Math.max(0, globalPos - r.globalStart),
+    };
   }
 
   await prisma.$transaction(
@@ -335,7 +345,7 @@ export async function createChunksForSource(
         } as any, // keep TS happy until prisma generate picks up new fields
         select: { id: true },
       });
-    })
+    }),
   );
 
   // Queue embeddings (durable + retryable)

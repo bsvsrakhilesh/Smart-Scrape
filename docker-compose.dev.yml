@@ -53,13 +53,13 @@ services:
       db:
         condition: service_healthy
   
-  backend-embeddings-worker:
+  backend-worker:
     image: node:20-alpine
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: base
-    container_name: smartscrape_backend_embeddings_worker
+    container_name: smartscrape_backend_worker
     working_dir: /app
     command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npx prisma generate && npm run worker:embeddings"
     env_file:
@@ -68,15 +68,20 @@ services:
       NODE_ENV: development
       REDIS_URL: redis://redis:6379/0
       TAGGER_PY_URL: http://ai-tagger:7071
+      FILE_STORAGE_DIR: /data
+      INGESTION_QUEUE_CONCURRENCY: 2
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
+      - backend_storage:/data
       - ./backend/.env:/app/.env:ro
     depends_on:
       redis:
         condition: service_started
       db:
         condition: service_healthy
+      backend:
+        condition: service_started
 
   frontend:
     image: node:20-alpine

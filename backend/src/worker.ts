@@ -1,3 +1,5 @@
 import "./workers/embedding.worker";
+import "./workers/ingestion.worker";
 
-console.log("✅ Embedding worker started");
+console.log("Workers started: embeddings + ingestion");
+

@@ -199,6 +199,14 @@ export async function getChunkReader(chunkId: string, radius = 3) {
   };
 }
 
+export async function getSourcePage(sourceId: string, pageNumber: number) {
+  // safer than compound unique name guessing
+  return (prisma as any).sourcePage.findFirst({
+    where: { sourceId, pageNumber },
+    select: { sourceId: true, pageNumber: true, text: true, globalStart: true, globalEnd: true },
+  });
+}
+
 export async function pickNotebookCitations(
   notebookId: string,
   limit = 2,

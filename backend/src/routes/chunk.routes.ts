@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { validate } from '../middlewares/validate';
-import { getChunkHandler, getChunkReaderHandler } from '../controllers/chunk.controller';
+import { getChunkHandler, getChunkReaderHandler, getSourcePageHandler } from '../controllers/chunk.controller';
 
 const r = Router();
 
@@ -22,6 +22,17 @@ r.get(
       .optional(),
   }),
   getChunkReaderHandler
+);
+
+r.get(
+  '/sources/:sourceId/pages/:pageNumber',
+  validate({
+    params: z.object({
+      sourceId: z.string().min(1),
+      pageNumber: z.coerce.number().int().min(1),
+    }),
+  }),
+  getSourcePageHandler
 );
 
 export default r;

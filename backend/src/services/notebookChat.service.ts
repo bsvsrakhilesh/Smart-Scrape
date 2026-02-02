@@ -14,7 +14,7 @@ export type ChatHistoryItem = {
 
 const CitationSchema = z.object({
   chunkId: z.string().min(1),
-  quote: z.string().min(5).max(240),
+  quote: z.string().min(20).max(240),
 });
 
 const ChatAnswerSchema = z.object({
@@ -297,6 +297,32 @@ async function loadChunksForContext(chunkIds: string[]) {
   return chunkIds.map((id) => byId.get(id)).filter(Boolean) as typeof rows;
 }
 
+type PageRange = {
+  pageNumber: number;
+  globalStart: number;
+  globalEnd: number;
+};
+
+function mapGlobalToPage(
+  ranges: PageRange[],
+  globalPos: number,
+  isEnd: boolean,
+) {
+  if (!ranges.length) return null;
+
+  // end boundary maps to preceding char (like your chunk mapper)
+  const pos = isEnd ? Math.max(0, globalPos - 1) : globalPos;
+
+  const r =
+    ranges.find((x) => pos >= x.globalStart && pos < x.globalEnd) ??
+    ranges[ranges.length - 1];
+
+  return {
+    pageNumber: r.pageNumber,
+    char: Math.max(0, globalPos - r.globalStart),
+  };
+}
+
 function formatContext(
   chunks: Awaited<ReturnType<typeof loadChunksForContext>>,
 ) {
@@ -364,14 +390,14 @@ export async function runNotebookChat(p: {
   const notebookId = p.notebookId;
   const message = (p.message ?? "").trim();
   const history = Array.isArray(p.history) ? p.history.slice(-12) : [];
-  const sourceIds = p.sourceIds;
+  const filterSourceIds = p.sourceIds;
 
   // Always compute some citations to keep UI usable even if OpenAI disabled
   const candidateChunkIds = await retrieveRelevantChunkIdsHybrid({
     notebookId,
     query: message,
     limit: 8,
-    sourceIds,
+    sourceIds: filterSourceIds,
   });
 
   // If OpenAI is not enabled, keep behavior close to Phase 1 stub (safe fallback)
@@ -469,8 +495,36 @@ export async function runNotebookChat(p: {
     );
   }
 
-  // Safety: never allow hallucinated citations (IDs) and require verbatim quotes
   const byChunkId = new Map(finalChunks.map((c: any) => [c.id, c]));
+
+  // Load page ranges for all involved sources (for quote->page mapping)
+  const chunkSourceIds = uniq(finalChunks.map((c: any) => c.sourceId));
+  let pageRangesBySource = new Map<string, PageRange[]>();
+
+  try {
+    const pages = await (prisma as any).sourcePage.findMany({
+      where: { sourceId: { in: chunkSourceIds } },
+      select: {
+        sourceId: true,
+        pageNumber: true,
+        globalStart: true,
+        globalEnd: true,
+      },
+      orderBy: [{ sourceId: "asc" }, { pageNumber: "asc" }],
+    });
+
+    for (const p of pages) {
+      const arr = pageRangesBySource.get(p.sourceId) ?? [];
+      arr.push({
+        pageNumber: p.pageNumber,
+        globalStart: p.globalStart,
+        globalEnd: p.globalEnd,
+      });
+      pageRangesBySource.set(p.sourceId, arr);
+    }
+  } catch {
+    // If SourcePage isn't available for some sources, we keep page fields null.
+  }
 
   const validatedCitations = (out.citations ?? [])
     .filter((c: any) => allowed.has(c.chunkId))
@@ -479,18 +533,37 @@ export async function runNotebookChat(p: {
       if (!chunk) return null;
 
       const quote = (c.quote || "").replace(/\s+/g, " ").trim();
+      if (quote.length < 20 || quote.length > 240) return null;
 
       // Must be a verbatim substring of the chunk text
       const idx = (chunk.text || "").indexOf(quote);
       if (idx < 0) return null;
 
+      // Quote-level global offsets (preferred)
+      const hasGlobal = typeof chunk.globalStart === "number";
+      const quoteGlobalStart = hasGlobal ? chunk.globalStart + idx : null;
+      const quoteGlobalEnd = hasGlobal ? quoteGlobalStart + quote.length : null;
+
+      const ranges = pageRangesBySource.get(chunk.sourceId) ?? [];
+
+      const s =
+        quoteGlobalStart != null
+          ? mapGlobalToPage(ranges, quoteGlobalStart, false)
+          : null;
+      const e =
+        quoteGlobalEnd != null
+          ? mapGlobalToPage(ranges, quoteGlobalEnd, true)
+          : null;
+
       return {
         chunkId: c.chunkId,
         quote,
-        pageStart: (chunk as any).pageStart ?? null,
-        pageEnd: (chunk as any).pageEnd ?? null,
-        charStart: (chunk as any).charStart ?? null,
-        charEnd: (chunk as any).charEnd ?? null,
+
+        // Quote span mapping (Phase 2)
+        pageStart: s?.pageNumber ?? null,
+        pageEnd: e?.pageNumber ?? null,
+        charStart: s?.char ?? null,
+        charEnd: e?.char ?? null,
       };
     })
     .filter(Boolean)

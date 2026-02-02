@@ -15,11 +15,14 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional().default("gpt-5.2"),
   OPENAI_TIMEOUT_MS: z.coerce.number().optional().default(30_000),
-  
+
   // Redis (queues)
   REDIS_URL: z.string().optional().default("redis://localhost:6379/0"),
   EMBEDDING_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
+  INGESTION_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
 
+  // OCR if disabled we will FAIL loudly on scanned PDFs
+  OCR_ENABLED: BoolFromEnv,
 });
 
 const parsed = EnvSchema.safeParse(process.env);
@@ -29,7 +32,9 @@ if (!parsed.success) {
     path: i.path.join("."),
     message: i.message,
   }));
-  throw new Error(`Invalid environment configuration: ${JSON.stringify(issues)}`);
+  throw new Error(
+    `Invalid environment configuration: ${JSON.stringify(issues)}`,
+  );
 }
 
 export const env = parsed.data;
@@ -37,10 +42,12 @@ export const env = parsed.data;
 export function requireOpenAI() {
   if (!env.OPENAI_ENABLED) {
     throw new Error(
-      "OpenAI is disabled. Set OPENAI_ENABLED=true (and OPENAI_API_KEY) to enable."
+      "OpenAI is disabled. Set OPENAI_ENABLED=true (and OPENAI_API_KEY) to enable.",
     );
   }
   if (!env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY is missing (required when OPENAI_ENABLED=true).");
+    throw new Error(
+      "OPENAI_API_KEY is missing (required when OPENAI_ENABLED=true).",
+    );
   }
 }

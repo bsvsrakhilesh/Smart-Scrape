@@ -247,7 +247,7 @@ function roughTokens(s: string) {
   return Math.ceil((s || "").length / 4);
 }
 
-async function createChunksForSource(
+export async function createChunksForSource(
   sourceId: string,
   payload: { fullText: string; pages?: { pageNumber: number; text: string }[] }
 ) {

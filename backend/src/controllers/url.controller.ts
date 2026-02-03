@@ -11,6 +11,7 @@ import {
   CreateUrlInput,
   GetAllOpts,
   UpdateUrlInput,
+  getUrlSnapshots,
 } from '../services/url.service';
 import { extractPreviewFromUrl } from '../services/extract.service';
 
@@ -147,6 +148,16 @@ export async function getUrlByIdHandler(req: Request, res: Response, next: NextF
   } catch (err) {
     next(err);
   }
+}
+
+export async function getUrlSnapshotsHandler(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  const limitRaw = req.query.limit;
+  const limit =
+    typeof limitRaw === "string" ? Number(limitRaw) : undefined;
+
+  const out = await getUrlSnapshots(id, Number.isFinite(limit) ? (limit as number) : 50);
+  res.json(out);
 }
 
 export async function createUrlsHandler(req: Request, res: Response, next: NextFunction) {

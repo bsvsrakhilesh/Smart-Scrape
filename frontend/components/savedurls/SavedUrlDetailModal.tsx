@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { SavedUrl } from '../../lib/types';
-import { createPortal } from 'react-dom';
-import { formatDate } from '../../utils/fileHelpers';
-import CloseIcon from '../icons/CloseIcon';
-import AITagButton from '../common/AITagButton';
+import React, { useEffect, useState } from "react";
+import { SavedUrl } from "../../lib/types";
+import { createPortal } from "react-dom";
+import { formatDate } from "../../utils/fileHelpers";
+import CloseIcon from "../icons/CloseIcon";
+import AITagButton from "../common/AITagButton";
+import { getUrlSnapshots } from "../../lib/api";
 
 interface SavedUrlDetailModalProps {
   url: SavedUrl;
@@ -22,21 +23,42 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   onTagUpdate,
   onNotesChange,
 }) => {
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [snapshotsError, setSnapshotsError] = useState<string | null>(null);
+
   // Local state for tags and new tag input
   const [localTags, setLocalTags] = useState<string[]>(url.tags);
-  const [newTagInput, setNewTagInput] = useState<string>('');
+  const [newTagInput, setNewTagInput] = useState<string>("");
 
   // Sync localTags when url changes
   useEffect(() => {
     setLocalTags(url.tags);
   }, [url.tags]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    (async () => {
+      try {
+        setSnapshotsLoading(true);
+        setSnapshotsError(null);
+        const rows = await getUrlSnapshots(Number(url.id), 50);
+        setSnapshots(rows);
+      } catch (e: any) {
+        setSnapshotsError(e?.message ?? "Failed to load snapshots");
+      } finally {
+        setSnapshotsLoading(false);
+      }
+    })();
+  }, [isOpen, url.id]);
+
   // Prevent background scroll when modal is open
   useEffect(() => {
-    if (isOpen) document.body.style.overflow = 'hidden';
-    else document.body.style.overflow = '';
+    if (isOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
     return () => {
-      document.body.style.overflow = '';
+      document.body.style.overflow = "";
     };
   }, [isOpen]);
 
@@ -50,7 +72,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
       setLocalTags(updated);
       onTagUpdate?.(url.id, updated);
     }
-    setNewTagInput('');
+    setNewTagInput("");
   };
 
   const removeTag = (tag: string) => {
@@ -103,7 +125,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 onClick={() => onFavoriteToggle(url)}
                 className="px-3 py-2 border rounded flex items-center gap-1"
               >
-                {url.isFavorited ? 'Unfavorite' : 'Favorite'}
+                {url.isFavorited ? "Unfavorite" : "Favorite"}
               </button>
             </div>
 
@@ -143,7 +165,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                     value={newTagInput}
                     onChange={(e) => setNewTagInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         addTag();
                       }
@@ -157,13 +179,15 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                     Add
                   </button>
                   <AITagButton
-                  kind="url"
-                  id={Number(url.id)}   // SavedUrl.id is string in UI; backend expects number
-                  onMerge={(aiTags) => {
-                  const merged = Array.from(new Set([...(url.tags || []), ...aiTags]));
-                  setLocalTags(merged);
-                  onTagUpdate?.(url.id, merged); // persists via your page handler
-                  }}
+                    kind="url"
+                    id={Number(url.id)} // SavedUrl.id is string in UI; backend expects number
+                    onMerge={(aiTags) => {
+                      const merged = Array.from(
+                        new Set([...(url.tags || []), ...aiTags]),
+                      );
+                      setLocalTags(merged);
+                      onTagUpdate?.(url.id, merged); // persists via your page handler
+                    }}
                   />
                 </div>
               </div>
@@ -177,10 +201,8 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   <strong>Created:</strong> {formatDate(url.createdAt)}
                 </div>
                 <div>
-                  <strong>Last visited:</strong>{' '}
-                  {url.lastVisitedAt
-                    ? formatDate(url.lastVisitedAt)
-                    : '—'}
+                  <strong>Last visited:</strong>{" "}
+                  {url.lastVisitedAt ? formatDate(url.lastVisitedAt) : "—"}
                 </div>
                 <div>
                   <strong>Visits:</strong> {url.visitCount}
@@ -195,9 +217,56 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
           {/* Right: Related & Collections */}
           <div className="space-y-4">
             <div>
-              <div className="font-semibold mb-1">Related Links</div>
-              <div className="text-sm text-gray-500">
-                (placeholder — implement similarity / same domain / tag-based)
+              <div className="font-semibold mb-2">Snapshots</div>
+              {snapshotsLoading && (
+                <div className="text-sm text-gray-500">Loading…</div>
+              )}
+
+              {snapshotsError && (
+                <div className="text-sm text-red-600">{snapshotsError}</div>
+              )}
+
+              {!snapshotsLoading &&
+                !snapshotsError &&
+                snapshots.length === 0 && (
+                  <div className="text-sm text-gray-500">No snapshots yet.</div>
+                )}
+
+              <div className="space-y-2">
+                {snapshots.map((s) => (
+                  <div
+                    key={s.id}
+                    className="border rounded-lg p-2 text-sm flex items-start justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{s.fileName}</div>
+                      <div className="text-xs text-gray-500">
+                        {s.captureType} • {formatDate(s.createdAt)}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        className="px-2 py-1 border rounded text-xs"
+                        onClick={() =>
+                          window.open(`/api/files/${s.id}/preview`, "_blank")
+                        }
+                        title="Open preview"
+                      >
+                        Open
+                      </button>
+                      <button
+                        className="px-2 py-1 border rounded text-xs"
+                        onClick={() =>
+                          window.open(`/api/files/${s.id}/download`, "_blank")
+                        }
+                        title="Download"
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             <div>
@@ -218,16 +287,13 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3 border-t flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border rounded-md"
-          >
+          <button onClick={onClose} className="px-4 py-2 border rounded-md">
             Close
           </button>
         </div>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 };
 

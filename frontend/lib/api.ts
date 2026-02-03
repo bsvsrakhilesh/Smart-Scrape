@@ -73,7 +73,7 @@ export function toFileItem(row: BackendStoredFile): FileItem {
   };
 }
 
-// ---------- Saved URLs API (unchanged) ----------
+// ---------- Saved URLs API ----------
 export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
   const res = await api.get("/api/urls");
   return res.data;
@@ -91,6 +91,10 @@ export async function patchUrl(id: number, patch: any) {
 export async function getUrlById(id: number): Promise<BackendUrlRow> {
   const res = await api.get(`/api/urls/${id}`);
   return res.data as BackendUrlRow;
+}
+export async function getUrlSnapshots(urlId: number, limit = 50) {
+  const res = await api.get(`/api/urls/${urlId}/snapshots`, { params: { limit } });
+  return res.data as BackendStoredFile[];
 }
 export async function deleteUrlsBulk(ids: number[]): Promise<void> {
   await api.delete("/api/urls", { data: { ids } });

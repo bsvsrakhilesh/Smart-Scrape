@@ -42,6 +42,26 @@ import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 type SortKey = "createdAt" | "updatedAt" | "title";
 type SortOrder = "asc" | "desc";
 
+const SNAPSHOT_STALE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function snapshotCreatedAt(u: any): number | null {
+  const s = u?.latestSnapshot;
+  if (!s?.createdAt) return null;
+  const t = new Date(s.createdAt).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+function isSnapshotMissing(u: any): boolean {
+  return !u?.latestSnapshot;
+}
+
+function isSnapshotStale(u: any, nowMs: number): boolean {
+  const t = snapshotCreatedAt(u);
+  if (!t) return false;
+  return nowMs - t > SNAPSHOT_STALE_DAYS * DAY_MS;
+}
+
 function getDomain(u: string): string {
   try {
     return new URL(u).hostname;
@@ -105,6 +125,7 @@ const SavedUrlsPage: React.FC = () => {
     visibility: "all",
     dateFrom: "",
     dateTo: "",
+    snapshotStatus: "all" as any,
   });
 
   // Sort + Year
@@ -133,6 +154,19 @@ const SavedUrlsPage: React.FC = () => {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<"text" | "pdf">("text");
   const [pickerTarget, setPickerTarget] = useState<UISavedUrl | null>(null);
+
+  // Bulk snapshot enforcement
+  const [bulkPickerOpen, setBulkPickerOpen] = useState(false);
+  const [bulkPickerMode, setBulkPickerMode] = useState<"text" | "pdf">("text");
+  const [bulkTargets, setBulkTargets] = useState<UISavedUrl[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkDone, setBulkDone] = useState(0);
+  const [bulkFailed, setBulkFailed] = useState(0);
+  const [bulkTotal, setBulkTotal] = useState(0);
+  const [bulkFailures, setBulkFailures] = useState<
+    { id: string; url: string; error: string }[]
+  >([]);
+  const bulkAbortRef = useRef(false);
 
   const refreshTaggingSummary = useCallback(async () => {
     try {
@@ -163,6 +197,79 @@ const SavedUrlsPage: React.FC = () => {
       setTagSummaryLoading(false);
     }
   }, [refreshTaggingSummary]);
+
+  async function runPool<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>,
+  ) {
+    const q = [...items];
+    const runners = new Array(Math.min(limit, items.length))
+      .fill(0)
+      .map(async () => {
+        while (q.length) {
+          if (bulkAbortRef.current) return;
+          const item = q.shift()!;
+          await worker(item);
+        }
+      });
+    await Promise.all(runners);
+  }
+
+  const startBulkCapture = useCallback(
+    async (
+      mode: "text" | "pdf",
+      targets: UISavedUrl[],
+      folderId?: string | null,
+    ) => {
+      if (!targets.length) return;
+
+      bulkAbortRef.current = false;
+      setBulkRunning(true);
+      setBulkDone(0);
+      setBulkFailed(0);
+      setBulkTotal(targets.length);
+      setBulkFailures([]);
+
+      const worker = async (u: UISavedUrl) => {
+        const urlId = Number(u.id);
+        try {
+          if (mode === "pdf") {
+            // NOTE: omit fileName → backend generates; we still pass urlId
+            await crawlSavePdf(
+              u.url,
+              folderId ?? undefined,
+              undefined,
+              true,
+              true,
+              urlId,
+            );
+          } else {
+            await crawlSaveText(u.url, folderId ?? undefined, undefined, urlId);
+          }
+          setBulkDone((x) => x + 1);
+        } catch (e: any) {
+          setBulkFailed((x) => x + 1);
+          setBulkFailures((prev) => [
+            ...prev,
+            { id: u.id, url: u.url, error: e?.message ?? "Capture failed" },
+          ]);
+        }
+      };
+
+      try {
+        // limit=2 keeps load sane; bump to 3 if you want faster
+        await runPool(targets, 2, worker);
+
+        // refresh list so latestSnapshot updates
+        const rows = await apiFetchSavedUrls();
+        setUrls(rows.map(toUISaved));
+      } finally {
+        setBulkRunning(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     (async () => {
@@ -254,6 +361,20 @@ const SavedUrlsPage: React.FC = () => {
     [urls],
   );
 
+  const snapshotHealth = useMemo(() => {
+    const nowMs = Date.now();
+    const missing = urls.filter((u) => isSnapshotMissing(u));
+    const stale = urls.filter(
+      (u) => !isSnapshotMissing(u) && isSnapshotStale(u, nowMs),
+    );
+    return {
+      missing,
+      stale,
+      missingCount: missing.length,
+      staleCount: stale.length,
+    };
+  }, [urls]);
+
   // Years from createdAt
   const availableYears = useMemo(() => {
     const s = new Set<string>();
@@ -291,6 +412,18 @@ const SavedUrlsPage: React.FC = () => {
         const d = new Date(u.createdAt).getTime();
         const to = new Date(filter.dateTo).getTime();
         if (d > to) return false;
+      }
+      // Snapshot filter
+      const snap = (filter as any).snapshotStatus || "all";
+      if (snap !== "all") {
+        const nowMs = Date.now();
+        const missing = isSnapshotMissing(u);
+        const stale = isSnapshotStale(u, nowMs);
+        const fresh = !missing && !stale;
+
+        if (snap === "missing" && !missing) return false;
+        if (snap === "stale" && !stale) return false;
+        if (snap === "fresh" && !fresh) return false;
       }
       return true;
     });
@@ -712,6 +845,144 @@ const SavedUrlsPage: React.FC = () => {
         </div>
       )}
 
+      {(snapshotHealth.missingCount > 0 || snapshotHealth.staleCount > 0) && (
+        <div className="fm-panel p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-sky-200 bg-sky-50/60 dark:border-sky-900/40 dark:bg-sky-900/10">
+          <div className="text-sm text-sky-950 dark:text-sky-100">
+            <span className="font-semibold">Snapshots</span>
+            <span className="ml-2">
+              Missing{" "}
+              <span className="font-semibold">
+                {snapshotHealth.missingCount}
+              </span>
+              {" • "}
+              Stale (&gt;{SNAPSHOT_STALE_DAYS}d){" "}
+              <span className="font-semibold">{snapshotHealth.staleCount}</span>
+            </span>
+
+            {bulkRunning && (
+              <span className="ml-2 opacity-80">
+                (Running: {bulkDone}/{bulkTotal}, Failed: {bulkFailed})
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              className="btn-secondary px-3 py-2 rounded-lg disabled:opacity-60"
+              onClick={() =>
+                setFilter((f: any) => ({ ...f, snapshotStatus: "missing" }))
+              }
+              disabled={bulkRunning}
+              title="Show only URLs that have no snapshots"
+            >
+              Show missing
+            </button>
+
+            <button
+              className="btn-secondary px-3 py-2 rounded-lg disabled:opacity-60"
+              onClick={() =>
+                setFilter((f: any) => ({ ...f, snapshotStatus: "stale" }))
+              }
+              disabled={bulkRunning}
+              title="Show only URLs with stale snapshots"
+            >
+              Show stale
+            </button>
+
+            {snapshotHealth.missingCount > 0 && (
+              <>
+                <button
+                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+                  onClick={() => {
+                    setBulkTargets(snapshotHealth.missing);
+                    setBulkPickerMode("text");
+                    setBulkPickerOpen(true);
+                  }}
+                  disabled={bulkRunning}
+                  title="Capture TEXT snapshots for all missing URLs"
+                >
+                  Snapshot missing (Text)
+                </button>
+
+                <button
+                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+                  onClick={() => {
+                    setBulkTargets(snapshotHealth.missing);
+                    setBulkPickerMode("pdf");
+                    setBulkPickerOpen(true);
+                  }}
+                  disabled={bulkRunning}
+                  title="Capture PDF snapshots for all missing URLs"
+                >
+                  Snapshot missing (PDF)
+                </button>
+              </>
+            )}
+
+            {snapshotHealth.staleCount > 0 && (
+              <>
+                <button
+                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+                  onClick={() => {
+                    setBulkTargets(snapshotHealth.stale);
+                    setBulkPickerMode("text");
+                    setBulkPickerOpen(true);
+                  }}
+                  disabled={bulkRunning}
+                  title="Refresh TEXT snapshots for all stale URLs"
+                >
+                  Refresh stale (Text)
+                </button>
+
+                <button
+                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+                  onClick={() => {
+                    setBulkTargets(snapshotHealth.stale);
+                    setBulkPickerMode("pdf");
+                    setBulkPickerOpen(true);
+                  }}
+                  disabled={bulkRunning}
+                  title="Refresh PDF snapshots for all stale URLs"
+                >
+                  Refresh stale (PDF)
+                </button>
+              </>
+            )}
+
+            {bulkRunning && (
+              <button
+                className="btn-secondary px-3 py-2 rounded-lg"
+                onClick={() => {
+                  bulkAbortRef.current = true;
+                }}
+                title="Stop after current in-flight captures finish"
+              >
+                Stop
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {bulkFailures.length > 0 && !bulkRunning && (
+        <div className="fm-panel p-3 sm:p-4 border border-rose-200 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-900/10">
+          <div className="text-sm text-rose-950 dark:text-rose-100">
+            <span className="font-semibold">Snapshot failures:</span>{" "}
+            {bulkFailures.length}
+            <div className="mt-2 max-h-40 overflow-auto text-xs space-y-1">
+              {bulkFailures.slice(0, 50).map((f) => (
+                <div key={f.id} className="truncate">
+                  {f.url} — {f.error}
+                </div>
+              ))}
+              {bulkFailures.length > 50 && (
+                <div className="opacity-80">…and more</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Grid inside AppShell content */}
       <section className="grid grid-cols-12 gap-4 sm:gap-6">
         {/* Sidebar */}
@@ -1020,6 +1291,28 @@ const SavedUrlsPage: React.FC = () => {
                   alert("Capture failed");
                 } finally {
                   setPickerOpen(false);
+                }
+              }}
+            />
+
+            <FolderPickerModal
+              open={bulkPickerOpen}
+              suggestedName={bulkPickerMode === "pdf" ? "page.pdf" : "page.txt"}
+              mode={bulkPickerMode}
+              onCancel={() => {
+                setBulkPickerOpen(false);
+                setBulkTargets([]);
+              }}
+              onConfirm={async ({ folderId, mode }) => {
+                try {
+                  await startBulkCapture(
+                    mode,
+                    bulkTargets,
+                    folderId ?? undefined,
+                  );
+                } finally {
+                  setBulkPickerOpen(false);
+                  setBulkTargets([]);
                 }
               }}
             />

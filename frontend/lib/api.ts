@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { FileItem } from "../types";
+import type { FileItem } from "./types";
 const api = axios.create({
   // baseURL: '/api' // optional; Vite dev proxy handles /api to backend
 });
@@ -42,6 +42,10 @@ export type BackendStoredFile = {
   isFavorited?: boolean;
   folderId?: string | null;
   storagePath?: string;
+  captureType?: "UPLOAD" | "URL_TEXT" | "URL_PDF";
+  sourceUrl?: string | null;
+  urlId?: number | null;
+  sha256?: string | null;
 };
 
 export function toFileItem(row: BackendStoredFile): FileItem {
@@ -62,6 +66,10 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     favoritesCount: row.favoritesCount ?? 0,
     isFavorited: row.isFavorited ?? false,
     visibility: (row.visibility as any) || "private",
+    captureType: row.captureType,
+    sourceUrl: row.sourceUrl ?? null,
+    urlId: row.urlId ?? null,
+    sha256: (row as any).sha256 ?? null,
   };
 }
 

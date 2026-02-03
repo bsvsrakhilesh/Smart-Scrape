@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import SearchForm from '../components/urlcollector/SearchForm';
 import ResultsTable from '../components/urlcollector/ResultsTable';
 import Spinner from '../components/urlcollector/Spinner';
-import { SearchResult } from '../types';
+import { SearchResult } from '../lib/types';
 import { useLocation, useNavigate } from 'react-router-dom';
 import SmartCard  from '../components/ui/SmartCard';
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FileDetail } from '../../types';
+import { FileDetail } from '../../lib/types';
 import PdfCanvas from '../common/PdfCanvas';
 import { formatBytes, formatDate } from '../../utils/fileHelpers';
 import FavoriteButton from "../common/FavoriteButton";

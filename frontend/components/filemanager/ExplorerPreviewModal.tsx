@@ -2,7 +2,7 @@
 import { X } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useEffect, useState, useRef } from "react"
-import type { FileDetail } from "../../types"
+import type { FileDetail } from "../../lib/types"
 import AITagButton from "../common/AITagButton"
 
 type Props = {

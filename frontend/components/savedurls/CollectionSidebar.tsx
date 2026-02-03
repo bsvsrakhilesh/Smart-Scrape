@@ -1,5 +1,5 @@
 import React from 'react';
-import { Collection } from '../../types';
+import { Collection } from '../../lib/types';
 
 interface CollectionSidebarProps {
   collections: Collection[];

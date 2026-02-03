@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileDetail } from '../types';
+import { FileDetail } from '../lib/types';
 
 export function useFileDetail(fileId: string) {
   const [file, setFile] = useState<FileDetail | null>(null);

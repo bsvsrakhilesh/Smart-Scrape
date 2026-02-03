@@ -1,4 +1,4 @@
-import { SearchResult } from "../types";
+import { SearchResult } from "../lib/types";
 
 const escapeCsvField = (field: string | undefined): string => {
   const s = field == null ? '' : String(field);

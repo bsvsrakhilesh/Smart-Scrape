@@ -1,5 +1,5 @@
 import React from "react";
-import { SavedUrl } from "../../types";
+import { SavedUrl } from "../../lib/types";
 import { formatDate } from "../../utils/fileHelpers";
 import { BookmarkIcon } from "../icons";
 import SmartCard from "../ui/SmartCard";

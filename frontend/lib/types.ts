@@ -30,6 +30,11 @@ export interface FileItem {
   favoritesCount?: number;
   isFavorited?: boolean;
   visibility: Visibility;
+  captureType?: 'UPLOAD' | 'URL_TEXT' | 'URL_PDF';
+  sourceUrl?: string | null;
+  urlId?: number | null;
+  sha256?: string | null;
+
 }
 
 export interface FileVersion {

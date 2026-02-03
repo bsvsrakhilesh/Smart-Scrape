@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { SavedUrl } from '../../types';
+import { SavedUrl } from '../../lib/types';
 import { createPortal } from 'react-dom';
 import { formatDate } from '../../utils/fileHelpers';
 import CloseIcon from '../icons/CloseIcon';

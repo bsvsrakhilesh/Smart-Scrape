@@ -1,4 +1,4 @@
-import { SearchResult } from '../types';
+import { SearchResult } from '../lib/types';
 
 export const SAVED_KEY = 'savedUrls';
 

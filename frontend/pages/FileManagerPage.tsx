@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../components/providers/Toast';
-import { FileItem, FileDetail } from '../types';
+import { FileItem, FileDetail } from '../lib/types';
 import { createFolder, getFolder, toggleFileFavorite, toFileItem, type BackendStoredFile, duplicateFile, moveFile, getFileTagJob, startFileTagJob, listFolders, getFileById, } from '../lib/api';
 import BulkActionBar from '../components/common/BulkActionBar';
 import ContextMenu, { type MenuItem } from '../components/common/ContextMenu';

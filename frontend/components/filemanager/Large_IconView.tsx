@@ -15,7 +15,7 @@ import {
   Check as CheckIcon,
 } from "lucide-react";
 import { formatBytes } from "../../utils/fileHelpers";
-import type { FileItem } from "../../types";
+import type { FileItem } from "../../lib/types";
 
 /** -------------------------------
  *  Compat helpers (no type changes)

@@ -8,7 +8,7 @@ import {
   removeUrlFromCollection,
   setUrlCollections,
 } from '../../utils/collections';
-import { SearchResult } from '../../types';
+import { SearchResult } from '../../lib/types';
 import {
   fetchSavedUrls,
   saveUrls,

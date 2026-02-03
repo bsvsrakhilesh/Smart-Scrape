@@ -1,4 +1,4 @@
-import { Collection } from '../types';
+import { Collection } from '../lib/types';
 import { canonicalize } from './saved';
 
 const COLLECTIONS_KEY = 'collections';

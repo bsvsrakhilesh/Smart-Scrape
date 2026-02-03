@@ -9,7 +9,7 @@ import UrlCollectorPage from "./pages/UrlCollectorPage";
 import SavedUrlsPage from "./pages/SavedUrlsPage";
 import FileManagerPage from "./pages/FileManagerPage";
 
-import { Page } from "./types";
+import { Page } from "./lib/types";
 import { ToastProvider } from "./components/providers/Toast";
 import { ConfirmProvider } from "./components/providers/Confirm";
 

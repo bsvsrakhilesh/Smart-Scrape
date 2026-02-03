@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Collection } from '../../types';
+import { Collection } from '../../lib/types';
 import CloseIcon from '../icons/CloseIcon';
 
 interface Props {

@@ -5,7 +5,7 @@ import {
   AnimatePresence,
   useReducedMotion,
 } from "framer-motion";
-import { Page } from "../../types";
+import { Page } from "../../lib/types";
 import UrlIcon from "../icons/UrlIcon";
 import BookmarkIcon from "../icons/BookmarkIcon";
 import FolderIcon from "../icons/FolderIcon";

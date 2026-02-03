@@ -5,7 +5,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import type { SavedUrl as UISavedUrl, Collection } from "../types";
+import type { SavedUrl as UISavedUrl, Collection } from "../lib/types";
 import SearchFilterUrls, {
   UrlFilterState,
 } from "../components/savedurls/SearchFilterUrls";

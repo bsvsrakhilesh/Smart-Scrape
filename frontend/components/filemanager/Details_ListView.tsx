@@ -5,7 +5,7 @@ import React, {
   useState,
   KeyboardEvent,
 } from "react";
-import type { FileItem } from "../../types";
+import type { FileItem } from "../../lib/types";
 import { formatBytes } from "../../utils/fileHelpers";
 import ContextMenu, { type MenuItem } from "../common/ContextMenu";
 import { useConfirm } from "../providers/Confirm";

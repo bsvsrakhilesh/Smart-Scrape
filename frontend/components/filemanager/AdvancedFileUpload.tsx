@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, DragEvent } from 'react';
-import { FileItem } from '../../types';
+import { FileItem } from '../../lib/types';
 import { formatBytes } from '../../utils/fileHelpers';
 
 // Chunk size for resumable upload (1MB)

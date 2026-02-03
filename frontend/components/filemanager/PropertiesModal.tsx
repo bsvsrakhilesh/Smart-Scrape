@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileItem } from '../../types';
+import { FileItem } from '../../lib/types';
 import { formatBytes } from '../../utils/fileHelpers';
 
 type PropertiesModalProps = {

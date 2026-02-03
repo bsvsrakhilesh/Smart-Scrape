@@ -28,10 +28,7 @@ const getTitle = (f: FileItem): string =>
     "") as string;
 
 const getMime = (f: FileItem): string | undefined =>
-  (f as any).mimeType ??
-  (f as any).contentType ??
-  (f as any).type ??
-  undefined;
+  (f as any).mimeType ?? (f as any).contentType ?? (f as any).type ?? undefined;
 
 const getSize = (f: FileItem): number | null => {
   const v =
@@ -254,7 +251,7 @@ export default function Large_IconView({
 
   // selection bridge
   const [uncontrolledSel, setUncontrolledSel] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const sel = selectedIds ?? uncontrolledSel;
   const setSel = useCallback(
@@ -265,7 +262,7 @@ export default function Large_IconView({
         setUncontrolledSel(next);
       }
     },
-    [onSelectionChange]
+    [onSelectionChange],
   );
 
   // sort
@@ -348,7 +345,7 @@ export default function Large_IconView({
         shortcut: "Ctrl+A",
         onSelect: () => {
           const all = new Set<string>(
-            sortedFiles.map((f) => String((f as any).id))
+            sortedFiles.map((f) => String((f as any).id)),
           );
           setSel(all);
         },
@@ -366,7 +363,7 @@ export default function Large_IconView({
               onSelect: () =>
                 onSortChange?.(
                   "name",
-                  sortKey === "name" && sortDir === "asc" ? "desc" : "asc"
+                  sortKey === "name" && sortDir === "asc" ? "desc" : "asc",
                 ),
             },
             {
@@ -378,7 +375,7 @@ export default function Large_IconView({
               onSelect: () =>
                 onSortChange?.(
                   "date",
-                  sortKey === "date" && sortDir === "asc" ? "desc" : "asc"
+                  sortKey === "date" && sortDir === "asc" ? "desc" : "asc",
                 ),
             },
             {
@@ -390,7 +387,7 @@ export default function Large_IconView({
               onSelect: () =>
                 onSortChange?.(
                   "type",
-                  sortKey === "type" && sortDir === "asc" ? "desc" : "asc"
+                  sortKey === "type" && sortDir === "asc" ? "desc" : "asc",
                 ),
             },
             {
@@ -402,7 +399,7 @@ export default function Large_IconView({
               onSelect: () =>
                 onSortChange?.(
                   "size",
-                  sortKey === "size" && sortDir === "asc" ? "desc" : "asc"
+                  sortKey === "size" && sortDir === "asc" ? "desc" : "asc",
                 ),
             },
           ] as MenuItem[])
@@ -530,12 +527,9 @@ export default function Large_IconView({
           label: sel.size ? "Deselect all" : "Select all",
           onSelect: () => {
             if (sel.size) setSel(new Set());
-            else
-              setSel(
-                new Set(sortedFiles.map((f) => String((f as any).id)))
-              );
+            else setSel(new Set(sortedFiles.map((f) => String((f as any).id))));
           },
-        }
+        },
       );
 
       return items;
@@ -556,7 +550,7 @@ export default function Large_IconView({
       onShowProperties,
       onOpenVirtual,
       currentFolderId,
-    ]
+    ],
   );
 
   // card size depends on variant + density
@@ -568,8 +562,7 @@ export default function Large_IconView({
 
     // Make density visibly affect how many tiles fit + tile height.
     // (Previously, `gap` was calculated but never used, and tile size never changed.)
-    const sizeDelta =
-      density === "compact" ? -12 : density === "cozy" ? -6 : 0;
+    const sizeDelta = density === "compact" ? -12 : density === "cozy" ? -6 : 0;
 
     const densityOffsets = {
       comfortable: { pad: 12, gap: 12 },
@@ -598,9 +591,14 @@ export default function Large_IconView({
       const last = lastClickRef.current;
       const isModifiedClick = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
 
-      if (!isModifiedClick && last && last.id === id && now - last.t < DOUBLE_CLICK_MS) {
+      if (
+        !isModifiedClick &&
+        last &&
+        last.id === id &&
+        now - last.t < DOUBLE_CLICK_MS
+      ) {
         lastClickRef.current = null; // reset
-        onOpen(file);                // ✅ open on 2nd click
+        onOpen(file); // ✅ open on 2nd click
         return;
       }
 
@@ -619,7 +617,7 @@ export default function Large_IconView({
 
       setSel(next);
     },
-    [sel, setSel, onOpen]
+    [sel, setSel, onOpen],
   );
 
   const handleDragStart = useCallback(
@@ -629,7 +627,7 @@ export default function Large_IconView({
       e.dataTransfer.setData("text/plain", JSON.stringify(ids));
       onDragStart?.(ids);
     },
-    [sel, onDragStart]
+    [sel, onDragStart],
   );
 
   const handleDragEnd = useCallback(() => {
@@ -716,7 +714,7 @@ export default function Large_IconView({
               <div className="ex-tile-check" aria-hidden="true">
                 <CheckIcon className="h-3.5 w-3.5" />
               </div>
-            
+
               {(f as any).isFavorited && (
                 <div className="ex-tile-star" title="Starred">
                   <StarIcon className="h-3.5 w-3.5" />
@@ -737,9 +735,22 @@ export default function Large_IconView({
                   </div>
                 )}
               </div>
-            
+
               <div className="ex-tile-meta">
                 <div className="ex-tile-name">{title}</div>
+                {(f as any).captureType &&
+                  String((f as any).captureType).startsWith("URL_") && (
+                    <div
+                      className="ex-tile-sub"
+                      title={
+                        (f as any).sourceUrl
+                          ? `Source: ${(f as any).sourceUrl}`
+                          : "URL Snapshot"
+                      }
+                    >
+                      Snapshot
+                    </div>
+                  )}
                 {!folder && size != null && (
                   <div className="ex-tile-sub">{formatBytes(size)}</div>
                 )}

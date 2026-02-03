@@ -18,10 +18,15 @@ import ArchiveIcon from "../icons/ArchiveIcon";
 import CodeIcon from "../icons/CodeIcon";
 import FileIcon from "../icons/FileIcon";
 import FolderIcon from "../icons/FolderIcon";
-import { ChevronDown, ChevronUp, ChevronsUpDown, MoreHorizontal } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  MoreHorizontal,
+} from "lucide-react";
 
 type ViewMode = "details" | "list";
-type ColumnKey = "name" | "date" | "type" | "size" ;
+type ColumnKey = "name" | "date" | "type" | "size";
 
 const ALL_COLS: ColumnKey[] = ["name", "date", "type", "size"];
 
@@ -160,7 +165,7 @@ export default function Details_ListView({
 
   layout,
   selectable = true,
-  density = "cozy"
+  density = "cozy",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -179,7 +184,7 @@ export default function Details_ListView({
 
   /** ---- controlled/uncontrolled selection bridge ---- */
   const [selectedIdsInternal, setSelectedIdsInternal] = useState<Set<string>>(
-    () => new Set()
+    () => new Set(),
   );
   const selectedIds = selectedIdsProp ?? selectedIdsInternal;
 
@@ -190,7 +195,7 @@ export default function Details_ListView({
 
   /** ---- view mode ---- */
   const [viewMode, setViewMode] = useState<ViewMode>(
-    layout ?? ("details" as ViewMode)
+    layout ?? ("details" as ViewMode),
   );
   React.useEffect(() => {
     if (layout) setViewMode(layout);
@@ -202,8 +207,7 @@ export default function Details_ListView({
 
   const effectiveSortKey: ColumnKey =
     (sortKey as ColumnKey | undefined) ?? internalSortKey;
-  const effectiveSortDir: "asc" | "desc" =
-    sortDir ?? internalSortDir ?? "asc";
+  const effectiveSortDir: "asc" | "desc" = sortDir ?? internalSortDir ?? "asc";
 
   const setSort = (key: ColumnKey) => {
     const isSame = effectiveSortKey === key;
@@ -260,14 +264,21 @@ export default function Details_ListView({
   /** ---- selection helpers ---- */
   const handleRowClick = (file: FileItem, e: React.MouseEvent) => {
     if (!selectable) return;
-    const id = String((file as any).id ?? (file as any).fileId ?? fileDisplayName(file));
+    const id = String(
+      (file as any).id ?? (file as any).fileId ?? fileDisplayName(file),
+    );
     const now = Date.now();
     const last = lastClickRef.current;
     const isModifiedClick = e.ctrlKey || e.metaKey || e.shiftKey || e.altKey;
 
-    if (!isModifiedClick && last && last.id === id && now - last.t < DOUBLE_CLICK_MS) {
-      lastClickRef.current = null;     // reset
-      handleRowDoubleClick(file);      // ✅ open on 2nd click
+    if (
+      !isModifiedClick &&
+      last &&
+      last.id === id &&
+      now - last.t < DOUBLE_CLICK_MS
+    ) {
+      lastClickRef.current = null; // reset
+      handleRowDoubleClick(file); // ✅ open on 2nd click
       return;
     }
 
@@ -359,7 +370,7 @@ export default function Details_ListView({
         shortcut: "Ctrl+A",
         onSelect: () => {
           const all = new Set<string>(
-            sorted.map((f) => String((f as any).id ?? fileDisplayName(f)))
+            sorted.map((f) => String((f as any).id ?? fileDisplayName(f))),
           );
           setSelectedIds(all);
         },
@@ -372,9 +383,7 @@ export default function Details_ListView({
               type: "item",
               id: "sort_name",
               label: `Name ${
-                effectiveSortKey === "name"
-                  ? `(${effectiveSortDir})`
-                  : ""
+                effectiveSortKey === "name" ? `(${effectiveSortDir})` : ""
               }`,
               onSelect: () => setSort("name"),
             },
@@ -382,9 +391,7 @@ export default function Details_ListView({
               type: "item",
               id: "sort_date",
               label: `Date ${
-                effectiveSortKey === "date"
-                  ? `(${effectiveSortDir})`
-                  : ""
+                effectiveSortKey === "date" ? `(${effectiveSortDir})` : ""
               }`,
               onSelect: () => setSort("date"),
             },
@@ -392,9 +399,7 @@ export default function Details_ListView({
               type: "item",
               id: "sort_type",
               label: `Type ${
-                effectiveSortKey === "type"
-                  ? `(${effectiveSortDir})`
-                  : ""
+                effectiveSortKey === "type" ? `(${effectiveSortDir})` : ""
               }`,
               onSelect: () => setSort("type"),
             },
@@ -402,9 +407,7 @@ export default function Details_ListView({
               type: "item",
               id: "sort_size",
               label: `Size ${
-                effectiveSortKey === "size"
-                  ? `(${effectiveSortDir})`
-                  : ""
+                effectiveSortKey === "size" ? `(${effectiveSortDir})` : ""
               }`,
               onSelect: () => setSort("size"),
             },
@@ -513,10 +516,8 @@ export default function Details_ListView({
             } else {
               setSelectedIds(
                 new Set(
-                  files.map((f) =>
-                    String((f as any).id ?? fileDisplayName(f))
-                  )
-                )
+                  files.map((f) => String((f as any).id ?? fileDisplayName(f))),
+                ),
               );
             }
           },
@@ -545,7 +546,7 @@ export default function Details_ListView({
               onDelete(file);
             }
           },
-        }
+        },
       );
 
       if (onShowProperties) {
@@ -575,7 +576,7 @@ export default function Details_ListView({
       onOpenVirtual,
       onShowProperties,
       setSelectedIds,
-    ]
+    ],
   );
 
   /** ---- keyboard shortcuts ---- */
@@ -586,9 +587,7 @@ export default function Details_ListView({
     if (isMod && e.key.toLowerCase() === "a") {
       e.preventDefault();
       setSelectedIds(
-        new Set(
-          sorted.map((f) => String((f as any).id ?? fileDisplayName(f)))
-        )
+        new Set(sorted.map((f) => String((f as any).id ?? fileDisplayName(f)))),
       );
     }
     if (isMod && e.key.toLowerCase() === "c") {
@@ -609,7 +608,7 @@ export default function Details_ListView({
         onDeleteMany(selIds);
       } else if (onDelete) {
         const f = sorted.find((x) =>
-          selectedIds.has(String((x as any).id ?? fileDisplayName(x)))
+          selectedIds.has(String((x as any).id ?? fileDisplayName(x))),
         );
         if (f) onDelete(f);
       }
@@ -617,14 +616,14 @@ export default function Details_ListView({
     if (e.key === "Enter" && selIds.length === 1) {
       e.preventDefault();
       const f = sorted.find((x) =>
-        selectedIds.has(String((x as any).id ?? fileDisplayName(x)))
+        selectedIds.has(String((x as any).id ?? fileDisplayName(x))),
       );
       if (f) handleRowDoubleClick(f);
     }
     if (e.altKey && e.key === "Enter" && selIds.length === 1) {
       e.preventDefault();
       const f = sorted.find((x) =>
-        selectedIds.has(String((x as any).id ?? fileDisplayName(x)))
+        selectedIds.has(String((x as any).id ?? fileDisplayName(x))),
       );
       if (f && onShowProperties) onShowProperties(f);
     }
@@ -632,59 +631,62 @@ export default function Details_ListView({
 
   /** ---- rendering helpers ---- */
   const renderHeader = () => {
-  const labelFor = (key: ColumnKey) => {
-    switch (key) {
-      case "name":
-        return "Name";
-      case "size":
-        return "Size";
-      case "date":
-        return "Date modified";
-      case "type":
-        return "Type";
-      default:
-        return key;
-    }
-  };
+    const labelFor = (key: ColumnKey) => {
+      switch (key) {
+        case "name":
+          return "Name";
+        case "size":
+          return "Size";
+        case "date":
+          return "Date modified";
+        case "type":
+          return "Type";
+        default:
+          return key;
+      }
+    };
 
-  const iconFor = (key: ColumnKey) => {
-    if (effectiveSortKey !== key) return <ChevronsUpDown className="fm-sort-icon fm-sort-icon--neutral" />;
-    return effectiveSortDir === "asc" ? (
-      <ChevronUp className="fm-sort-icon" />
-    ) : (
-      <ChevronDown className="fm-sort-icon" />
-    );
-  };
-
-  return (
-    <div className="fm-table-header fm-row-grid" role="row">
-      {ALL_COLS.map((key) => {
-        const isRight = key === "size";
-        const isSorted = effectiveSortKey === key;
-        const ariaSort = isSorted
-          ? effectiveSortDir === "asc"
-            ? "ascending"
-            : "descending"
-          : "none";
-
+    const iconFor = (key: ColumnKey) => {
+      if (effectiveSortKey !== key)
         return (
-          <button
-            key={key}
-            type="button"
-            role="columnheader"
-            aria-sort={ariaSort as any}
-            className={`fm-th ${isRight ? "is-right" : ""}`}
-            onClick={() => setSort(key)}
-          >
-            <span className="fm-th-label">{labelFor(key)}</span>
-            <span className="fm-th-sort" aria-hidden="true">
-              {iconFor(key)}
-            </span>
-          </button>
+          <ChevronsUpDown className="fm-sort-icon fm-sort-icon--neutral" />
         );
-      })}
-    </div>
-   );
+      return effectiveSortDir === "asc" ? (
+        <ChevronUp className="fm-sort-icon" />
+      ) : (
+        <ChevronDown className="fm-sort-icon" />
+      );
+    };
+
+    return (
+      <div className="fm-table-header fm-row-grid" role="row">
+        {ALL_COLS.map((key) => {
+          const isRight = key === "size";
+          const isSorted = effectiveSortKey === key;
+          const ariaSort = isSorted
+            ? effectiveSortDir === "asc"
+              ? "ascending"
+              : "descending"
+            : "none";
+
+          return (
+            <button
+              key={key}
+              type="button"
+              role="columnheader"
+              aria-sort={ariaSort as any}
+              className={`fm-th ${isRight ? "is-right" : ""}`}
+              onClick={() => setSort(key)}
+            >
+              <span className="fm-th-label">{labelFor(key)}</span>
+              <span className="fm-th-sort" aria-hidden="true">
+                {iconFor(key)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderDetailsRows = () =>
@@ -738,17 +740,17 @@ export default function Details_ListView({
               {fileDisplayName(f)}
             </span>
           </div>
-      
+
           {/* Date modified */}
           <div className="fm-td fm-td--date" title={dateLabel}>
             {dateLabel}
           </div>
-      
+
           {/* Type */}
           <div className="fm-td fm-td--type" title={typeLabel}>
             {typeLabel}
           </div>
-      
+
           {/* Size */}
           <div className="fm-td fm-td--size is-right" title={sizeLabel}>
             {sizeLabel}
@@ -758,95 +760,117 @@ export default function Details_ListView({
     });
 
   const renderList = () =>
-  sorted.map((f) => {
-    const id = String((f as any).id ?? fileDisplayName(f));
-    const isSel = selectedIds.has(id);
+    sorted.map((f) => {
+      const id = String((f as any).id ?? fileDisplayName(f));
+      const isSel = selectedIds.has(id);
 
-    const mime = String((f as any).mimeType || (f as any).type || "").toLowerCase();
-    const isFolder = Boolean((f as any).isFolder) || mime === "folder";
+      const mime = String(
+        (f as any).mimeType || (f as any).type || "",
+      ).toLowerCase();
+      const isFolder = Boolean((f as any).isFolder) || mime === "folder";
 
-    const rawSize = (f as any).size;
-    const sizeLabel =
-      rawSize != null && rawSize !== ""
-        ? formatBytes(typeof rawSize === "string" ? parseFloat(rawSize) : rawSize)
-        : "";
+      const rawSize = (f as any).size;
+      const sizeLabel =
+        rawSize != null && rawSize !== ""
+          ? formatBytes(
+              typeof rawSize === "string" ? parseFloat(rawSize) : rawSize,
+            )
+          : "";
 
-    const dateLabel = getDateLabel(f);
+      const dateLabel = getDateLabel(f);
 
-    return (
-      <div
-        key={id}
-        data-row
-        data-id={id}
-        data-selected={isSel ? "true" : "false"}
-        draggable
-        onDragStart={(e) => handleRowDragStart(e, f)}
-        onDragEnd={handleRowDragEnd}
-        onClick={(e) => handleRowClick(f, e)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
-          setBgMenu(null);
-          setRowMenu({ x: e.clientX, y: e.clientY, file: f });
-        }}
-        className={`fm-row ${isSel ? "is-selected" : ""}`}
-        role="option"
-        aria-selected={isSel}
-        tabIndex={0}
-      >
-        {/* Left: checkbox + icon + name */}
-        <div className="fm-list-item__left">
-          {showCheckCol && (
-            <input
-              type="checkbox"
-              className="fm-check"
-              checked={isSel}
-              onChange={(e) => handleRowClick(f, e as any)}
-              onClick={(e) => e.stopPropagation()}
-              aria-label={isSel ? "Deselect item" : "Select item"}
-            />
-          )}
+      return (
+        <div
+          key={id}
+          data-row
+          data-id={id}
+          data-selected={isSel ? "true" : "false"}
+          draggable
+          onDragStart={(e) => handleRowDragStart(e, f)}
+          onDragEnd={handleRowDragEnd}
+          onClick={(e) => handleRowClick(f, e)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
+            setBgMenu(null);
+            setRowMenu({ x: e.clientX, y: e.clientY, file: f });
+          }}
+          className={`fm-row ${isSel ? "is-selected" : ""}`}
+          role="option"
+          aria-selected={isSel}
+          tabIndex={0}
+        >
+          {/* Left: checkbox + icon + name */}
+          <div className="fm-list-item__left">
+            {showCheckCol && (
+              <input
+                type="checkbox"
+                className="fm-check"
+                checked={isSel}
+                onChange={(e) => handleRowClick(f, e as any)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={isSel ? "Deselect item" : "Select item"}
+              />
+            )}
 
-          <span className="fm-thumb" aria-hidden="true">
-            {renderTypeIcon(f)}
-          </span>
+            <span className="fm-thumb" aria-hidden="true">
+              {renderTypeIcon(f)}
+            </span>
 
-          <div className="fm-list-text">
-            <div className="fm-list-name" title={fileDisplayName(f)}>
-              {fileDisplayName(f)}
-            </div>
-            <div className="fm-list-subtle fm-list-subline">
-              {isFolder ? "Folder" : mime ? mime.split("/").pop() : "File"}
+            <div className="fm-list-text">
+              <div className="fm-list-name" title={fileDisplayName(f)}>
+                {fileDisplayName(f)}
+              </div>
+              <div className="fm-list-subtle fm-list-subline">
+                {isFolder ? "Folder" : mime ? mime.split("/").pop() : "File"}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Middle meta (Explorer-like: right aligned pills on desktop) */}
-        <div className="fm-row-meta" aria-hidden="true">
-          {sizeLabel && !isFolder && <span className="fm-tag">{sizeLabel}</span>}
-          {dateLabel && <span className="fm-tag">{dateLabel}</span>}
-        </div>
+          {/* Middle meta (Explorer-like: right aligned pills on desktop) */}
+          <div className="fm-row-meta" aria-hidden="true">
+            {sizeLabel && !isFolder && (
+              <span className="fm-tag">{sizeLabel}</span>
+            )}
+            {(f as any).captureType &&
+              String((f as any).captureType).startsWith("URL_") && (
+                <span
+                  className="fm-tag"
+                  title={
+                    (f as any).sourceUrl
+                      ? `Source: ${(f as any).sourceUrl}`
+                      : "URL Snapshot"
+                  }
+                >
+                  Snapshot
+                </span>
+              )}
 
-        {/* Right: quick menu button */}
-        <div className="fm-row-actions">
-          <button
-            type="button"
-            className="fm-iconbtn"
-            aria-label="More actions"
-            onClick={(e) => {
-              e.stopPropagation();
-              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setBgMenu(null);
-              if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
-              setRowMenu({ x: rect.left, y: rect.bottom + 6, file: f });
-            }}
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
+            {dateLabel && <span className="fm-tag">{dateLabel}</span>}
+          </div>
+
+          {/* Right: quick menu button */}
+          <div className="fm-row-actions">
+            <button
+              type="button"
+              className="fm-iconbtn"
+              aria-label="More actions"
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = (
+                  e.currentTarget as HTMLElement
+                ).getBoundingClientRect();
+                setBgMenu(null);
+                if (!selectedIds.has(id)) setSelectedIds(new Set([id]));
+                setRowMenu({ x: rect.left, y: rect.bottom + 6, file: f });
+              }}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-      </div>
-    );
-  });
+      );
+    });
 
   /** ---- render ---- */
   return (
@@ -872,7 +896,11 @@ export default function Details_ListView({
       }}
     >
       {viewMode === "details" && (
-        <div data-view="details" className="fm-table-wrap" data-density={density}>
+        <div
+          data-view="details"
+          className="fm-table-wrap"
+          data-density={density}
+        >
           {renderHeader()}
           <div className="fm-table-body">{renderDetailsRows()}</div>
         </div>
@@ -881,7 +909,7 @@ export default function Details_ListView({
       {viewMode === "list" && (
         <div data-view="list" className="fm-list-surface">
           <div className="fm-list-compact" data-density={density}>
-          {renderList()}
+            {renderList()}
           </div>
         </div>
       )}

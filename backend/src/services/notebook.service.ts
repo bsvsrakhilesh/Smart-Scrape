@@ -179,6 +179,7 @@ export async function getChunkReader(chunkId: string, radius = 3) {
   const chunks = await prisma.sourceChunk.findMany({
     where: {
       sourceId: center.sourceId,
+      revisionId: center.revisionId,
       idx: { gte: lo, lte: hi },
     },
     orderBy: { idx: "asc" },
@@ -186,7 +187,7 @@ export async function getChunkReader(chunkId: string, radius = 3) {
   });
 
   const total = await prisma.sourceChunk.count({
-    where: { sourceId: center.sourceId },
+    where: { sourceId: center.sourceId, revisionId: center.revisionId },
   });
 
   return {
@@ -201,11 +202,17 @@ export async function getChunkReader(chunkId: string, radius = 3) {
 }
 
 export async function getSourcePage(sourceId: string, pageNumber: number) {
-  // safer than compound unique name guessing
+  const src = await prisma.notebookSource.findUnique({
+    where: { id: sourceId },
+    select: { activeRevisionId: true },
+  });
+  if (!src?.activeRevisionId) return null;
+
   return (prisma as any).sourcePage.findFirst({
-    where: { sourceId, pageNumber },
+    where: { sourceId, revisionId: src.activeRevisionId, pageNumber },
     select: {
       sourceId: true,
+      revisionId: true,
       pageNumber: true,
       text: true,
       globalStart: true,
@@ -221,6 +228,7 @@ export async function pickNotebookCitations(
 ) {
   const chunks = await prisma.sourceChunk.findMany({
     where: {
+      revision: { isActive: true },
       source: { notebookId },
       ...(sourceIds?.length ? { sourceId: { in: sourceIds } } : {}),
     },
@@ -228,6 +236,7 @@ export async function pickNotebookCitations(
     take: limit,
     select: { id: true },
   });
+
   return chunks.map((c) => ({ chunkId: c.id }));
 }
 

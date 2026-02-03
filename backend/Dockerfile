@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 libxfixes3 libxrandr2 libxshmfence1 wget && \
     rm -rf /var/lib/apt/lists/*
 
-# ⬇️ Copy whichever manifest(s) exist. This will always match at least package.json
+# Copy whichever manifest(s) exist. This will always match at least package.json
 COPY package*.json ./
 
 # Install deps (use lock if present, otherwise fallback)

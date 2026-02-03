@@ -127,14 +127,35 @@ model NotebookSource {
   ingestionJob IngestionJob?
   createdAt    DateTime      @default(now())
 
+  activeRevisionId String?
+  activeRevision   SourceRevision? @relation("ActiveRevision", fields: [activeRevisionId], references: [id])
+
   @@unique([notebookId, urlId])
   @@unique([notebookId, fileId])
+}
+
+model SourceRevision {
+  id         String         @id @default(cuid())
+  source     NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId   String
+  ordinal    Int
+  contentHash String?
+  isActive   Boolean        @default(true)
+  createdAt  DateTime       @default(now())
+
+  chunks SourceChunk[]
+  pages  SourcePage[]
+
+  @@unique([sourceId, ordinal])
+  @@index([sourceId, isActive])
 }
 
 model SourceChunk {
   id       String         @id @default(cuid())
   source   NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   sourceId String
+  revision   SourceRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  revisionId String
   idx      Int
   text     String
   tokens   Int
@@ -153,7 +174,9 @@ model SourceChunk {
 
   createdAt DateTime @default(now())
 
-  @@unique([sourceId, idx])
+  @@unique([revisionId, idx])
+  @@index([sourceId, revisionId])
+
 }
 
 model EmbeddingJob {
@@ -194,7 +217,11 @@ model SourcePage {
 
   createdAt DateTime @default(now())
 
-  @@unique([sourceId, pageNumber])
+  revision   SourceRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  revisionId String
+
+  @@unique([revisionId, pageNumber])
+  @@index([sourceId, revisionId])
   @@index([sourceId])
 }
 

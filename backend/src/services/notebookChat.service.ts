@@ -111,7 +111,9 @@ async function retrieveRelevantChunkIdsVector(p: {
     SELECT sc."id"
     FROM "SourceChunk" sc
     JOIN "NotebookSource" ns ON ns."id" = sc."sourceId"
+    JOIN "SourceRevision" sr ON sr."id" = sc."revisionId"
     WHERE ns."notebookId" = ${p.notebookId}
+      AND sr."isActive" = true
       AND sc."embedding" IS NOT NULL
       ${
         p.sourceIds?.length
@@ -137,24 +139,27 @@ async function retrieveRelevantChunkIdsKeywordFTS(p: {
   // Prefer FTS if column exists; otherwise fallback to basic substring scoring
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT sc."id"
-      FROM "SourceChunk" sc
-      JOIN "NotebookSource" ns ON ns."id" = sc."sourceId"
-      WHERE ns."notebookId" = ${p.notebookId}
-        ${
-          p.sourceIds?.length
-            ? Prisma.sql`AND sc."sourceId" IN (${Prisma.join(p.sourceIds)})`
-            : Prisma.empty
-        }
-        AND sc."fts" @@ plainto_tsquery('english', ${q})
-      ORDER BY ts_rank(sc."fts", plainto_tsquery('english', ${q})) DESC
-      LIMIT ${p.limit}
-    `;
+        SELECT sc."id"
+        FROM "SourceChunk" sc
+        JOIN "NotebookSource" ns ON ns."id" = sc."sourceId"
+        JOIN "SourceRevision" sr ON sr."id" = sc."revisionId"
+        WHERE ns."notebookId" = ${p.notebookId}
+          AND sr."isActive" = true
+          ${
+            p.sourceIds?.length
+              ? Prisma.sql`AND sc."sourceId" IN (${Prisma.join(p.sourceIds)})`
+              : Prisma.empty
+          }
+          AND sc."fts" @@ plainto_tsquery('english', ${q})
+        ORDER BY ts_rank(sc."fts", plainto_tsquery('english', ${q})) DESC
+        LIMIT ${p.limit}
+      `;
     return rows.map((r) => r.id);
   } catch {
     // Fallback: naive substring scoring on a small window
     const rows = await prisma.sourceChunk.findMany({
       where: {
+        revision: { isActive: true },
         source: {
           notebookId: p.notebookId,
           ...(p.sourceIds?.length ? { id: { in: p.sourceIds } } : {}),

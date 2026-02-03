@@ -68,21 +68,20 @@ model StoredFile {
   folder         Folder?   @relation(fields: [folderId], references: [id])
   contentHash    String?
 
-  captureType  CaptureType @default(UPLOAD)
-  sha256       String?
-  sourceUrl    String?
+  captureType CaptureType @default(UPLOAD)
+  sha256      String?
+  sourceUrl   String?
 
   urlId Int?
   url   Url? @relation("UrlSnapshots", fields: [urlId], references: [id], onDelete: SetNull)
 
-  taggerVersion  String?
-  tagsMeta       Json?
+  taggerVersion String?
+  tagsMeta      Json?
 
   notebookSources NotebookSource[] @relation("FileNotebookSources")
 
   @@index([urlId])
   @@index([deletedAt])
-  
 }
 
 model Folder {
@@ -130,18 +129,24 @@ model NotebookSource {
   activeRevisionId String?
   activeRevision   SourceRevision? @relation("ActiveRevision", fields: [activeRevisionId], references: [id])
 
+  revisions SourceRevision[] @relation("SourceRevisions")
+
   @@unique([notebookId, urlId])
   @@unique([notebookId, fileId])
 }
 
 model SourceRevision {
-  id         String         @id @default(cuid())
-  source     NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  sourceId   String
-  ordinal    Int
+  id String @id @default(cuid())
+
+  source   NotebookSource @relation("SourceRevisions", fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId String
+
+  activeForSources NotebookSource[] @relation("ActiveRevision")
+
+  ordinal     Int
   contentHash String?
-  isActive   Boolean        @default(true)
-  createdAt  DateTime       @default(now())
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
   chunks SourceChunk[]
   pages  SourcePage[]
@@ -151,19 +156,19 @@ model SourceRevision {
 }
 
 model SourceChunk {
-  id       String         @id @default(cuid())
-  source   NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
-  sourceId String
+  id         String         @id @default(cuid())
+  source     NotebookSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId   String
   revision   SourceRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
   revisionId String
-  idx      Int
-  text     String
-  tokens   Int
+  idx        Int
+  text       String
+  tokens     Int
 
   embedding      Unsupported("vector(1536)")?
   embeddingModel String?
   embeddedAt     DateTime?
-  fts            Unsupported("tsvector")?
+  fts            Unsupported("tsvector")?     @default(dbgenerated())
   globalStart    Int?
   globalEnd      Int?
 
@@ -176,7 +181,6 @@ model SourceChunk {
 
   @@unique([revisionId, idx])
   @@index([sourceId, revisionId])
-
 }
 
 model EmbeddingJob {

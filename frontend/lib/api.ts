@@ -229,6 +229,21 @@ export async function getFileById(fileId: string): Promise<FileItem> {
   return toFileItem(data);
 }
 
+export async function getFileExtractedText(fileId: string, maxChars = 200000) {
+  const res = await api.get(`/api/files/${fileId}/extracted-text`, { params: { maxChars } });
+  return res.data as {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    captureType?: string | null;
+    sourceUrl?: string | null;
+    urlId?: number | null;
+    sha256?: string | null;
+    truncated: boolean;
+    text: string;
+  };
+}
+
 export async function moveFolderToTrash(id: string) {
   await api.patch(`/api/folders/${id}/trash`);
 }

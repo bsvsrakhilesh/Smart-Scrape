@@ -3,6 +3,7 @@ import { env } from "../config/env";
 import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
 import { enqueueEmbeddingJob } from "../queues/embedding.queue";
 import { enqueueIngestionJob } from "../queues/ingestion.queue";
+import crypto from "crypto";
 
 export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });
@@ -203,7 +204,13 @@ export async function getSourcePage(sourceId: string, pageNumber: number) {
   // safer than compound unique name guessing
   return (prisma as any).sourcePage.findFirst({
     where: { sourceId, pageNumber },
-    select: { sourceId: true, pageNumber: true, text: true, globalStart: true, globalEnd: true },
+    select: {
+      sourceId: true,
+      pageNumber: true,
+      text: true,
+      globalStart: true,
+      globalEnd: true,
+    },
   });
 }
 
@@ -262,10 +269,39 @@ export async function createChunksForSource(
   const chunks = splitTextWithOffsets(fullText, 1400, 220);
   if (!chunks.length) return;
 
-  // Re-ingestion safe: wipe old chunks + pages then re-create
-  await prisma.sourceChunk.deleteMany({ where: { sourceId } });
-  // @ts-ignore - will exist after prisma migrate+generate if SourcePage is added
-  await prisma.sourcePage?.deleteMany?.({ where: { sourceId } });
+  // Each ingestion produces a new SourceRevision. Old evidence remains immutable.
+  const contentHash = crypto
+    .createHash("sha256")
+    .update(fullText)
+    .digest("hex");
+
+  const maxOrd = await prisma.sourceRevision.aggregate({
+    where: { sourceId },
+    _max: { ordinal: true },
+  });
+  const nextOrdinal = (maxOrd._max.ordinal ?? 0) + 1;
+
+  // Deactivate old revisions + create a new active one
+  await prisma.sourceRevision.updateMany({
+    where: { sourceId, isActive: true },
+    data: { isActive: false },
+  });
+
+  const revision = await prisma.sourceRevision.create({
+    data: {
+      sourceId,
+      ordinal: nextOrdinal,
+      contentHash,
+      isActive: true,
+    },
+    select: { id: true },
+  });
+
+  // Pin notebook source to this active revision
+  await prisma.notebookSource.update({
+    where: { id: sourceId },
+    data: { activeRevisionId: revision.id },
+  });
 
   // If we have pages, store them with global offsets
   let pageRanges:
@@ -294,6 +330,7 @@ export async function createChunksForSource(
       return prisma.sourcePage.create({
         data: {
           sourceId,
+          revisionId: revision.id,
           pageNumber: p.pageNumber,
           text: p.text || "",
           globalStart: start,
@@ -337,12 +374,11 @@ export async function createChunksForSource(
       return prisma.sourceChunk.create({
         data: {
           sourceId,
+          revisionId: revision.id,
           idx,
           text: c.text,
           tokens: roughTokens(c.text),
 
-          // ---- Evidence mapping (Phase 2) ----
-          // These fields must exist in Prisma schema + migration:
           globalStart: c.start,
           globalEnd: c.end,
 
@@ -350,7 +386,7 @@ export async function createChunksForSource(
           pageEnd: e?.pageNumber ?? null,
           charStart: s?.char ?? null,
           charEnd: e?.char ?? null,
-        } as any, // keep TS happy until prisma generate picks up new fields
+        } as any,
         select: { id: true },
       });
     }),

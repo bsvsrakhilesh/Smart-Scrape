@@ -30,11 +30,24 @@ export const embeddingWorker = new Worker(
     await prisma.embeddingJob.upsert({
       where: { sourceId },
       create: { sourceId, status: "RUNNING", attemptCount: 1 },
-      update: { status: "RUNNING", attemptCount: { increment: 1 }, error: null },
+      update: {
+        status: "RUNNING",
+        attemptCount: { increment: 1 },
+        error: null,
+      },
+    });
+
+    const src = await prisma.notebookSource.findUnique({
+      where: { id: sourceId },
+      select: { activeRevisionId: true },
     });
 
     const chunks = await prisma.sourceChunk.findMany({
-      where: { sourceId, embeddedAt: null },
+      where: {
+        sourceId,
+        revisionId: src?.activeRevisionId ?? undefined,
+        embeddedAt: null,
+      },
       orderBy: { idx: "asc" },
       select: { id: true, text: true },
     });
@@ -64,7 +77,7 @@ export const embeddingWorker = new Worker(
               "embeddedAt" = ${now}
           WHERE "id" = ${row.id}
         `;
-      })
+      }),
     );
 
     await prisma.embeddingJob.update({
@@ -72,7 +85,10 @@ export const embeddingWorker = new Worker(
       data: { status: "SUCCESS", error: null },
     });
   },
-  { connection: bullConnection(), concurrency: env.EMBEDDING_QUEUE_CONCURRENCY }
+  {
+    connection: bullConnection(),
+    concurrency: env.EMBEDDING_QUEUE_CONCURRENCY,
+  },
 );
 
 embeddingWorker.on("failed", async (job, err) => {

@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import prisma from "../config/database";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
+import { recordCaptureEvent } from "../services/provenance.service";
 import archiver from "archiver";
 import crypto from "crypto";
 import unzipper from "unzipper";
@@ -347,7 +348,24 @@ r.post(
           update: updateData,
           create: createData,
         });
-        await ensureDocumentRevisionForStoredFile(String(rec.id));
+
+        // provenance capture event for upload finalize (chunked)
+        const docRev = await ensureDocumentRevisionForStoredFile(
+          String(rec.id),
+        );
+
+        await recordCaptureEvent({
+          pipelineName: "upload.chunk.autofinalize",
+          pipelineConfig: { sha256: true, chunkedUpload: true },
+          captureType: "UPLOAD",
+          storedFileId: String(rec.id),
+          documentRevisionId: docRev.id,
+          urlId: rec.urlId ?? null,
+          sourceUrl: rec.sourceUrl ?? null,
+          actorId: rec.uploaderId ?? null,
+          actorName: rec.uploaderName ?? null,
+          requestId: (req as any)?.requestId ?? null,
+        });
 
         // Kick async tagging via Python ai-tagger (does not block API)
         try {
@@ -489,7 +507,21 @@ r.post("/files/finalize", async (req, res, next) => {
       update: updateData,
       create: createData,
     });
-    await ensureDocumentRevisionForStoredFile(String(record.id));
+    // provenance capture event for upload finalize (manual finalize)
+    const docRev = await ensureDocumentRevisionForStoredFile(String(record.id));
+
+    await recordCaptureEvent({
+      pipelineName: "upload.finalize",
+      pipelineConfig: { sha256: true, chunkedUpload: true },
+      captureType: "UPLOAD",
+      storedFileId: String(record.id),
+      documentRevisionId: docRev.id,
+      urlId: record.urlId ?? null,
+      sourceUrl: record.sourceUrl ?? null,
+      actorId: record.uploaderId ?? null,
+      actorName: record.uploaderName ?? null,
+      requestId: (req as any)?.requestId ?? null,
+    });
 
     res.json(record);
 
@@ -1033,7 +1065,22 @@ r.post("/files/:id/duplicate", async (req, res, next) => {
         folderId: prismaSupportsFolders() ? targetFolderId : undefined,
       } as any,
     });
-    await ensureDocumentRevisionForStoredFile(String(record.id));
+
+    // provenance capture event for file duplication ---
+    const docRev = await ensureDocumentRevisionForStoredFile(String(record.id));
+
+    await recordCaptureEvent({
+      pipelineName: "file.duplicate",
+      pipelineConfig: { duplicate: true },
+      captureType: "UPLOAD",
+      storedFileId: String(record.id),
+      documentRevisionId: docRev.id,
+      urlId: record.urlId ?? null,
+      sourceUrl: record.sourceUrl ?? null,
+      actorId: record.uploaderId ?? null,
+      actorName: record.uploaderName ?? null,
+      requestId: (req as any)?.requestId ?? null,
+    });
 
     res.status(201).json(record);
   } catch (err) {

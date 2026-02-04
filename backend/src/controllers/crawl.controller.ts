@@ -5,6 +5,7 @@ import path from "path";
 import crypto from "crypto";
 import prisma from "../config/database";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
+import { recordCaptureEvent } from "../services/provenance.service";
 import * as cheerio from "cheerio";
 import { createDom } from "../utils/dom";
 import { Readability } from "@mozilla/readability";
@@ -138,6 +139,29 @@ async function persistFile(
       urlId: meta?.urlId ?? null,
     } as any,
   });
+
+  // Canonical revision + capture provenance 
+  const docRev = await ensureDocumentRevisionForStoredFile(rec.id);
+
+  await recordCaptureEvent({
+    pipelineName: meta?.captureType === "URL_PDF" ? "crawl.pdf" : "crawl.text",
+    pipelineConfig: {
+      // keep minimal but reproducible
+      userAgent: "SmartScrape/1.0",
+      ssrfGuard: true,
+      robotsRespect: true,
+      captureType: meta?.captureType ?? "UPLOAD",
+    },
+    captureType: (meta?.captureType as any) ?? "UPLOAD",
+    storedFileId: rec.id,
+    documentRevisionId: docRev.id,
+    urlId: meta?.urlId ?? null,
+    sourceUrl: meta?.sourceUrl ?? null,
+    actorId: rec.uploaderId ?? null,
+    actorName: rec.uploaderName ?? null,
+    requestId: (meta as any)?.requestId ?? null,
+  });
+
   // every StoredFile must map to a canonical DocumentRevision
   try {
     await ensureDocumentRevisionForStoredFile(rec.id);

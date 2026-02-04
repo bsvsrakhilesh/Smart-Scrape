@@ -9,6 +9,7 @@ import {
 } from "../services/extract.service";
 import { createChunksForSource } from "../services/notebook.service";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
+import { getOrCreatePipelineConfig } from "../services/provenance.service";
 
 function bullConnection(): ConnectionOptions {
   const u = new URL(env.REDIS_URL);
@@ -89,7 +90,18 @@ export const ingestionWorker = new Worker(
 
       const fullText = (fullTextRaw || "").replace(/\s+/g, " ").trim();
 
-      await createChunksForSource(sourceId, { fullText, documentRevisionId });
+      const pc = await getOrCreatePipelineConfig("ingestion.url", {
+        whitespaceNormalization: true,
+        preferSnapshot: true,
+        usedSnapshot: Boolean(documentRevisionId),
+      });
+
+      await createChunksForSource(sourceId, {
+        fullText,
+        documentRevisionId,
+        pipelineConfigId: pc.id,
+      });
+
       await prisma.ingestionJob.update({
         where: { sourceId },
         data: { status: "SUCCESS", error: null },
@@ -132,7 +144,20 @@ export const ingestionWorker = new Worker(
         .join("\n\n")
         .trim();
 
-      await createChunksForSource(sourceId, { fullText, pages, documentRevisionId });
+      const pc = await getOrCreatePipelineConfig("ingestion.file.pdf", {
+        scannedPdfDetection: true,
+        ocrEnabled: env.OCR_ENABLED,
+        pageSeparator: "\n\n",
+        whitespaceNormalization: false,
+      });
+
+      await createChunksForSource(sourceId, {
+        fullText,
+        pages,
+        documentRevisionId,
+        pipelineConfigId: pc.id,
+      });
+
       await prisma.ingestionJob.update({
         where: { sourceId },
         data: { status: "SUCCESS", error: null },
@@ -145,7 +170,17 @@ export const ingestionWorker = new Worker(
     const header = `FILE: ${f.fileName}\nMIME: ${f.mimeType}\n\n`;
     const fullText = (header + (bodyRaw || "")).replace(/\s+/g, " ").trim();
 
-    await createChunksForSource(sourceId, { fullText, documentRevisionId });
+    const pc = await getOrCreatePipelineConfig("ingestion.file.generic", {
+      whitespaceNormalization: true,
+      headerInjected: true,
+    });
+
+    await createChunksForSource(sourceId, {
+      fullText,
+      documentRevisionId,
+      pipelineConfigId: pc.id,
+    });
+
     await prisma.ingestionJob.update({
       where: { sourceId },
       data: { status: "SUCCESS", error: null },

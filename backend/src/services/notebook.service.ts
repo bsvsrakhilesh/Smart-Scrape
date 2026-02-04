@@ -276,6 +276,7 @@ export async function createChunksForSource(
     fullText: string;
     pages?: { pageNumber: number; text: string }[];
     documentRevisionId?: string | null;
+    pipelineConfigId?: string | null;
   },
 ) {
   const fullText = payload.fullText || "";
@@ -307,6 +308,7 @@ export async function createChunksForSource(
       contentHash,
       isActive: true,
       documentRevisionId: payload.documentRevisionId ?? null,
+      pipelineConfigId: payload.pipelineConfigId ?? null,
     },
     select: { id: true },
   });

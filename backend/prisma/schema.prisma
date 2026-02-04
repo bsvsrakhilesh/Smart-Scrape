@@ -81,6 +81,7 @@ model StoredFile {
 
   documentRevision    DocumentRevision?
   primaryForDocuments Document[]
+  captureEvent CaptureEvent?
 
   urlId Int?
   url   Url? @relation("UrlSnapshots", fields: [urlId], references: [id], onDelete: SetNull)
@@ -161,11 +162,15 @@ model SourceRevision {
   documentRevisionId String?
   documentRevision   DocumentRevision? @relation(fields: [documentRevisionId], references: [id], onDelete: SetNull)
 
+  pipelineConfigId String?
+  pipelineConfig   PipelineConfig? @relation(fields: [pipelineConfigId], references: [id], onDelete: SetNull)
+
   chunks SourceChunk[]
   pages  SourcePage[]
 
   @@unique([sourceId, ordinal])
   @@index([documentRevisionId])
+  @@index([pipelineConfigId])
   @@index([sourceId, isActive])
 }
 
@@ -288,7 +293,56 @@ model DocumentRevision {
   contentHash String?
 
   sourceRevisions SourceRevision[]
+  captureEvent CaptureEvent?
 
   @@unique([documentId, ordinal])
   @@index([documentId])
+}
+
+model PipelineConfig {
+  id         String   @id @default(cuid())
+  name       String
+  version    String
+  config     Json
+  configHash String
+  codeSha    String?
+  createdAt  DateTime @default(now())
+
+  captureEvents  CaptureEvent[]
+  sourceRevisions SourceRevision[]
+
+  @@unique([name, version, configHash])
+  @@index([name])
+}
+
+model CaptureEvent {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  // who initiated capture (v1: just what you have today)
+  actorId   String?
+  actorName String?
+
+  // request-level trace
+  requestId String?
+
+  // pipeline reproducibility
+  pipelineConfigId String
+  pipelineConfig   PipelineConfig @relation(fields: [pipelineConfigId], references: [id], onDelete: Restrict)
+
+  // what was captured
+  captureType CaptureType
+  sourceUrl   String?
+  urlId       Int?
+  url         Url? @relation(fields: [urlId], references: [id], onDelete: SetNull)
+
+  // physical artifact + canonical revision (both pinned)
+  storedFileId      String  @unique
+  storedFile        StoredFile @relation(fields: [storedFileId], references: [id], onDelete: Cascade)
+
+  documentRevisionId String @unique
+  documentRevision   DocumentRevision @relation(fields: [documentRevisionId], references: [id], onDelete: Cascade)
+
+  @@index([urlId])
+  @@index([createdAt])
 }

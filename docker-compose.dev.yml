@@ -61,7 +61,7 @@ services:
       target: base
     container_name: smartscrape_backend_worker
     working_dir: /app
-    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npx prisma generate && npm run worker"
+    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && until [ -d src/generated/prisma ]; do echo 'waiting for prisma client…'; sleep 1; done && npm run worker"
     env_file:
       - ./backend/.env
     environment:

@@ -417,12 +417,22 @@ r.patch("/files/:id/restore", async (req, res) => {
 });
 
 // GET /api/trash  → list only trashed items
-r.get("/trash", async (_req, res) => {
-  const items = await prisma.storedFile.findMany({
-    where: { deletedAt: { not: null } },
-    orderBy: { deletedAt: "desc" }, // helpful
-  });
-  res.json(items);
+r.get("/trash", async (_req, res, next) => {
+  try {
+    const files = await prisma.storedFile.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: { deletedAt: "desc" },
+    });
+    const folders = prismaSupportsFolders()
+      ? await prisma.folder.findMany({
+          where: { deletedAt: { not: null } },
+          orderBy: { deletedAt: "desc" },
+        })
+      : [];
+    res.json({ files, folders });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // POST /api/files/finalize optional finalize request to stitch chunks and persist metadata
@@ -879,8 +889,13 @@ r.get("/folders", async (req, res, next) => {
           "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
       });
     }
-    const { parentId } = req.query as Record<string, string>;
+    const { parentId, includeTrashed } = req.query as Record<string, string>;
     const where: any = {};
+    const showTrashed =
+      String(includeTrashed || "").toLowerCase() === "true" ||
+      String(includeTrashed || "") === "1";
+    if (!showTrashed) where.deletedAt = null;
+
     if (typeof parentId === "string") {
       if (parentId === "root" || parentId === "") where.parentId = null;
       else where.parentId = parentId;
@@ -1183,12 +1198,45 @@ r.get("/files/:id/archive/search", async (req, res) => {
 // POST /api/folders/:id/move
 r.post("/folders/:id/move", async (req, res) => {
   const id = String(req.params.id);
+  if (!prismaSupportsFolders()) {
+    return res.status(501).json({
+      message:
+        "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
+    });
+  }
   const { targetFolderId } = req.body || {};
+  const existing = await prisma.folder.findUnique({ where: { id } });
+  if (!existing) return res.status(404).json({ message: "Not found" });
+  if (existing.deletedAt) return res.status(409).json({ message: "Folder is in trash" });
+
+  const target =
+    typeof targetFolderId === "string"
+      ? targetFolderId === "root" || targetFolderId === ""
+        ? null
+        : String(targetFolderId)
+      : null;
+
+  if (target === id) return res.status(400).json({ message: "Folder cannot be its own parent" });
+
+  if (target) {
+    const parent = await prisma.folder.findUnique({ where: { id: target } });
+    if (!parent) return res.status(400).json({ message: "Parent folder not found" });
+    if (parent.deletedAt) return res.status(409).json({ message: "Parent folder is in trash" });
+
+    // cycle check: walk parents until root
+    let cur: string | null = target;
+    for (let i = 0; i < 100 && cur; i++) {
+      if (cur === id) return res.status(400).json({ message: "Invalid move (cycle)" });
+      const p: typeof existing | null = await prisma.folder.findUnique({ where: { id: cur } });
+      cur = p ? (p.parentId as any) : null;
+    }
+  }
+
   const updated = await prisma.folder.update({
     where: { id },
-    data: { parentId: targetFolderId ?? null },
+    data: { parentId: target },
   });
-  res.json(updated);
+  return res.json(updated);
 });
 
 // DELETE /api/files/:id
@@ -1218,11 +1266,16 @@ r.post("/files/zip", async (req, res, next) => {
   try {
     const { ids } = (req.body || {}) as { ids?: string[] };
     if (!Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ message: "Body must be { ids: string[] }" });
+      return res
+        .status(400)
+        .json({ message: "Body must be { ids: string[] }" });
     }
 
-    const files = await prisma.storedFile.findMany({ where: { id: { in: ids } } });
-    if (files.length === 0) return res.status(404).json({ message: "No files found" });
+    const files = await prisma.storedFile.findMany({
+      where: { id: { in: ids } },
+    });
+    if (files.length === 0)
+      return res.status(404).json({ message: "No files found" });
 
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", 'attachment; filename="files.zip"');

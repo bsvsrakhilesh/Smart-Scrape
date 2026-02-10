@@ -1,7 +1,10 @@
 import axios from "axios";
 import type { FileItem } from "./types";
 const api = axios.create({
-  // baseURL: '/api' // optional; Vite dev proxy handles /api to backend
+  // In production, nginx proxies /api -> backend, so baseURL can be empty.
+  // In dev/compose, VITE_API_URL can point to the backend service.
+  baseURL: (import.meta as any)?.env?.VITE_API_URL || "",
+  withCredentials: true,
 });
 
 export type BackendUrlRow = {
@@ -234,6 +237,14 @@ export async function deleteFolder(id: string): Promise<void> {
   await api.delete(`/api/folders/${id}`);
 }
 
+// Move a folder to another parent folder (or root when null).
+export async function moveFolder(id: string, targetFolderId?: string | null) {
+  const res = await api.post(`/api/folders/${id}/move`, {
+    targetFolderId: targetFolderId ?? null,
+  });
+  return res.data as BackendFolder;
+}
+
 // ---------- Crawl / Capture ----------
 export async function crawlSaveText(
   url: string,
@@ -452,14 +463,6 @@ export async function searchZip(fileId: string, q: string) {
 // ---------- Trash (soft delete) ----------
 export async function trashFile(id: string) {
   return api.patch(`/api/files/${id}/trash`);
-}
-
-// ---------- Folder move ----------
-export async function moveFolder(
-  folderId: string,
-  targetFolderId: string | null,
-) {
-  return api.post(`/api/folders/${folderId}/move`, { targetFolderId });
 }
 
 // ---------- Generic files query (sorting/filtering/paging passthrough) ----------

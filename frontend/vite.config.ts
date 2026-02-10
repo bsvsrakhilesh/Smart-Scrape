@@ -1,25 +1,24 @@
 // frontend/vite.config.ts
-import path from 'path';
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite';
+import path from "path";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // Removed unnecessary module declaration
 
 export default defineConfig(({ mode }) => {
   // Local-first defaults
   const devPort = Number(process.env.VITE_PORT || 3000);
-  const apiTarget =
-    process.env.VITE_API_URL || 'http://backend:4000'; // works locally w/o env
+  const apiTarget = process.env.API_PROXY_TARGET || "http://localhost:4000";
 
   return {
-    appType: 'spa',
-    base: process.env.VITE_BASE || '/',
+    appType: "spa",
+    base: process.env.VITE_BASE || "/",
 
     plugins: [react(), tailwindcss()],
 
     resolve: {
-      alias: { '@': path.resolve(__dirname, 'src') },
+      alias: { "@": path.resolve(__dirname, "src") },
     },
 
     server: {
@@ -27,14 +26,17 @@ export default defineConfig(({ mode }) => {
       port: devPort,
       strictPort: true,
       proxy: {
-        '/api': {
+        "/api": {
           target: apiTarget,
           changeOrigin: true,
         },
       },
       // Polling only if you explicitly opt-in (useful on Docker for Mac/Win)
       watch: process.env.CHOKIDAR_USEPOLLING
-        ? { usePolling: true, interval: Number(process.env.VITE_WATCH_INTERVAL || 250) }
+        ? {
+            usePolling: true,
+            interval: Number(process.env.VITE_WATCH_INTERVAL || 250),
+          }
         : undefined,
     },
 
@@ -43,8 +45,8 @@ export default defineConfig(({ mode }) => {
     },
 
     build: {
-      outDir: 'dist',
-      sourcemap: mode !== 'production',
+      outDir: "dist",
+      sourcemap: mode !== "production",
       chunkSizeWarningLimit: 1000,
     },
   };

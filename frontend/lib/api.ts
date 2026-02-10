@@ -1,9 +1,15 @@
 import axios from "axios";
 import type { FileItem } from "./types";
+
+const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
+const baseURL =
+  typeof rawBase === "string" && rawBase.includes("://backend:")
+    ? ""
+    : rawBase;
+
 const api = axios.create({
-  // In production, nginx proxies /api -> backend, so baseURL can be empty.
-  // In dev/compose, VITE_API_URL can point to the backend service.
-  baseURL: (import.meta as any)?.env?.VITE_API_URL || "",
+  // Default: same-origin `/api` (dev proxy + prod nginx proxy)
+  baseURL,
   withCredentials: true,
 });
 

@@ -941,15 +941,175 @@ r.patch("/folders/:id", async (req, res, next) => {
     }
     const id = req.params.id;
     const { name, parentId } = req.body || {};
+
     const existing = await prisma.folder.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "Not found" });
-    if (parentId) {
-      const parent = await prisma.folder.findUnique({
-        where: { id: String(parentId) },
-      });
-      if (!parent)
-        return res.status(400).json({ message: "Parent folder not found" });
+
+    // Normalize requested parentId:
+    // - undefined => don't change
+    // - "root"/""/null => move to root (null)
+    // - string => move under that folder
+    let desiredParentId: string | null | undefined = undefined;
+    if (typeof parentId === "string") {
+      desiredParentId =
+        parentId === "root" || parentId === "" ? null : String(parentId);
+    } else if (parentId === null) {
+      desiredParentId = null;
     }
+
+    // If moving, validate parent + prevent cycles (including self-parent)
+    if (desiredParentId !== undefined) {
+      if (desiredParentId === id) {
+        return res.status(400).json({ message: "Invalid move (cycle)" });
+      }
+
+      if (desiredParentId) {
+        const parent = await prisma.folder.findUnique({
+          where: { id: desiredParentId },
+          select: { id: true, parentId: true },
+        });
+        if (!parent) {
+          return res.status(400).json({ message: "Parent folder not found" });
+
+          // PATCH /api/folders/:id/trash - soft delete folder + subtree (folders + files)
+          r.patch("/folders/:id/trash", async (req, res, next) => {
+            try {
+              if (!prismaSupportsFolders()) {
+                return res.status(501).json({
+                  message:
+                    "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
+                });
+              }
+
+              const id = req.params.id;
+              if (!id || id === "root") {
+                return res.status(400).json({ message: "Cannot trash root" });
+              }
+
+              const existing = await prisma.folder.findUnique({
+                where: { id },
+              });
+              if (!existing)
+                return res.status(404).json({ message: "Not found" });
+
+              // Collect subtree (BFS)
+              const allFolderIds: string[] = [];
+              const queue: string[] = [id];
+              while (queue.length > 0) {
+                const fid = queue.shift()!;
+                allFolderIds.push(fid);
+                const children = await prisma.folder.findMany({
+                  where: { parentId: fid },
+                  select: { id: true },
+                });
+                for (const c of children) queue.push(c.id);
+              }
+
+              const now = new Date();
+
+              // Soft-delete folders + files in one transaction
+              await prisma.$transaction([
+                prisma.folder.updateMany({
+                  where: { id: { in: allFolderIds } },
+                  data: { deletedAt: now },
+                }),
+                prisma.storedFile.updateMany({
+                  where: { folderId: { in: allFolderIds } },
+                  data: { deletedAt: now },
+                }),
+              ]);
+
+              return res.json({ ok: true });
+            } catch (err) {
+              next(err);
+            }
+          });
+
+          // PATCH /api/folders/:id/restore - restore folder + subtree (folders + files)
+          r.patch("/folders/:id/restore", async (req, res, next) => {
+            try {
+              if (!prismaSupportsFolders()) {
+                return res.status(501).json({
+                  message:
+                    "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
+                });
+              }
+
+              const id = req.params.id;
+              if (!id || id === "root") {
+                return res.status(400).json({ message: "Cannot restore root" });
+              }
+
+              const existing = await prisma.folder.findUnique({
+                where: { id },
+                select: { id: true, parentId: true, deletedAt: true },
+              });
+              if (!existing)
+                return res.status(404).json({ message: "Not found" });
+
+              // Safety: if parent is trashed, restoring this folder will keep it "invisible".
+              // Force restoring parent first (predictable behavior).
+              if (existing.parentId) {
+                const parent = await prisma.folder.findUnique({
+                  where: { id: existing.parentId },
+                  select: { deletedAt: true },
+                });
+                if (parent?.deletedAt) {
+                  return res.status(409).json({
+                    message:
+                      "Parent folder is trashed. Restore the parent first (or move to root).",
+                  });
+                }
+              }
+
+              // Collect subtree (BFS)
+              const allFolderIds: string[] = [];
+              const queue: string[] = [id];
+              while (queue.length > 0) {
+                const fid = queue.shift()!;
+                allFolderIds.push(fid);
+                const children = await prisma.folder.findMany({
+                  where: { parentId: fid },
+                  select: { id: true },
+                });
+                for (const c of children) queue.push(c.id);
+              }
+
+              await prisma.$transaction([
+                prisma.folder.updateMany({
+                  where: { id: { in: allFolderIds } },
+                  data: { deletedAt: null },
+                }),
+                prisma.storedFile.updateMany({
+                  where: { folderId: { in: allFolderIds } },
+                  data: { deletedAt: null },
+                }),
+              ]);
+
+              return res.json({ ok: true });
+            } catch (err) {
+              next(err);
+            }
+          });
+        }
+
+        // Cycle check: walk parents until root, bounded to avoid infinite loops
+        let cur: string | null = desiredParentId;
+        for (let i = 0; i < 200 && cur; i++) {
+          if (cur === id) {
+            return res.status(400).json({ message: "Invalid move (cycle)" });
+          }
+          const parentRow: { parentId: string | null } | null =
+            await prisma.folder.findUnique({
+              where: { id: cur },
+              select: { parentId: true },
+            });
+
+          cur = parentRow?.parentId ?? null;
+        }
+      }
+    }
+
     const updated = await prisma.folder.update({
       where: { id },
       data: {
@@ -958,11 +1118,7 @@ r.patch("/folders/:id", async (req, res, next) => {
             ? String(name).trim().slice(0, 200)
             : existing.name,
         parentId:
-          typeof parentId === "string"
-            ? parentId === "root" || parentId === ""
-              ? null
-              : parentId
-            : existing.parentId,
+          desiredParentId !== undefined ? desiredParentId : existing.parentId,
       },
     });
     res.json(updated);
@@ -1207,7 +1363,8 @@ r.post("/folders/:id/move", async (req, res) => {
   const { targetFolderId } = req.body || {};
   const existing = await prisma.folder.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ message: "Not found" });
-  if (existing.deletedAt) return res.status(409).json({ message: "Folder is in trash" });
+  if (existing.deletedAt)
+    return res.status(409).json({ message: "Folder is in trash" });
 
   const target =
     typeof targetFolderId === "string"
@@ -1216,18 +1373,24 @@ r.post("/folders/:id/move", async (req, res) => {
         : String(targetFolderId)
       : null;
 
-  if (target === id) return res.status(400).json({ message: "Folder cannot be its own parent" });
+  if (target === id)
+    return res.status(400).json({ message: "Folder cannot be its own parent" });
 
   if (target) {
     const parent = await prisma.folder.findUnique({ where: { id: target } });
-    if (!parent) return res.status(400).json({ message: "Parent folder not found" });
-    if (parent.deletedAt) return res.status(409).json({ message: "Parent folder is in trash" });
+    if (!parent)
+      return res.status(400).json({ message: "Parent folder not found" });
+    if (parent.deletedAt)
+      return res.status(409).json({ message: "Parent folder is in trash" });
 
     // cycle check: walk parents until root
     let cur: string | null = target;
     for (let i = 0; i < 100 && cur; i++) {
-      if (cur === id) return res.status(400).json({ message: "Invalid move (cycle)" });
-      const p: typeof existing | null = await prisma.folder.findUnique({ where: { id: cur } });
+      if (cur === id)
+        return res.status(400).json({ message: "Invalid move (cycle)" });
+      const p: typeof existing | null = await prisma.folder.findUnique({
+        where: { id: cur },
+      });
       cur = p ? (p.parentId as any) : null;
     }
   }

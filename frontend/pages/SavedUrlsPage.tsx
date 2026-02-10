@@ -626,11 +626,21 @@ const SavedUrlsPage: React.FC = () => {
 
   const onDelete = async (ids: string[]) => {
     const idsNum = ids.map(Number);
+
+    // capture URLs before optimistic UI update
+    const deletedUrls = urls
+      .filter((u) => ids.includes(u.id))
+      .map((u) => u.url);
+
     const backup = urls;
     setUrls((prev) => prev.filter((u) => !ids.includes(u.id)));
     setSelection(new Set());
+
     try {
       await deleteUrlsBulk(idsNum);
+
+      // Keep local collections in sync so Url Collector doesn't show stale “Saved”
+      deletedUrls.forEach((u) => setUrlCollections(u, []));
     } catch {
       setUrls(backup);
       alert("Failed to delete selected");

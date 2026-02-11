@@ -1146,7 +1146,8 @@ r.patch("/folders/:id/restore", async (req, res, next) => {
       });
       if (parent?.deletedAt) {
         return res.status(409).json({
-          message: "Parent folder is trashed. Restore the parent first (or move to root).",
+          message:
+            "Parent folder is trashed. Restore the parent first (or move to root).",
         });
       }
     }
@@ -1180,7 +1181,6 @@ r.patch("/folders/:id/restore", async (req, res, next) => {
     next(err);
   }
 });
-
 
 // PATCH /api/files/:id - rename or edit metadata
 r.patch("/files/:id", async (req, res, next) => {
@@ -1517,24 +1517,41 @@ r.post("/files/zip", async (req, res, next) => {
 // POST /api/files/:id/move - move a file to another folder
 r.post("/files/:id/move", async (req, res, next) => {
   try {
-    const id = req.params.id;
+    if (!prismaSupportsFolders()) {
+      return res.status(501).json({ message: "Folders not supported" });
+    }
+
+    const id = String(req.params.id);
     const { folderId } = req.body || {};
-    const existing = await prisma.storedFile.findUnique({ where: { id } });
-    if (!existing) return res.status(404).json({ message: "Not found" });
+
+    // Normalize "root"/""/null → null, otherwise string id
     const targetFolderId =
       typeof folderId === "string"
-        ? folderId === "root" || folderId === ""
+        ? folderId === "root" || folderId.trim() === ""
           ? null
-          : folderId
+          : String(folderId)
         : null;
-    if (prismaSupportsFolders()) {
-      const updated = await prisma.storedFile.update({
-        where: { id },
-        data: { folderId: targetFolderId } as any,
+
+    // Validate target folder if non-root
+    if (targetFolderId) {
+      const folder = await prisma.folder.findUnique({
+        where: { id: targetFolderId },
       });
-      return res.json(updated);
+      if (!folder) {
+        return res.status(400).json({ message: "Target folder not found" });
+      }
     }
-    return res.status(501).json({ message: "Folders not supported" });
+
+    const existing = await prisma.storedFile.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: "File not found" });
+
+    const updated = await prisma.storedFile.update({
+      where: { id },
+      data: { folderId: targetFolderId } as any,
+    });
+
+    // Keep response compatible (frontend doesn't depend on fields)
+    return res.json(updated);
   } catch (err) {
     next(err);
   }
@@ -1548,13 +1565,42 @@ r.put("/files/:id/rename", async (req, res, next) => {
     if (typeof fileName !== "string" || !fileName.trim()) {
       return res.status(400).json({ message: "New file name is required" });
     }
+
     const sanitized = String(fileName).trim().slice(0, 255);
+
     const existing = await prisma.storedFile.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "File not found" });
+
+    let storagePath = existing.storagePath;
+    let nextMime = existing.mimeType;
+
+    // If name actually changes, rename on disk and update derived metadata
+    if (sanitized !== existing.fileName) {
+      const newPath = finalFilePathFor(id, sanitized);
+      fs.mkdirSync(path.dirname(newPath), { recursive: true });
+
+      try {
+        if (fs.existsSync(existing.storagePath)) {
+          fs.renameSync(existing.storagePath, newPath);
+        }
+        storagePath = newPath;
+      } catch (e) {
+        return next(e);
+      }
+
+      nextMime = inferMimeType(sanitized, existing.mimeType);
+    }
+
     const updated = await prisma.storedFile.update({
       where: { id },
-      data: { fileName: sanitized },
+      data: {
+        fileName: sanitized,
+        storagePath,
+        mimeType: nextMime,
+      },
     });
+
+    // Keep response shape backward compatible with frontend
     return res.json({ id: updated.id, fileName: updated.fileName });
   } catch (err) {
     next(err);
@@ -1564,21 +1610,38 @@ r.put("/files/:id/rename", async (req, res, next) => {
 // PUT /api/files/:id/move
 r.put("/files/:id/move", async (req, res, next) => {
   try {
+    if (!prismaSupportsFolders()) {
+      return res.status(501).json({ message: "Folders not supported" });
+    }
+
     const id = String(req.params.id);
     const { folderId } = req.body || {};
-    if (folderId) {
+
+    // Normalize "root"/""/null → null, otherwise string id
+    const targetFolderId =
+      typeof folderId === "string"
+        ? folderId === "root" || folderId.trim() === ""
+          ? null
+          : String(folderId)
+        : null;
+
+    // Validate target folder if non-root
+    if (targetFolderId) {
       const folder = await prisma.folder.findUnique({
-        where: { id: String(folderId) },
+        where: { id: targetFolderId },
       });
       if (!folder)
         return res.status(400).json({ message: "Target folder not found" });
     }
+
     const existing = await prisma.storedFile.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "File not found" });
+
     const updated = await prisma.storedFile.update({
       where: { id },
-      data: { folderId: folderId ? String(folderId) : null },
+      data: { folderId: targetFolderId },
     });
+
     return res.json({ id: updated.id, folderId: updated.folderId });
   } catch (err) {
     next(err);

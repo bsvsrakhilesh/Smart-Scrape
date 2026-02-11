@@ -471,6 +471,12 @@ export async function trashFile(id: string) {
   return api.patch(`/api/files/${id}/trash`);
 }
 
+// ---------- Storage ----------
+export async function getStorageUsage() {
+  const res = await api.get("/api/storage/usage");
+  return res.data as { usedBytes: number };
+}
+
 // ---------- Generic files query (sorting/filtering/paging passthrough) ----------
 export async function queryFiles(params: Record<string, any>) {
   const res = await api.get("/api/files", { params });

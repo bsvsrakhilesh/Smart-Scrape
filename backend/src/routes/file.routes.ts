@@ -10,6 +10,33 @@ import crypto from "crypto";
 import unzipper from "unzipper";
 import pdfParse from "pdf-parse";
 
+// ===== Upload hardening =====
+const MAX_UPLOAD_BYTES = Number(
+  process.env.MAX_UPLOAD_BYTES || 50 * 1024 * 1024, // 50MB default
+);
+
+function sanitizeFilename(name: string): string {
+  return String(name || "file")
+    .replace(/[\/\\]/g, "_") // block path traversal
+    .replace(/\0/g, "") // remove NULL bytes
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+function isDangerousMimetype(mime: string | undefined): boolean {
+  const m = String(mime || "").toLowerCase();
+  // basic denylist (tune later)
+  return (
+    m.includes("x-msdownload") || // exe
+    m.includes("x-dosexec") ||
+    m.includes("x-sh") || // shell script
+    m.includes("x-bat") ||
+    m.includes("x-powershell") ||
+    m.includes("application/x-executable")
+  );
+}
+
 const r = Router();
 
 const STORAGE_DIR =
@@ -237,6 +264,8 @@ r.post(
           .json({ message: "Missing fingerprint or fileName" });
       if (!req.file) return res.status(400).json({ message: "Missing chunk" });
 
+      const safeFileName = sanitizeFilename(fileName);
+
       const idx = Number(chunkIndex);
       const total = Number(totalChunks);
       if (!Number.isInteger(idx) || !Number.isInteger(total)) {
@@ -262,7 +291,7 @@ r.post(
         parts.sort((a, b) => a - b)[parts.length - 1] === total - 1;
 
       if (haveAll) {
-        const finalPath = finalFilePathFor(fingerprint, fileName);
+        const finalPath = finalFilePathFor(fingerprint, safeFileName);
 
         await stitchChunksToFile(dir, total, finalPath);
 
@@ -270,7 +299,7 @@ r.post(
         const { fileTypeFromFile } = await import("file-type");
         const ft = await fileTypeFromFile(finalPath);
 
-        const okExt = /\.(pdf|png|jpe?g|webp|gif|svg)$/i.test(fileName);
+        const okExt = /\.(pdf|png|jpe?g|webp|gif|svg)$/i.test(safeFileName);
         const okMime =
           ft &&
           /^(application\/pdf|image\/(png|jpeg|webp|gif|svg\+xml))$/.test(
@@ -308,12 +337,23 @@ r.post(
 
         // Continue with stat + DB upsert ...
         const stat = fs.statSync(finalPath);
+        if (stat.size > MAX_UPLOAD_BYTES) {
+          try {
+            fs.unlinkSync(finalPath);
+          } catch {}
+          return res.status(413).json({
+            code: "PAYLOAD_TOO_LARGE",
+            message: "File too large",
+            maxBytes: MAX_UPLOAD_BYTES,
+          });
+        }
+
         const sha256 = await sha256File(finalPath);
 
         const updateData: any = {
-          fileName,
+          fileName: safeFileName,
           mimeType: inferMimeType(
-            fileName,
+            safeFileName,
             req.file?.mimetype || "application/octet-stream",
           ),
           size: stat.size,
@@ -325,7 +365,7 @@ r.post(
         };
         const createData: any = {
           id: fingerprint,
-          fileName,
+          fileName: safeFileName,
           mimeType: updateData.mimeType,
           size: stat.size,
           uploaderId: updateData.uploaderId,
@@ -453,6 +493,8 @@ r.post("/files/finalize", async (req, res, next) => {
         .json({ message: "fingerprint and fileName are required" });
     }
 
+    const safeFileName = sanitizeFilename(fileName);
+
     const dir = chunkDirFor(fingerprint);
     if (!fs.existsSync(dir))
       return res.status(400).json({ message: "No chunks found to finalize" });
@@ -464,7 +506,7 @@ r.post("/files/finalize", async (req, res, next) => {
         (a, b) => Number(a.split(".part")[0]) - Number(b.split(".part")[0]),
       );
 
-    const finalPath = finalFilePathFor(fingerprint, fileName);
+    const finalPath = finalFilePathFor(fingerprint, safeFileName);
     await stitchChunksToFile(dir, partFiles.length, finalPath);
 
     // cleanup chunk dir
@@ -476,11 +518,25 @@ r.post("/files/finalize", async (req, res, next) => {
     // persist metadata in DB (upsert in case finalize called multiple times)
     // Determine final size
     const stat = fs.statSync(finalPath);
+    if (stat.size > MAX_UPLOAD_BYTES) {
+      try {
+        fs.unlinkSync(finalPath);
+      } catch {}
+      return res.status(413).json({
+        code: "PAYLOAD_TOO_LARGE",
+        message: "File too large",
+        maxBytes: MAX_UPLOAD_BYTES,
+      });
+    }
+
     const sha256 = await sha256File(finalPath);
 
     const updateData: any = {
-      fileName,
-      mimeType: inferMimeType(fileName, mimeType || "application/octet-stream"),
+      fileName: safeFileName,
+      mimeType: inferMimeType(
+        safeFileName,
+        mimeType || "application/octet-stream",
+      ),
       size: stat.size,
       description,
       uploaderId,
@@ -491,8 +547,11 @@ r.post("/files/finalize", async (req, res, next) => {
     };
     const createData: any = {
       id: fingerprint,
-      fileName,
-      mimeType: inferMimeType(fileName, mimeType || "application/octet-stream"),
+      fileName: safeFileName,
+      mimeType: inferMimeType(
+        safeFileName,
+        mimeType || "application/octet-stream",
+      ),
       size: stat.size,
       description,
       uploaderId,

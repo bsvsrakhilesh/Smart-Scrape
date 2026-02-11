@@ -13,6 +13,8 @@ import {
   createFolder,
   getFolder,
   moveFolder,
+  moveFolderToTrash,
+  moveFileToTrash,
   toggleFileFavorite,
   toFileItem,
   type BackendStoredFile,
@@ -22,6 +24,8 @@ import {
   startFileTagJob,
   listFolders,
   getFileById,
+  queryFiles,
+  getStorageUsage,
 } from "../lib/api";
 import BulkActionBar from "../components/common/BulkActionBar";
 import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
@@ -211,10 +215,7 @@ export default function FileManagerPage() {
   // ------- Sidebar Storage (global usage) -------
   const fetchStorageUsage = useCallback(async () => {
     try {
-      const res = await fetch("/api/storage/usage");
-      if (!res.ok)
-        throw new Error(`Failed to fetch storage usage (${res.status})`);
-      const data = await res.json();
+      const data = await getStorageUsage();
       setStorageUsedBytes(Number(data?.usedBytes ?? 0));
     } catch {
       // keep the last value (don’t flash 0 / break UI)
@@ -456,14 +457,7 @@ export default function FileManagerPage() {
 
     (async () => {
       try {
-        // Build the files query as you already do
-        const resFiles = await fetch(`/api/files?${params.toString()}`, {
-          credentials: "include",
-        });
-
-        if (!resFiles.ok)
-          throw new Error(`Failed to fetch files (${resFiles.status})`);
-        const data = await resFiles.json();
+        const data = await queryFiles(Object.fromEntries(params.entries()));
 
         // NEW: fetch child folders for the selected folder (or root)
         const folderRows = await listFolders(currentFolderId ?? "root");
@@ -585,7 +579,7 @@ export default function FileManagerPage() {
       String(file.id).startsWith("folder:");
 
     const label = file.title || (isFolder ? "this folder" : "this file");
-    if (!confirm(`Delete ${label}?`)) return;
+    if (!confirm(`Move ${label} to Trash?`)) return;
 
     try {
       if (isFolder) {
@@ -593,22 +587,13 @@ export default function FileManagerPage() {
           ? String(file.id).slice("folder:".length)
           : String(file.id);
 
-        const res = await fetch(`/api/folders/${rawId}`, {
-          method: "DELETE",
-        });
-        if (!res.ok) {
-          throw new Error(`Folder delete failed (${res.status})`);
-        }
+        await moveFolderToTrash(rawId);
       } else {
-        const res = await fetch(`/api/files/${file.id}`, {
-          method: "DELETE",
-        });
-        if (!res.ok) {
-          throw new Error(`File delete failed (${res.status})`);
-        }
+        await moveFileToTrash(String(file.id));
       }
 
-      notify(isFolder ? "Folder deleted" : "File deleted", "success");
+      notify("Moved to Trash", "success");
+
       // Instant UI: if it's a file, subtract its size right away
       if (!isFolder && typeof file.size === "number") {
         setStorageUsedBytes((s) => Math.max(0, s - file.size));
@@ -617,7 +602,7 @@ export default function FileManagerPage() {
       // Then sync from server (folders can remove many files)
       refreshAll();
     } catch (e: any) {
-      notify(e?.message || "Delete failed", "error");
+      notify(e?.message || "Failed to move to Trash", "error");
     }
   };
 
@@ -888,18 +873,19 @@ export default function FileManagerPage() {
   const onDeleteSelected = useCallback(
     async (ids: string[]) => {
       if (!ids.length) return;
-      if (!confirm(`Delete ${ids.length} selected item(s)?`)) return;
+      if (!confirm(`Move ${ids.length} selected item(s) to Trash?`)) return;
 
       const backup = allFiles;
+
       // optimistic removal from UI
       setAllFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
       setSelected([]);
 
       try {
-        const itemsToDelete = allFiles.filter((f) => ids.includes(f.id));
+        const itemsToTrash = allFiles.filter((f) => ids.includes(f.id));
 
         await Promise.all(
-          itemsToDelete.map(async (f) => {
+          itemsToTrash.map(async (f) => {
             const isFolder =
               (f as any).mimeType === "folder" ||
               String(f.id).startsWith("folder:");
@@ -909,32 +895,22 @@ export default function FileManagerPage() {
                 ? String(f.id).slice("folder:".length)
                 : String(f.id);
 
-              const res = await fetch(`/api/folders/${rawId}`, {
-                method: "DELETE",
-              });
-              if (!res.ok) {
-                throw new Error(`Folder delete failed (${res.status})`);
-              }
+              await moveFolderToTrash(rawId);
             } else {
-              const res = await fetch(`/api/files/${f.id}`, {
-                method: "DELETE",
-              });
-              if (!res.ok) {
-                throw new Error(`File delete failed (${res.status})`);
-              }
+              await moveFileToTrash(String(f.id));
             }
           }),
         );
 
-        notify("Deleted", "success");
-        refresh();
+        notify("Moved to Trash", "success");
+        refreshAll();
       } catch (e: any) {
         // revert optimistic change if anything failed
         setAllFiles(backup);
-        notify(e?.message || "Failed to delete some items", "error");
+        notify(e?.message || "Failed to move some items to Trash", "error");
       }
     },
-    [allFiles, notify, refresh],
+    [allFiles, notify, refreshAll],
   );
 
   // Previously there was a ctrl+f search focus handler — removed along with SearchFilter.

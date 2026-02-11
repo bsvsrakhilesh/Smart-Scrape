@@ -1,11 +1,17 @@
-import React, { useRef, useState, useEffect, DragEvent } from 'react';
-import { FileItem } from '../../lib/types';
-import { formatBytes } from '../../utils/fileHelpers';
+import React, { useRef, useState, useEffect, DragEvent } from "react";
+import { FileItem } from "../../lib/types";
+import { formatBytes } from "../../utils/fileHelpers";
 
 // Chunk size for resumable upload (1MB)
 const CHUNK_SIZE = 1 * 1024 * 1024;
 
-type UploadStatus = 'pending' | 'uploading' | 'paused' | 'completed' | 'error' | 'cancelled';
+type UploadStatus =
+  | "pending"
+  | "uploading"
+  | "paused"
+  | "completed"
+  | "error"
+  | "cancelled";
 
 interface FileProgress {
   file: File;
@@ -24,7 +30,7 @@ interface AdvancedFileUploadProps {
   folderId?: string; // optional: associate uploads to folder
 }
 
-const STORAGE_KEY = 'advanced_file_upload_state';
+const STORAGE_KEY = "advanced_file_upload_state";
 
 interface StoredState {
   [fingerprint: string]: {
@@ -54,10 +60,10 @@ const saveStoredState = (state: StoredState) => {
 
 const hashString = async (input: string) => {
   const data = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-1', data);
+  const digest = await crypto.subtle.digest("SHA-1", data);
   return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 };
 
 const fingerprintFor = async (file: File) => {
@@ -66,20 +72,24 @@ const fingerprintFor = async (file: File) => {
 };
 
 /** Small reusable UI bits (theme-aware) */
-const Chip: React.FC<{ tone?: 'default' | 'success' | 'warn' | 'danger'; children: React.ReactNode }> = ({
-  tone = 'default',
-  children,
-}) => {
+const Chip: React.FC<{
+  tone?: "default" | "success" | "warn" | "danger";
+  children: React.ReactNode;
+}> = ({ tone = "default", children }) => {
   const tones: Record<string, string> = {
-    default: 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300',
-    success: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    warn: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-    danger: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    default:
+      "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300",
+    success:
+      "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    warn: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+    danger: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   };
-  return <span className={`badge ${tones[tone]} !text-[11px]`}>{children}</span>;
+  return (
+    <span className={`badge ${tones[tone]} !text-[11px]`}>{children}</span>
+  );
 };
 
-const IconUpload = ({ className = 'w-5 h-5' }) => (
+const IconUpload = ({ className = "w-5 h-5" }) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <path
       d="M19 15v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-4H3l9-9 9 9h-2zM5 17v2h14v-2H5z"
@@ -89,38 +99,69 @@ const IconUpload = ({ className = 'w-5 h-5' }) => (
   </svg>
 );
 
-const IconPause = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" className={className}><path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/></svg>
+const IconPause = ({ className = "w-4 h-4" }) => (
+  <svg viewBox="0 0 24 24" className={className}>
+    <path fill="currentColor" d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
+  </svg>
 );
-const IconPlay = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" className={className}><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+const IconPlay = ({ className = "w-4 h-4" }) => (
+  <svg viewBox="0 0 24 24" className={className}>
+    <path fill="currentColor" d="M8 5v14l11-7z" />
+  </svg>
 );
-const IconX = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" className={className}><path fill="currentColor" d="M18 6L6 18M6 6l12 12"/></svg>
+const IconX = ({ className = "w-4 h-4" }) => (
+  <svg viewBox="0 0 24 24" className={className}>
+    <path fill="currentColor" d="M18 6L6 18M6 6l12 12" />
+  </svg>
 );
-const IconCheck = ({ className = 'w-4 h-4' }) => (
-  <svg viewBox="0 0 24 24" className={className}><path fill="currentColor" d="M9 16.2l-3.5-3.6L4 14l5 5 11-11-1.5-1.4z"/></svg>
+const IconCheck = ({ className = "w-4 h-4" }) => (
+  <svg viewBox="0 0 24 24" className={className}>
+    <path fill="currentColor" d="M9 16.2l-3.5-3.6L4 14l5 5 11-11-1.5-1.4z" />
+  </svg>
 );
 
 const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
   onUploaded,
-  uploadChunkUrl = '/api/files/upload/chunk',
+  uploadChunkUrl = "/api/files/upload/chunk",
   finalizeUrl,
   compact = false,
   folderId,
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const [fileProgressMap, setFileProgressMap] = useState<Record<string, FileProgress>>({});
+  const [fileProgressMap, setFileProgressMap] = useState<
+    Record<string, FileProgress>
+  >({});
   const [dragOver, setDragOver] = useState(false);
   const [showPanel, setShowPanel] = useState(!compact);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [panelPosition, setPanelPosition] = useState<{ top: number; left: number } | null>(null);
+  const [panelPosition, setPanelPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  // Always read latest status inside async loops (avoid stale closures)
+  const progressRef = useRef<Record<string, FileProgress>>({});
+  useEffect(() => {
+    progressRef.current = fileProgressMap;
+  }, [fileProgressMap]);
+
+  // Abort in-flight chunk requests (pause/cancel)
+  const abortRef = useRef<Record<string, AbortController | null>>({});
+
+  const abortActive = (fp: string) => {
+    try {
+      abortRef.current[fp]?.abort();
+    } catch {
+      // ignore
+    }
+    abortRef.current[fp] = null;
+  };
 
   // derive groups
   const overallFiles = Object.values(fileProgressMap);
-  const uploadingFiles = overallFiles.filter((f) => f.status !== 'completed');
-  const completedFiles = overallFiles.filter((f) => f.status === 'completed');
+  const uploadingFiles = overallFiles.filter((f) => f.status !== "completed");
+  const completedFiles = overallFiles.filter((f) => f.status === "completed");
 
   // auto-collapse completed after 5s of new completion
   useEffect(() => {
@@ -135,7 +176,11 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
     loadStoredState(); // you can surface resume UI if desired
   }, []);
 
-  const persistUploadedChunks = (fingerprint: string, uploadedChunks: Set<number>, file: File) => {
+  const persistUploadedChunks = (
+    fingerprint: string,
+    uploadedChunks: Set<number>,
+    file: File,
+  ) => {
     const existing = loadStoredState();
     existing[fingerprint] = {
       uploadedChunks: Array.from(uploadedChunks),
@@ -169,7 +214,7 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             fingerprint,
             uploadedChunks: new Set<number>(),
             totalChunks,
-            status: 'pending',
+            status: "pending",
           },
         };
       });
@@ -179,18 +224,30 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
   };
 
   const startUpload = async (fingerprint: string, file: File) => {
+    // Prevent parallel startUpload calls for same file
+    const cur = progressRef.current[fingerprint];
+    if (cur?.status === "uploading") return;
+
+    // Abort any prior in-flight fetches for this fingerprint
+    abortActive(fingerprint);
+    const controller = new AbortController();
+    abortRef.current[fingerprint] = controller;
+
     setFileProgressMap((prev) => ({
       ...prev,
       [fingerprint]: {
         ...(prev[fingerprint] ?? ({} as FileProgress)),
-        status: 'uploading',
+        status: "uploading",
+        error: undefined,
       },
     }));
 
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const stored = loadStoredState();
     const existing = stored[fingerprint];
-    const uploadedChunks = new Set<number>(existing ? existing.uploadedChunks : []);
+    const uploadedChunks = new Set<number>(
+      existing ? existing.uploadedChunks : [],
+    );
 
     const uploadChunk = async (index: number) => {
       if (uploadedChunks.has(index)) return;
@@ -198,16 +255,23 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
       const end = Math.min(file.size, start + CHUNK_SIZE);
       const blob = file.slice(start, end);
       const form = new FormData();
-      form.append('chunk', blob);
-      form.append('fingerprint', fingerprint);
-      form.append('chunkIndex', index.toString());
-      form.append('totalChunks', totalChunks.toString());
-      form.append('fileName', file.name);
-      if (folderId) form.append('folderId', folderId);
+      form.append("chunk", blob);
+      form.append("fingerprint", fingerprint);
+      form.append("chunkIndex", index.toString());
+      form.append("totalChunks", totalChunks.toString());
+      form.append("fileName", file.name);
+      if (folderId) form.append("folderId", folderId);
 
-      const resp = await fetch(uploadChunkUrl, { method: 'POST', body: form });
+      const resp = await fetch(uploadChunkUrl, {
+        method: "POST",
+        body: form,
+        signal: controller.signal,
+      });
+
       if (!resp.ok) {
-        throw new Error(`Chunk ${index} failed: ${resp.statusText || resp.status}`);
+        throw new Error(
+          `Chunk ${index} failed: ${resp.statusText || resp.status}`,
+        );
       }
       uploadedChunks.add(index);
       persistUploadedChunks(fingerprint, uploadedChunks, file);
@@ -218,23 +282,32 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...(prev[fingerprint] || ({} as FileProgress)),
           uploadedChunks: new Set(uploadedChunks),
           totalChunks,
-          status: 'uploading',
+          status: "uploading",
         },
       }));
     };
 
     try {
       for (let i = 0; i < totalChunks; i++) {
-        if (fileProgressMap[fingerprint]?.status === 'paused') break;
+        const st = progressRef.current[fingerprint]?.status;
+        if (st === "paused" || st === "cancelled") break;
         await uploadChunk(i);
       }
 
       if (uploadedChunks.size === totalChunks) {
+        // If user cancelled right at the end, do not finalize
+        if (progressRef.current[fingerprint]?.status === "cancelled") return;
+
         if (finalizeUrl) {
           await fetch(finalizeUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fingerprint, fileName: file.name, folderId }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              fingerprint,
+              fileName: file.name,
+              folderId,
+            }),
+            signal: controller.signal,
           });
         }
 
@@ -246,24 +319,24 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...prev,
           [fingerprint]: {
             ...(prev[fingerprint] || ({} as FileProgress)),
-            status: 'completed',
+            status: "completed",
           },
         }));
 
         const optimistic: FileItem = {
           id: fingerprint,
           title: file.name,
-          description: '',
-          uploader: { id: 'self', name: 'You' },
+          description: "",
+          uploader: { id: "self", name: "You" },
           uploadDate: new Date().toISOString(),
           size: file.size,
-          mimeType: file.type || 'application/octet-stream',
-          thumbnailUrl: '',
+          mimeType: file.type || "application/octet-stream",
+          thumbnailUrl: "",
           tags: [],
           downloads: 0,
           favoritesCount: 0,
           isFavorited: false,
-          visibility: 'private',
+          visibility: "private",
         };
         onUploaded(optimistic);
       } else {
@@ -271,43 +344,72 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...prev,
           [fingerprint]: {
             ...(prev[fingerprint] || ({} as FileProgress)),
-            status: 'paused',
+            status: "paused",
           },
         }));
       }
     } catch (err: any) {
+      // Abort is expected when pausing/cancelling
+      if (err?.name === "AbortError") {
+        const st = progressRef.current[fingerprint]?.status;
+        setFileProgressMap((prev) => ({
+          ...prev,
+          [fingerprint]: {
+            ...(prev[fingerprint] || ({} as FileProgress)),
+            status: st === "cancelled" ? "cancelled" : "paused",
+            error: undefined,
+          },
+        }));
+        return;
+      }
+
       setFileProgressMap((prev) => ({
         ...prev,
         [fingerprint]: {
           ...(prev[fingerprint] || ({} as FileProgress)),
-          status: 'error',
-          error: err?.message || 'Upload failed',
+          status: "error",
+          error: err?.message || "Upload failed",
         },
       }));
+    } finally {
+      // Don't keep stale controllers around
+      const st = progressRef.current[fingerprint]?.status;
+      if (st !== "uploading") abortRef.current[fingerprint] = null;
     }
   };
 
   const pauseUpload = (fingerprint: string) => {
+    abortActive(fingerprint);
     setFileProgressMap((prev) => ({
       ...prev,
-      [fingerprint]: { ...(prev[fingerprint] || ({} as FileProgress)), status: 'paused' },
+      [fingerprint]: {
+        ...(prev[fingerprint] || ({} as FileProgress)),
+        status: "paused",
+      },
     }));
   };
 
   const resumeUpload = (fingerprint: string) => {
-    const fp = fileProgressMap[fingerprint];
+    const fp = progressRef.current[fingerprint];
     if (!fp) return;
+    if (fp.status === "cancelled" || fp.status === "completed") return;
     startUpload(fingerprint, fp.file);
   };
 
   const cancelUpload = (fingerprint: string) => {
+    abortActive(fingerprint);
+
     const stored = loadStoredState();
     delete stored[fingerprint];
     saveStoredState(stored);
 
     setFileProgressMap((prev) => ({
       ...prev,
-      [fingerprint]: { ...(prev[fingerprint] || ({} as FileProgress)), status: 'cancelled' },
+      [fingerprint]: {
+        ...(prev[fingerprint] || ({} as FileProgress)),
+        status: "cancelled",
+        error: undefined,
+      },
     }));
     setTimeout(() => removeProgressEntry(fingerprint), 250);
   };
@@ -324,25 +426,32 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
 
   /** UI: single file progress row/card */
   const ProgressCard: React.FC<{ fp: FileProgress }> = ({ fp }) => {
-    const percent = fp.totalChunks > 0 ? Math.round((fp.uploadedChunks.size / fp.totalChunks) * 100) : 0;
+    const percent =
+      fp.totalChunks > 0
+        ? Math.round((fp.uploadedChunks.size / fp.totalChunks) * 100)
+        : 0;
     const tone =
-      fp.status === 'completed' ? 'success' :
-      fp.status === 'error' ? 'danger' :
-      fp.status === 'paused' ? 'warn' : 'default';
+      fp.status === "completed"
+        ? "success"
+        : fp.status === "error"
+          ? "danger"
+          : fp.status === "paused"
+            ? "warn"
+            : "default";
 
     return (
       <div
         className={[
-          'rounded-2xl border card p-3 flex flex-col md:flex-row gap-4 items-start',
-          'hover:shadow-sm transition-shadow'
-        ].join(' ')}
+          "rounded-2xl border card p-3 flex flex-col md:flex-row gap-4 items-start",
+          "hover:shadow-sm transition-shadow",
+        ].join(" ")}
         aria-label={`Upload status for ${fp.file.name}`}
       >
         {/* File avatar */}
         <div className="shrink-0">
           <div className="h-10 w-10 rounded-xl bg-neutral-100 dark:bg-neutral-800 grid place-items-center">
             <span className="text-xs font-medium">
-              {(fp.file.name.split('.').pop() || '').slice(0, 4).toUpperCase()}
+              {(fp.file.name.split(".").pop() || "").slice(0, 4).toUpperCase()}
             </span>
           </div>
         </div>
@@ -353,28 +462,41 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             <div className="min-w-0">
               <div className="font-medium truncate">{fp.file.name}</div>
               <div className="text-xs text-neutral-500">
-                {formatBytes(fp.file.size)} • <Chip tone={tone as any}>{fp.status}</Chip>
+                {formatBytes(fp.file.size)} •{" "}
+                <Chip tone={tone as any}>{fp.status}</Chip>
               </div>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-1">
-              {fp.status === 'uploading' && (
-                <button className="btn-ghost px-2 py-1" onClick={() => pauseUpload(fp.fingerprint)} title="Pause">
+              {fp.status === "uploading" && (
+                <button
+                  className="btn-ghost px-2 py-1"
+                  onClick={() => pauseUpload(fp.fingerprint)}
+                  title="Pause"
+                >
                   <IconPause />
                 </button>
               )}
-              {fp.status === 'paused' && (
-                <button className="btn-ghost px-2 py-1" onClick={() => resumeUpload(fp.fingerprint)} title="Resume">
+              {fp.status === "paused" && (
+                <button
+                  className="btn-ghost px-2 py-1"
+                  onClick={() => resumeUpload(fp.fingerprint)}
+                  title="Resume"
+                >
                   <IconPlay />
                 </button>
               )}
-              {fp.status !== 'completed' && (
-                <button className="btn-ghost px-2 py-1 text-red-600" onClick={() => cancelUpload(fp.fingerprint)} title="Cancel">
+              {fp.status !== "completed" && (
+                <button
+                  className="btn-ghost px-2 py-1 text-red-600"
+                  onClick={() => cancelUpload(fp.fingerprint)}
+                  title="Cancel"
+                >
                   <IconX />
                 </button>
               )}
-              {fp.status === 'completed' && (
+              {fp.status === "completed" && (
                 <div className="text-green-600 flex items-center gap-1 text-sm">
                   <IconCheck /> Done
                 </div>
@@ -387,15 +509,17 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             <div className="w-full h-2 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
               <div
                 className={[
-                  'h-full transition-all',
-                  fp.status === 'error' ? 'bg-red-500' : 'bg-brand'
-                ].join(' ')}
+                  "h-full transition-all",
+                  fp.status === "error" ? "bg-red-500" : "bg-brand",
+                ].join(" ")}
                 style={{ width: `${percent}%` }}
               />
             </div>
             <div className="text-xs mt-1">
               {percent}% ({fp.uploadedChunks.size}/{fp.totalChunks} chunks)
-              {fp.error && <span className="text-red-600 ml-2">Error: {fp.error}</span>}
+              {fp.error && (
+                <span className="text-red-600 ml-2">Error: {fp.error}</span>
+              )}
             </div>
           </div>
         </div>
@@ -407,11 +531,18 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
     <div className="rounded-2xl border card p-3 flex items-center justify-between">
       <div className="min-w-0">
         <div className="font-medium truncate">{fp.file.name}</div>
-        <div className="text-xs text-neutral-500">{formatBytes(fp.file.size)} • Uploaded</div>
+        <div className="text-xs text-neutral-500">
+          {formatBytes(fp.file.size)} • Uploaded
+        </div>
       </div>
       <div className="flex items-center gap-2">
         <Chip tone="success">Completed</Chip>
-        <button className="btn-ghost px-2 py-1" onClick={() => removeProgressEntry(fp.fingerprint)}>Remove</button>
+        <button
+          className="btn-ghost px-2 py-1"
+          onClick={() => removeProgressEntry(fp.fingerprint)}
+        >
+          Remove
+        </button>
       </div>
     </div>
   );
@@ -434,7 +565,10 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
               const top = rect.bottom + margin + window.scrollY;
               const left = Math.max(
                 8 + window.scrollX,
-                Math.min(window.innerWidth - panelWidth - 8 + window.scrollX, rect.right - panelWidth)
+                Math.min(
+                  window.innerWidth - panelWidth - 8 + window.scrollX,
+                  rect.right - panelWidth,
+                ),
               );
               setPanelPosition({ top, left });
             }, 0);
@@ -442,24 +576,34 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           className="btn-primary"
         >
           Upload
-          {activeFiles.length > 0 && <span className="ml-2 badge">{activeFiles.length}</span>}
+          {activeFiles.length > 0 && (
+            <span className="ml-2 badge">{activeFiles.length}</span>
+          )}
         </button>
 
         {showPanel && (
           <div
             className="fixed w-[440px] max-h-[560px] bg-white dark:bg-neutral-900 border rounded-2xl shadow-2xl p-4 z-[1000] overflow-auto"
-            style={{ top: panelPosition?.top ?? 80, left: panelPosition?.left ?? Math.max(8, window.innerWidth - 460) }}
+            style={{
+              top: panelPosition?.top ?? 80,
+              left: panelPosition?.left ?? Math.max(8, window.innerWidth - 460),
+            }}
             role="dialog"
             aria-label="Upload files"
           >
             {/* Dropzone */}
             <div
               className={[
-                'card border-dashed px-3 py-2 mb-3 cursor-pointer transition',
-                dragOver ? 'ring-2 ring-brand-primary/40 bg-brand/5' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'
-              ].join(' ')}
+                "card border-dashed px-3 py-2 mb-3 cursor-pointer transition",
+                dragOver
+                  ? "ring-2 ring-brand-primary/40 bg-brand/5"
+                  : "hover:bg-neutral-50 dark:hover:bg-neutral-800",
+              ].join(" ")}
               onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
               onDragLeave={() => setDragOver(false)}
               onDrop={onDrop}
             >
@@ -471,10 +615,14 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
                 onChange={(e) => handleFiles(e.target.files)}
               />
               <div className="flex items-center gap-3">
-                <div className="rounded-xl p-2 bg-neutral-100 dark:bg-neutral-800"><IconUpload className="w-4 h-4" /></div>
+                <div className="rounded-xl p-2 bg-neutral-100 dark:bg-neutral-800">
+                  <IconUpload className="w-4 h-4" />
+                </div>
                 <div className="text-sm">
                   <div className="font-medium">Add files</div>
-                  <div className="text-xs text-neutral-500">Drag & drop or click to select</div>
+                  <div className="text-xs text-neutral-500">
+                    Drag & drop or click to select
+                  </div>
                 </div>
               </div>
             </div>
@@ -482,15 +630,24 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             {doneFiles.length > 0 && (
               <div className="flex items-center justify-between bg-neutral-100 dark:bg-neutral-800 rounded-xl px-3 py-2 mb-3">
                 <div className="text-sm">
-                  {doneFiles.length} file{doneFiles.length !== 1 ? 's' : ''} uploaded
+                  {doneFiles.length} file{doneFiles.length !== 1 ? "s" : ""}{" "}
+                  uploaded
                 </div>
                 <div className="flex items-center gap-2">
-                  <button className="btn-ghost px-2 py-1 text-sm" onClick={() => setShowCompleted((s) => !s)}>
-                    {showCompleted ? 'Hide' : 'Show'} completed
+                  <button
+                    className="btn-ghost px-2 py-1 text-sm"
+                    onClick={() => setShowCompleted((s) => !s)}
+                  >
+                    {showCompleted ? "Hide" : "Show"} completed
                   </button>
                   <button
                     className="btn-ghost px-2 py-1 text-sm"
-                    onClick={() => { doneFiles.forEach((f) => removeProgressEntry(f.fingerprint)); setShowCompleted(false); }}
+                    onClick={() => {
+                      doneFiles.forEach((f) =>
+                        removeProgressEntry(f.fingerprint),
+                      );
+                      setShowCompleted(false);
+                    }}
                   >
                     Clear
                   </button>
@@ -500,13 +657,17 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
 
             {/* Active uploads */}
             <div className="space-y-2">
-              {activeFiles.map((fp) => <ProgressCard key={fp.fingerprint} fp={fp} />)}
+              {activeFiles.map((fp) => (
+                <ProgressCard key={fp.fingerprint} fp={fp} />
+              ))}
             </div>
 
             {/* Completed */}
             {showCompleted && (
               <div className="mt-3 space-y-2">
-                {doneFiles.map((fp) => <CompletedCard key={fp.fingerprint} fp={fp} />)}
+                {doneFiles.map((fp) => (
+                  <CompletedCard key={fp.fingerprint} fp={fp} />
+                ))}
               </div>
             )}
           </div>
@@ -521,17 +682,24 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
       {/* Dropzone */}
       <div
         className={[
-          'card border-dashed px-4 py-3 flex items-center justify-between cursor-pointer transition',
-          dragOver ? 'ring-2 ring-brand-primary/40 bg-brand/5' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800'
-        ].join(' ')}
+          "card border-dashed px-4 py-3 flex items-center justify-between cursor-pointer transition",
+          dragOver
+            ? "ring-2 ring-brand-primary/40 bg-brand/5"
+            : "hover:bg-neutral-50 dark:hover:bg-neutral-800",
+        ].join(" ")}
         onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
         role="button"
         aria-label="Add files"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+        }}
       >
         <div className="flex items-center gap-3">
           <div className="rounded-xl p-3 bg-neutral-100 dark:bg-neutral-800">
@@ -539,7 +707,9 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           </div>
           <div className="min-w-0">
             <div className="font-medium">Upload files</div>
-            <div className="text-xs text-neutral-500">Drag & drop or click to select multiple files</div>
+            <div className="text-xs text-neutral-500">
+              Drag & drop or click to select multiple files
+            </div>
           </div>
         </div>
         <button className="btn-primary px-4 py-2">Select</button>
@@ -556,15 +726,21 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
       {doneFiles.length > 0 && (
         <div className="flex items-center justify-between bg-neutral-100 dark:bg-neutral-800 rounded-xl px-3 py-2">
           <div className="text-sm">
-            {doneFiles.length} file{doneFiles.length !== 1 ? 's' : ''} uploaded
+            {doneFiles.length} file{doneFiles.length !== 1 ? "s" : ""} uploaded
           </div>
           <div className="flex items-center gap-2">
-            <button className="btn-ghost px-2 py-1 text-sm" onClick={() => setShowCompleted((s) => !s)}>
-              {showCompleted ? 'Hide' : 'Show'} completed
+            <button
+              className="btn-ghost px-2 py-1 text-sm"
+              onClick={() => setShowCompleted((s) => !s)}
+            >
+              {showCompleted ? "Hide" : "Show"} completed
             </button>
             <button
               className="btn-ghost px-2 py-1 text-sm"
-              onClick={() => { doneFiles.forEach((f) => removeProgressEntry(f.fingerprint)); setShowCompleted(false); }}
+              onClick={() => {
+                doneFiles.forEach((f) => removeProgressEntry(f.fingerprint));
+                setShowCompleted(false);
+              }}
             >
               Clear
             </button>
@@ -574,13 +750,17 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
 
       {/* Active uploads */}
       <div className="space-y-2">
-        {activeFiles.map((fp) => <ProgressCard key={fp.fingerprint} fp={fp} />)}
+        {activeFiles.map((fp) => (
+          <ProgressCard key={fp.fingerprint} fp={fp} />
+        ))}
       </div>
 
       {/* Completed uploads */}
       {showCompleted && (
         <div className="space-y-2">
-          {doneFiles.map((fp) => <CompletedCard key={fp.fingerprint} fp={fp} />)}
+          {doneFiles.map((fp) => (
+            <CompletedCard key={fp.fingerprint} fp={fp} />
+          ))}
         </div>
       )}
     </div>

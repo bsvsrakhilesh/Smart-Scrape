@@ -2,14 +2,12 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
-import { requestId } from "./middlewares/requestId";
-import { log } from "./utils/logger";
 import rateLimit from "express-rate-limit";
 import timeout from "connect-timeout";
 import multer from "multer";
 
-dotenv.config();
-
+import { requestId } from "./middlewares/requestId";
+import { log } from "./utils/logger";
 import { env } from "./config/env";
 
 import notebookRoutes from "./routes/notebook.routes";
@@ -21,6 +19,8 @@ import aiTagRoutes from "./routes/aiTag.routes";
 import chunkRoutes from "./routes/chunk.routes";
 import collectionRoutes from "./routes/collection.routes";
 
+dotenv.config();
+
 const app = express();
 
 log.info("startup_config", {
@@ -31,29 +31,46 @@ log.info("startup_config", {
 
 // CORS allowlist (production-safe). Set CORS_ORIGINS="https://yourdomain.com,https://www.yourdomain.com"
 const allowedOrigins = (
-  process.env.CORS_ORIGINS ||
-  "http://localhost:3000,http://127.0.0.1:3000"
+  process.env.CORS_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000"
 )
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// -------- Parsers (single source of truth) --------
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(express.text({ type: ["text/plain", "text/*"], limit: "2mb" }));
 
+// -------- Request ID --------
 app.use(requestId);
+
+// -------- Security headers (single helmet config) --------
 app.use(
   helmet({
-    contentSecurityPolicy: false, // keep off unless you configure CSP carefully
+    // CSP is best configured at the frontend/reverse-proxy layer unless you’re strict about it
+    contentSecurityPolicy: false,
+    // If you serve downloads / files, "cross-origin" is often needed; tighten later if possible
     crossOriginResourcePolicy: { policy: "cross-origin" },
-  })
+    referrerPolicy: { policy: "no-referrer" },
+  }),
 );
 
+if (process.env.NODE_ENV === "production") {
+  app.use(
+    helmet.hsts({
+      maxAge: 15552000, // 180 days
+      includeSubDomains: true,
+      preload: true,
+    }),
+  );
+}
+
+// -------- CORS (allowlist + credentials) --------
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow non-browser clients (like curl/postman) that send no Origin
+      // Allow non-browser clients (curl/postman) which may send no Origin
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked for origin: ${origin}`));
@@ -64,7 +81,10 @@ app.use(
   }),
 );
 
-// simple access log (uses existing logger util)
+// -------- Timeout --------
+app.use(timeout("90s"));
+
+// -------- Access log --------
 app.use((req, _res, next) => {
   log.info("http_request", {
     rid: (req as any).requestId,
@@ -74,37 +94,14 @@ app.use((req, _res, next) => {
   next();
 });
 
+// -------- Rate limits --------
 const taggerLimiter = rateLimit({
-  windowMs: 60_000, // 1 minute
-  max: 30, // tweak as needed
+  windowMs: 60_000,
+  max: 30,
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use("/api/tagger", taggerLimiter);
 
-app.use(
-  helmet({
-    contentSecurityPolicy: {
-      useDefaults: true,
-      directives: {
-        "script-src": ["'self'"],
-        "object-src": ["'none'"],
-      },
-    },
-    referrerPolicy: { policy: "no-referrer" },
-  }),
-);
-if (process.env.NODE_ENV === "production") {
-  app.use(
-    helmet.hsts({ maxAge: 15552000, includeSubDomains: true, preload: true }),
-  );
-}
-
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true, limit: "1mb" }));
-app.use(timeout("90s"));
-
-// Route-specific rate limits
 const authLimiter = rateLimit({ windowMs: 60_000, limit: 60 });
 const crawlLimiter = rateLimit({ windowMs: 60_000, limit: 30 });
 const uploadLimiter = rateLimit({ windowMs: 60_000, limit: 30 });
@@ -120,10 +117,12 @@ const searchLimiter = rateLimit({
   },
 });
 
+app.use("/api/tagger", taggerLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/crawl", crawlLimiter);
 app.use("/api/files", uploadLimiter);
 
+// -------- Routes --------
 app.use("/api", urlRoutes);
 app.use("/api", collectionRoutes);
 app.use("/api/search", searchLimiter, searchRoutes);
@@ -133,7 +132,7 @@ app.use("/api", notebookRoutes);
 app.use("/api", chunkRoutes);
 app.use("/api", aiTagRoutes);
 
-// ---- Basic root + health endpoints (fix "Cannot GET /") ----
+// ---- Basic root + health endpoints ----
 app.get("/", (_req, res) => {
   res.json({
     ok: true,
@@ -144,29 +143,13 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-// ---- end ----
-
+app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ping", (_req, res) => res.send("pong"));
 
-app.use((err: any, req: any, res: any, _next: any) => {
-  const status = err.status || 500;
-  const requestId = req?.requestId;
-  log.error("unhandled_error", {
-    requestId,
-    status,
-    message: err?.message,
-    stack: err?.stack,
-  });
+// Optional: if you actually have /api/ping anywhere else, remove this.
+app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
-  res.status(status).json({
-    message: err?.message || "Server error",
-    requestId,
-  });
-});
-
+// -------- error handler --------
 app.use(
   (
     err: any,
@@ -174,30 +157,52 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
-    if (res.headersSent) return; // prevent "Cannot set headers after they are sent"
+    if (res.headersSent) return;
+
+    const rid = (req as any)?.requestId;
+
+    // Multer size limit => 413
     if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      log.error("multer_file_too_large", { rid, message: err.message });
       return res
         .status(413)
-        .json({ code: "PAYLOAD_TOO_LARGE", message: "Chunk too large" });
+        .json({ code: "PAYLOAD_TOO_LARGE", message: "File too large" });
     }
-    if (err.status === 400)
-      return res
-        .status(400)
-        .json({
-          code: "BAD_REQUEST",
-          message: err.message || "Invalid request",
-        });
-    if (err.status === 415)
-      return res
-        .status(415)
-        .json({
-          code: "UNSUPPORTED_MEDIA",
-          message: err.message || "Unsupported media",
-        });
-    console.error("Unhandled error", err);
-    return res
-      .status(500)
-      .json({ code: "INTERNAL_ERROR", message: "Something went wrong" });
+
+    // Normalize status + code
+    const status: number = Number(err?.status || err?.statusCode || 500);
+
+    if (status === 400) {
+      return res.status(400).json({
+        code: "BAD_REQUEST",
+        message: err?.message || "Invalid request",
+        requestId: rid,
+      });
+    }
+
+    if (status === 415) {
+      return res.status(415).json({
+        code: "UNSUPPORTED_MEDIA",
+        message: err?.message || "Unsupported media",
+        requestId: rid,
+      });
+    }
+
+    // Server-side log (full details)
+    log.error("unhandled_error", {
+      rid,
+      status,
+      message: err?.message,
+      stack: err?.stack,
+    });
+
+    const isProd = process.env.NODE_ENV === "production";
+    return res.status(status).json({
+      code: status >= 500 ? "INTERNAL_ERROR" : "ERROR",
+      message: err?.message || "Something went wrong",
+      requestId: rid,
+      ...(isProd ? {} : { stack: err?.stack }),
+    });
   },
 );
 

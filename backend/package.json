@@ -19,7 +19,6 @@
     "@mozilla/readability": "^0.6.0",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
-    "yazl": "",
     "axios": "^1.11.0",
     "body-parser": "^2.2.0",
     "bullmq": "^5.58.0",
@@ -42,10 +41,10 @@
     "puppeteer": "^24.17.0",
     "robots-parser": "^3.0.1",
     "unzipper": "^0.12.3",
+    "yazl": "",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/yazl": "",
     "@types/connect-timeout": "^1.9.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
@@ -53,6 +52,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.2.0",
     "@types/pdf-parse": "^1.1.5",
+    "@types/yazl": "",
     "prisma": "^7.3.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2"

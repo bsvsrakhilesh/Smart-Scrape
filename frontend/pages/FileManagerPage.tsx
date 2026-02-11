@@ -15,6 +15,9 @@ import {
   moveFolder,
   moveFolderToTrash,
   moveFileToTrash,
+  restoreFileFromTrash,
+  restoreFolderFromTrash,
+  listTrashFiles,
   toggleFileFavorite,
   toFileItem,
   type BackendStoredFile,
@@ -201,6 +204,7 @@ export default function FileManagerPage() {
   const [total, setTotal] = useState<number>(0);
   const [totalBytes, setTotalBytes] = useState<number>(0);
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
+  const [viewMode, setViewMode] = useState<"drive" | "trash">("drive");
 
   // preview + upload modal
   const [selectedPreview, setSelectedPreview] = useState<FileDetail | null>(
@@ -420,7 +424,9 @@ export default function FileManagerPage() {
 
   const buildBreadcrumb = useCallback(
     async (id?: string) => {
-      if (!id) return [{ name: "Home" }];
+      if (id === "trash")
+        return [{ name: "Home" }, { id: "trash", name: "Trash" }];
+
       const chain: { id: string; name: string }[] = [];
       const seen = new Set<string>();
       let cur: string | undefined = id;
@@ -443,8 +449,15 @@ export default function FileManagerPage() {
     setIsLoading(true);
     setError(null);
 
+    const inTrash = currentFolderId === "trash";
     const params = new URLSearchParams();
-    params.set("folderId", currentFolderId ? String(currentFolderId) : "root");
+    if (!inTrash) {
+      params.set(
+        "folderId",
+        currentFolderId ? String(currentFolderId) : "root",
+      );
+    }
+
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
     // Map frontend sortKey to backend expected values
@@ -457,10 +470,14 @@ export default function FileManagerPage() {
 
     (async () => {
       try {
-        const data = await queryFiles(Object.fromEntries(params.entries()));
+        const data = inTrash
+          ? await listTrashFiles(Object.fromEntries(params.entries()))
+          : await queryFiles(Object.fromEntries(params.entries()));
 
         // NEW: fetch child folders for the selected folder (or root)
-        const folderRows = await listFolders(currentFolderId ?? "root");
+        const folderRows = inTrash
+          ? []
+          : await listFolders(currentFolderId ?? "root");
 
         // Map files to FileItem (existing)
         const fileRows: BackendStoredFile[] = Array.isArray(data)
@@ -603,6 +620,29 @@ export default function FileManagerPage() {
       refreshAll();
     } catch (e: any) {
       notify(e?.message || "Failed to move to Trash", "error");
+    }
+  };
+
+  const handleRestore = async (item: FileItem) => {
+    const isFolder =
+      (item as any).mimeType === "folder" ||
+      String(item.id).startsWith("folder:");
+
+    try {
+      if (isFolder) {
+        const rawId = String(item.id).startsWith("folder:")
+          ? String(item.id).slice("folder:".length)
+          : String(item.id);
+
+        await restoreFolderFromTrash(rawId);
+      } else {
+        await restoreFileFromTrash(String(item.id));
+      }
+
+      notify("Restored", "success");
+      refreshAll();
+    } catch (e: any) {
+      notify(e?.message || "Restore failed", "error");
     }
   };
 
@@ -913,7 +953,47 @@ export default function FileManagerPage() {
     [allFiles, notify, refreshAll],
   );
 
-  // Previously there was a ctrl+f search focus handler — removed along with SearchFilter.
+  const onRestoreSelected = useCallback(
+    async (ids: string[]) => {
+      if (!ids.length) return;
+      if (!confirm(`Restore ${ids.length} selected item(s)?`)) return;
+
+      const backup = allFiles;
+
+      // optimistic removal from UI (restored items leave trash)
+      setAllFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
+      setSelected([]);
+
+      try {
+        const itemsToRestore = allFiles.filter((f) => ids.includes(f.id));
+
+        await Promise.all(
+          itemsToRestore.map(async (f) => {
+            const isFolder =
+              (f as any).mimeType === "folder" ||
+              String(f.id).startsWith("folder:");
+
+            if (isFolder) {
+              const rawId = String(f.id).startsWith("folder:")
+                ? String(f.id).slice("folder:".length)
+                : String(f.id);
+
+              await restoreFolderFromTrash(rawId);
+            } else {
+              await restoreFileFromTrash(String(f.id));
+            }
+          }),
+        );
+
+        notify("Restored", "success");
+        refreshAll();
+      } catch (e: any) {
+        setAllFiles(backup);
+        notify(e?.message || "Failed to restore some items", "error");
+      }
+    },
+    [allFiles, notify, refreshAll],
+  );
 
   // ---------- NEW: Bulk actions ----------
   const byIds = useCallback(
@@ -1163,6 +1243,8 @@ export default function FileManagerPage() {
                 currentFolderId={currentFolderId}
                 storageUsedBytes={storageUsedBytes}
                 storageCapacityBytes={1024 ** 4}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
               />
             </motion.div>
           </aside>
@@ -1419,8 +1501,16 @@ export default function FileManagerPage() {
                             setPropertiesFile(f);
                           }}
                           onDownload={handleDownloadItem}
-                          onDelete={handleDelete}
-                          onDeleteMany={onDeleteSelected}
+                          onDelete={
+                            currentFolderId === "trash"
+                              ? handleRestore
+                              : handleDelete
+                          }
+                          onDeleteMany={
+                            currentFolderId === "trash"
+                              ? onRestoreSelected
+                              : onDeleteSelected
+                          }
                           onPaste={handlePaste}
                           onRename={handleRenameById}
                           onCopy={(ids: string[]) => handleCopy(byIds(ids))}
@@ -1465,8 +1555,14 @@ export default function FileManagerPage() {
                               setPropertiesFile(f);
                             },
                             onDownload: handleDownloadItem,
-                            onDelete: handleDelete,
-                            onDeleteMany: onDeleteSelected,
+                            onDelete:
+                              currentFolderId === "trash"
+                                ? handleRestore
+                                : handleDelete,
+                            onDeleteMany:
+                              currentFolderId === "trash"
+                                ? onRestoreSelected
+                                : onDeleteSelected,
                             clipboard,
                             onPaste: handlePaste,
                             onUpdateTags: handleUpdateTags,

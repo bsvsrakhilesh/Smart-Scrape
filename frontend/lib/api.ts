@@ -324,18 +324,11 @@ export async function moveFolderToTrash(id: string) {
 export async function moveFileToTrash(id: string) {
   await api.patch(`/api/files/${id}/trash`);
 }
-export async function restoreFolder(id: string) {
-  await api.patch(`/api/folders/${id}/restore`);
+export async function restoreFolderFromTrash(id: string) {
+  return api.patch(`/api/folders/${id}/restore`);
 }
-export async function restoreFile(id: string) {
-  await api.patch(`/api/files/${id}/restore`);
-}
-export async function listTrash() {
-  const res = await api.get("/api/trash");
-  return res.data as {
-    folders: { id: string; name: string; parentId?: string | null }[];
-    files: BackendStoredFile[];
-  };
+export async function restoreFileFromTrash(id: string) {
+  return api.patch(`/api/files/${id}/restore`);
 }
 
 // ---------- File copy/move (per-file) ----------
@@ -469,6 +462,11 @@ export async function searchZip(fileId: string, q: string) {
 // ---------- Trash (soft delete) ----------
 export async function trashFile(id: string) {
   return api.patch(`/api/files/${id}/trash`);
+}
+
+export async function listTrashFiles(params?: Record<string, any>) {
+  const res = await api.get("/api/files/trash", { params });
+  return res.data;
 }
 
 // ---------- Storage ----------

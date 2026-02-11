@@ -30,6 +30,7 @@ import {
   queryFiles,
   getStorageUsage,
   renameFile,
+  renameFolder,
   updateFileTags,
 } from "../lib/api";
 import BulkActionBar from "../components/common/BulkActionBar";
@@ -280,6 +281,25 @@ export default function FileManagerPage() {
     y: number;
   } | null>(null);
 
+  // ---- Folder helpers (folders are represented as id = "folder:<id>") ----
+  const isFolderId = (id: string) => String(id).startsWith("folder:");
+  const rawFolderId = (id: string) =>
+    isFolderId(id) ? String(id).slice("folder:".length) : String(id);
+
+  const isFolderItem = (f: FileItem) =>
+    (f as any)?.mimeType === "folder" || isFolderId(String(f.id));
+
+  const splitSelectionIds = (ids: string[]) => {
+    const folderIds: string[] = [];
+    const fileIds: string[] = [];
+    for (const id of ids) {
+      const sid = String(id);
+      if (isFolderId(sid)) folderIds.push(rawFolderId(sid));
+      else fileIds.push(sid);
+    }
+    return { folderIds, fileIds };
+  };
+
   const selectedBytes = useMemo(() => {
     return selected.reduce((acc, f) => {
       const isFolder =
@@ -309,6 +329,11 @@ export default function FileManagerPage() {
   // Favorites toggle handler
   const handleToggleFavorite = useCallback(
     async (file: FileItem) => {
+      if (isFolderItem(file)) {
+        notify("Folders can't be favorited yet.", "info");
+        return;
+      }
+
       const prev = !!file.isFavorited;
 
       // optimistic: flip immediately
@@ -520,18 +545,31 @@ export default function FileManagerPage() {
         );
 
         if (!cancelled) {
-          // Folders first, then files (Windows Explorer behavior)
-          const items = [...folderItems, ...fileItems];
+          // Folder UX: show folders pinned on the FIRST page only 
+          const q = searchQuery.trim().toLowerCase();
+          const filteredFolderItems =
+            q.length > 0
+              ? folderItems.filter((f) =>
+                  String(f.title || "")
+                    .toLowerCase()
+                    .includes(q),
+                )
+              : folderItems;
+
+          const showFolders = page === 1;
+          const items = showFolders
+            ? [...filteredFolderItems, ...fileItems]
+            : fileItems;
           setAllFiles(items);
 
-          // Total counts include folders
+          // Pagination + total counts are for FILES only
           const totalCount =
             typeof (data as any)?.total === "number"
-              ? (data as any).total + folderItems.length
-              : items.length;
+              ? (data as any).total
+              : fileItems.length;
           setTotal(totalCount);
 
-          // Bytes: folders count as 0
+          // Bytes are for files only
           const bytes =
             typeof (data as any)?.totalBytes === "number"
               ? (data as any).totalBytes
@@ -694,7 +732,12 @@ export default function FileManagerPage() {
     const name = (newName ?? prompt("Rename to", file.title)) || "";
     if (!name || name === file.title) return;
     try {
-      await renameFile(String(file.id), name);
+      if (isFolderItem(file)) {
+        await renameFolder(rawFolderId(String(file.id)), name);
+      } else {
+        await renameFile(String(file.id), name);
+      }
+
       notify("Renamed", "success");
       refresh();
     } catch (e: any) {
@@ -837,8 +880,18 @@ export default function FileManagerPage() {
     async (ids: string[], targetFolderId: string | null) => {
       if (!ids.length) return;
       try {
-        await Promise.all(ids.map((id) => moveFile(id, targetFolderId)));
-        notify(`Moved ${ids.length} item(s)`, "success");
+        const { fileIds, folderIds } = splitSelectionIds(ids);
+
+        const moves: Promise<any>[] = [];
+        if (fileIds.length > 0)
+          moves.push(...fileIds.map((id) => moveFile(id, targetFolderId)));
+        if (folderIds.length > 0)
+          moves.push(...folderIds.map((id) => moveFolder(id, targetFolderId)));
+
+        if (moves.length > 0) await Promise.all(moves);
+
+        notify(`Moved ${fileIds.length + folderIds.length} item(s)`, "success");
+
         refresh();
       } catch {
         notify("Move failed", "error");
@@ -1017,6 +1070,11 @@ export default function FileManagerPage() {
 
   const handleUpdateTags = useCallback(
     async (fileId: string, nextTags: string[]) => {
+      if (isFolderId(String(fileId))) {
+        notify("Tags for folders aren't supported yet.", "info");
+        return;
+      }
+
       // optimistic update
       setAllFiles((prev) =>
         prev.map((f) => (f.id === fileId ? { ...f, tags: nextTags } : f)),
@@ -1038,7 +1096,15 @@ export default function FileManagerPage() {
   const onAutoTagSelected = useCallback(
     async (ids: string[]) => {
       if (!ids?.length) return;
-      const targets = allFiles.filter((f) => ids.includes(f.id));
+      const { fileIds, folderIds } = splitSelectionIds(ids);
+      if (folderIds.length > 0) {
+        notify(
+          "AI auto-tagging folders isn't supported yet (files only).",
+          "info",
+        );
+      }
+      const targets = allFiles.filter((f) => fileIds.includes(f.id));
+      if (!targets.length) return;
 
       for (const f of targets) {
         try {
@@ -1101,10 +1167,19 @@ export default function FileManagerPage() {
     async (ids: string[], tag: string) => {
       if (!ids.length || !tag) return;
 
+      const { fileIds, folderIds } = splitSelectionIds(ids);
+      if (folderIds.length > 0) {
+        notify(
+          "Folders don't support tags yet (tag applied to files only).",
+          "info",
+        );
+      }
+      if (!fileIds.length) return;
+
       // optimistic tag update
       setAllFiles((prev) =>
         prev.map((f) => {
-          if (!ids.includes(f.id)) return f;
+          if (!fileIds.includes(f.id)) return f;
           const next = Array.from(new Set([...(f.tags || []), tag]));
           return { ...f, tags: next };
         }),
@@ -1112,7 +1187,7 @@ export default function FileManagerPage() {
 
       try {
         await Promise.all(
-          ids.map(async (id) => {
+          fileIds.map(async (id) => {
             const current = allFiles.find((f) => f.id === id)?.tags ?? [];
             const next = Array.from(new Set([...current, tag]));
             await updateFileTags(id, next);
@@ -1131,10 +1206,19 @@ export default function FileManagerPage() {
     async (ids: string[]) => {
       if (!ids.length) return;
 
+      const { fileIds, folderIds } = splitSelectionIds(ids);
+      if (folderIds.length > 0) {
+        notify(
+          "Folders can't be favorited yet (favorited files only).",
+          "info",
+        );
+      }
+      if (!fileIds.length) return;
+
       // optimistic: set favorite true
       setAllFiles((prev) =>
         prev.map((f) =>
-          ids.includes(f.id)
+          fileIds.includes(f.id)
             ? {
                 ...f,
                 isFavorited: true,
@@ -1145,7 +1229,7 @@ export default function FileManagerPage() {
       );
 
       try {
-        await Promise.all(ids.map((id) => toggleFileFavorite(id, true)));
+        await Promise.all(fileIds.map((id) => toggleFileFavorite(id, true)));
         notify("Added to favorites", "success");
       } catch {
         notify("Failed to favorite some items", "error");

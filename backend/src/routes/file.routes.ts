@@ -211,6 +211,38 @@ function inferMimeType(fileName: string, fallback: string): string {
   }
 }
 
+// ---- Archive safety limits (DoS hardening) ----
+const MAX_ARCHIVE_ENTRIES_SCAN = 5000; // cap how many entries we inspect
+const MAX_ARCHIVE_LIST_BYTES = 2 * 1024 * 1024; // 2MB max JSON response for listing/search
+const MAX_ARCHIVE_ENTRY_STREAM_BYTES = 50 * 1024 * 1024; // 50MB max streamed entry
+
+function isSafeArchivePath(p: string) {
+  const s = String(p || "");
+  if (!s) return false;
+  if (s.includes("\0")) return false;
+  if (s.startsWith("/") || s.startsWith("\\")) return false;
+  if (s.includes("..")) return false; // blocks zip-slip
+  return true;
+}
+
+async function requireZipFileOr400(id: string) {
+  const f = await prisma.storedFile.findUnique({ where: { id } });
+  if (!f)
+    return {
+      ok: false as const,
+      res: { status: 404, message: "File not found" },
+    };
+  const name = String(f.fileName || "").toLowerCase();
+  const mime = String(f.mimeType || "").toLowerCase();
+  const looksZip = name.endsWith(".zip") || mime === "application/zip";
+  if (!looksZip)
+    return {
+      ok: false as const,
+      res: { status: 400, message: "Not a zip archive" },
+    };
+  return { ok: true as const, file: f };
+}
+
 function prismaSupportsFolders(): boolean {
   // When Prisma client hasn't been regenerated, `prisma.folder` may be undefined
   return typeof (prisma as any).folder?.findMany === "function";
@@ -1369,54 +1401,105 @@ r.get("/files/:id/archive/list", async (req, res) => {
   s.on("close", () => res.json({ prefix, folders: [...dirs], files }));
 });
 
-// GET /api/files/:id/archive/stream?path=dir/file.txt
-r.get("/files/:id/archive/stream", async (req, res) => {
-  const id = String(req.params.id);
-  const pathInZip = decodeURIComponent(String(req.query.path ?? "")).replace(
-    /^\/+/,
-    "",
-  );
-  if (!pathInZip)
-    return res.status(400).json({ message: "Missing ?path=<file-in-zip>" });
-  const f = await prisma.storedFile.findUnique({ where: { id } });
-  if (!f || !f.storagePath) return res.sendStatus(404);
+r.get("/files/:id/archive/stream", async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const p = String(req.query.path || "");
 
-  fs.createReadStream(f.storagePath)
-    .on("error", (err) =>
-      res.status(500).json({ message: "Read error", error: String(err) }),
-    )
-    .pipe(unzipper.ParseOne(pathInZip))
-    .on("error", (err: any) =>
-      res
-        .status(404)
-        .json({ message: "Path not found in zip", path: pathInZip }),
-    )
-    .pipe(res);
+    if (!isSafeArchivePath(p)) {
+      return res.status(400).json({ message: "Invalid archive path" });
+    }
+
+    const chk = await requireZipFileOr400(id);
+    if (!chk.ok)
+      return res.status(chk.res.status).json({ message: chk.res.message });
+
+    const zipPath = chk.file.storagePath;
+    if (!fs.existsSync(zipPath))
+      return res.status(404).json({ message: "Archive missing on disk" });
+
+    const stream = fs.createReadStream(zipPath);
+    const zip = await unzipper.Open.stream(stream);
+
+    // Find entry safely, cap work
+    let scanned = 0;
+    const entry = zip.files.find((e: any) => {
+      scanned++;
+      return scanned <= MAX_ARCHIVE_ENTRIES_SCAN && e.path === p;
+    });
+
+    if (!entry)
+      return res.status(404).json({ message: "Path not found in archive" });
+
+    // Cap streaming size (uncompressed)
+    const size = Number(entry.uncompressedSize || 0);
+    if (size > MAX_ARCHIVE_ENTRY_STREAM_BYTES) {
+      return res
+        .status(413)
+        .json({ message: "Archive entry too large to stream" });
+    }
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${path.basename(p)}"`,
+    );
+
+    // Stream entry
+    entry.stream().pipe(res);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/files/:id/archive/search?q=term
-r.get("/files/:id/archive/search", async (req, res) => {
-  const id = String(req.params.id);
-  const q = String(req.query.q || "").toLowerCase();
-  const f = await prisma.storedFile.findUnique({ where: { id } });
-  if (!f || !f.storagePath) return res.sendStatus(404);
+r.get("/files/:id/archive/search", async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const q = String(req.query.q || "").toLowerCase().trim();
+    if (!q) return res.json({ results: [] });
 
-  const hits: string[] = [];
-  const s = fs
-    .createReadStream(f.storagePath)
-    .on("error", (err) =>
-      res.status(500).json({ message: "Read error", error: String(err) }),
-    )
-    .pipe(unzipper.Parse({ forceStream: true }))
-    .on("error", (err: any) =>
-      res.status(500).json({ message: "Zip parse error", error: String(err) }),
-    );
-  s.on("entry", (e: any) => {
-    const p = String(e.path).replace(/\\/g, "/");
-    if (p.toLowerCase().includes(q)) hits.push(p);
-    e.autodrain();
-  });
-  s.on("close", () => res.json({ q, hits }));
+    const chk = await requireZipFileOr400(id);
+    if (!chk.ok) return res.status(chk.res.status).json({ message: chk.res.message });
+
+    const zipPath = chk.file.storagePath;
+    if (!fs.existsSync(zipPath)) return res.status(404).json({ message: "Archive missing on disk" });
+
+    const stream = fs.createReadStream(zipPath);
+    const zip = await unzipper.Open.stream(stream);
+
+    const results: any[] = [];
+    let scanned = 0;
+    let approxBytes = 0;
+
+    for (const e of zip.files) {
+      scanned++;
+      if (scanned > MAX_ARCHIVE_ENTRIES_SCAN) break;
+
+      const ep = String(e.path || "");
+      if (!ep) continue;
+      if (!isSafeArchivePath(ep)) continue;
+
+      if (ep.toLowerCase().includes(q)) {
+        const item = {
+          path: ep,
+          size: Number(e.uncompressedSize || 0),
+          compressedSize: Number((e as any).compressedSize || 0),
+          isDirectory: !!e.type && String(e.type).toLowerCase() === "directory",
+        };
+        results.push(item);
+        approxBytes += JSON.stringify(item).length;
+        if (approxBytes > MAX_ARCHIVE_LIST_BYTES) break;
+      }
+    }
+
+    return res.json({
+      results,
+      truncated: scanned > MAX_ARCHIVE_ENTRIES_SCAN || approxBytes > MAX_ARCHIVE_LIST_BYTES,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // POST /api/folders/:id/move

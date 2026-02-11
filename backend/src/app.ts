@@ -50,7 +50,6 @@ app.use(
   helmet({
     // CSP is best configured at the frontend/reverse-proxy layer unless you’re strict about it
     contentSecurityPolicy: false,
-    // If you serve downloads / files, "cross-origin" is often needed; tighten later if possible
     crossOriginResourcePolicy: { policy: "cross-origin" },
     referrerPolicy: { policy: "no-referrer" },
   }),
@@ -145,11 +144,9 @@ app.get("/", (_req, res) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.get("/ping", (_req, res) => res.send("pong"));
-
-// Optional: if you actually have /api/ping anywhere else, remove this.
 app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
-// -------- error handler --------
+// -------- Single error handler (deterministic + safe) --------
 app.use(
   (
     err: any,
@@ -169,7 +166,6 @@ app.use(
         .json({ code: "PAYLOAD_TOO_LARGE", message: "File too large" });
     }
 
-    // Normalize status + code
     const status: number = Number(err?.status || err?.statusCode || 500);
 
     if (status === 400) {
@@ -188,7 +184,6 @@ app.use(
       });
     }
 
-    // Server-side log (full details)
     log.error("unhandled_error", {
       rid,
       status,

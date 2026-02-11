@@ -29,6 +29,8 @@ import {
   getFileById,
   queryFiles,
   getStorageUsage,
+  renameFile,
+  updateFileTags,
 } from "../lib/api";
 import BulkActionBar from "../components/common/BulkActionBar";
 import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
@@ -43,6 +45,13 @@ import FileSidebar from "../components/filemanager/FileSidebar";
 import PageTransition from "../components/motion/PageTransition";
 import { useExplorerHistory } from "../hooks/useExplorerHistory";
 import { formatBytes } from "../utils/fileHelpers";
+
+type FolderRow = {
+  id: string;
+  name: string;
+  createdAt?: string | Date | null;
+  deletedAt?: string | Date | null;
+};
 
 const DEFAULT_PAGE_SIZE = 15;
 const getLS = <T,>(k: string, v: T) => {
@@ -475,30 +484,40 @@ export default function FileManagerPage() {
           : await queryFiles(Object.fromEntries(params.entries()));
 
         // NEW: fetch child folders for the selected folder (or root)
+        // Folders + files depend on view mode
         const folderRows = inTrash
-          ? []
+          ? Array.isArray((data as any)?.folders)
+            ? (data as any).folders
+            : []
           : await listFolders(currentFolderId ?? "root");
 
-        // Map files to FileItem (existing)
-        const fileRows: BackendStoredFile[] = Array.isArray(data)
-          ? data
-          : Array.isArray(data.items)
-            ? data.items
-            : [];
+        const fileRows: BackendStoredFile[] = inTrash
+          ? Array.isArray((data as any)?.files)
+            ? (data as any).files
+            : []
+          : Array.isArray(data)
+            ? (data as any)
+            : Array.isArray((data as any).items)
+              ? (data as any).items
+              : [];
         const fileItems: FileItem[] = fileRows.map(toFileItem);
 
         // Map folders to FileItem-like rows so FileList can render them
-        const folderItems: FileItem[] = folderRows.map((fr) => ({
-          id: `folder:${fr.id}`,
-          title: fr.name,
-          description: "",
-          uploader: { id: "system", name: "—" },
-          uploadDate: fr.createdAt,
-          size: 0,
-          mimeType: "folder", // <-- key: lets us treat it differently
-          tags: [],
-          visibility: "private",
-        }));
+        const folderItems: FileItem[] = (folderRows as FolderRow[]).map(
+          (fr) => ({
+            id: `folder:${fr.id}`,
+            title: fr.name,
+            description: "",
+            uploader: { id: "system", name: "—" },
+            uploadDate: String(
+              fr.deletedAt ?? fr.createdAt ?? new Date().toISOString(),
+            ),
+            size: 0,
+            mimeType: "folder",
+            tags: [],
+            visibility: "private",
+          }),
+        );
 
         if (!cancelled) {
           // Folders first, then files (Windows Explorer behavior)
@@ -555,10 +574,7 @@ export default function FileManagerPage() {
 
     (async () => {
       try {
-        const res = await fetch("/api/storage/usage");
-        if (!res.ok)
-          throw new Error(`Failed to fetch storage usage (${res.status})`);
-        const data = await res.json();
+        const data = await getStorageUsage();
         if (!cancelled) setStorageUsedBytes(Number(data?.usedBytes ?? 0));
       } catch {
         // graceful fallback (won't be perfect, but avoids showing 0)
@@ -678,12 +694,7 @@ export default function FileManagerPage() {
     const name = (newName ?? prompt("Rename to", file.title)) || "";
     if (!name || name === file.title) return;
     try {
-      const res = await fetch(`/api/files/${file.id}/rename`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: name }),
-      });
-      if (!res.ok) throw new Error("Rename failed");
+      await renameFile(String(file.id), name);
       notify("Renamed", "success");
       refresh();
     } catch (e: any) {
@@ -1011,11 +1022,8 @@ export default function FileManagerPage() {
         prev.map((f) => (f.id === fileId ? { ...f, tags: nextTags } : f)),
       );
       try {
-        await fetch(`/api/files/${fileId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tags: nextTags }),
-        });
+        await updateFileTags(fileId, nextTags);
+
         // refresh tags list
         setRefreshToken((n) => n + 1);
       } catch (e) {
@@ -1107,12 +1115,7 @@ export default function FileManagerPage() {
           ids.map(async (id) => {
             const current = allFiles.find((f) => f.id === id)?.tags ?? [];
             const next = Array.from(new Set([...current, tag]));
-            const res = await fetch(`/api/files/${id}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ tags: next }),
-            });
-            if (!res.ok) throw new Error("Tag patch failed");
+            await updateFileTags(id, next);
           }),
         );
         notify("Tag added", "success");
@@ -1342,7 +1345,11 @@ export default function FileManagerPage() {
                     </ToolbarButton>
                     <BulkActionBar
                       selected={selected}
-                      onDelete={onDeleteSelected}
+                      onDelete={
+                        currentFolderId === "trash"
+                          ? onRestoreSelected
+                          : onDeleteSelected
+                      }
                       onAddTag={onAddTagSelected}
                       onFavorite={onFavoriteSelected}
                       onExport={onExportSelected}
@@ -1485,6 +1492,10 @@ export default function FileManagerPage() {
                           onOpen={(f) => {
                             const isFolder = String(f.id).startsWith("folder:");
                             if (isFolder) {
+                              if (currentFolderId === "trash") {
+                                notify("Restore the folder to open it", "info");
+                                return;
+                              }
                               const folderId = f.id.startsWith("folder:")
                                 ? f.id.slice("folder:".length)
                                 : String(f.id);
@@ -1669,10 +1680,12 @@ export default function FileManagerPage() {
             onClose={() => setSelectedPreview(null)}
             onDownload={(f) => handleDownload(f)}
             onToggleFavorite={handleToggleFavorite}
-            onTagUpdate={(fileId, tags) => {
-              handleUpdateTags(fileId, tags);
+            onTagUpdate={(fileId, newTags) => {
+              handleUpdateTags(fileId, newTags);
               setSelectedPreview((prev) =>
-                prev && prev.id === fileId ? ({ ...prev, tags } as any) : prev,
+                prev && prev.id === fileId
+                  ? ({ ...prev, tags: newTags } as any)
+                  : prev,
               );
             }}
             autoFocusTags={false}

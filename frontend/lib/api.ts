@@ -458,6 +458,22 @@ export async function searchZip(fileId: string, q: string) {
   });
   return res.data as { q: string; hits: string[] };
 }
+// ---------- Storage ----------
+export async function getStorageUsage() {
+  const res = await api.get("/api/storage/usage");
+  return res.data as { usedBytes: number };
+}
+
+// ---------- File updates ----------
+export async function renameFile(fileId: string, fileName: string) {
+  const res = await api.put(`/api/files/${fileId}/rename`, { fileName });
+  return res.data as { id: string; fileName: string };
+}
+
+export async function updateFileTags(fileId: string, tags: string[]) {
+  const res = await api.patch(`/api/files/${fileId}`, { tags });
+  return res.data;
+}
 
 // ---------- Trash (soft delete) ----------
 export async function trashFile(id: string) {
@@ -465,15 +481,13 @@ export async function trashFile(id: string) {
 }
 
 export async function listTrashFiles(params?: Record<string, any>) {
-  const res = await api.get("/api/files/trash", { params });
+  const res = await api.get("/api/trash", { params });
   return res.data;
 }
-
-// ---------- Storage ----------
-export async function getStorageUsage() {
-  const res = await api.get("/api/storage/usage");
-  return res.data as { usedBytes: number };
+export async function listTrash(params?: Record<string, any>) {
+  return listTrashFiles(params);
 }
+
 
 // ---------- Generic files query (sorting/filtering/paging passthrough) ----------
 export async function queryFiles(params: Record<string, any>) {

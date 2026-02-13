@@ -3,9 +3,7 @@ import type { FileItem, SearchResult } from "./types";
 
 const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
 const baseURL =
-  typeof rawBase === "string" && rawBase.includes("://backend:")
-    ? ""
-    : rawBase;
+  typeof rawBase === "string" && rawBase.includes("://backend:") ? "" : rawBase;
 
 const api = axios.create({
   // Default: same-origin `/api` (dev proxy + prod nginx proxy)
@@ -27,7 +25,8 @@ export function apiUrl(p: string) {
     return bNorm + path.slice("/api".length);
   }
 
-  if (bNorm.endsWith("/") && path.startsWith("/")) return bNorm.slice(0, -1) + path;
+  if (bNorm.endsWith("/") && path.startsWith("/"))
+    return bNorm.slice(0, -1) + path;
   if (!bNorm.endsWith("/") && !path.startsWith("/")) return bNorm + "/" + path;
   return bNorm + path;
 }
@@ -37,7 +36,11 @@ export async function searchWeb(
   q: string,
   page = 1,
   signal?: AbortSignal,
-): Promise<{ rows: SearchResult[]; nextPage: number | null; totalResults: number | null }> {
+): Promise<{
+  rows: SearchResult[];
+  nextPage: number | null;
+  totalResults: number | null;
+}> {
   try {
     const res = await api.get("/api/search", {
       params: { q, page },
@@ -72,13 +75,11 @@ export async function searchWeb(
     // Keep error shape similar to the old fetch() implementation
     const body = err?.response?.data;
     const text =
-      typeof body === "string"
-        ? body
-        : body
-          ? JSON.stringify(body)
-          : "";
+      typeof body === "string" ? body : body ? JSON.stringify(body) : "";
 
-    throw new Error(`Proxy error ${status ?? "?"}: ${text || err?.message || "request failed"}`);
+    throw new Error(
+      `Proxy error ${status ?? "?"}: ${text || err?.message || "request failed"}`,
+    );
   }
 }
 
@@ -158,10 +159,11 @@ export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
 }
 export async function saveUrls(
   rows: { url: string; title: string; snippet?: string }[],
-) {
+): Promise<SaveUrlsResponse> {
   const res = await api.post("/api/urls", { urls: rows });
-  return res.data as { added: number; skipped: number };
+  return res.data as SaveUrlsResponse;
 }
+
 export async function patchUrl(id: number, patch: any) {
   const res = await api.patch(`/api/urls/${id}`, patch);
   return res.data;
@@ -171,7 +173,9 @@ export async function getUrlById(id: number): Promise<BackendUrlRow> {
   return res.data as BackendUrlRow;
 }
 export async function getUrlSnapshots(urlId: number, limit = 50) {
-  const res = await api.get(`/api/urls/${urlId}/snapshots`, { params: { limit } });
+  const res = await api.get(`/api/urls/${urlId}/snapshots`, {
+    params: { limit },
+  });
   return res.data as BackendStoredFile[];
 }
 export async function deleteUrlsBulk(ids: number[]): Promise<void> {
@@ -205,7 +209,10 @@ export async function createCollectionApi(body: {
   return res.data as BackendCollection;
 }
 
-export async function renameCollectionApi(id: string, name: string): Promise<BackendCollection> {
+export async function renameCollectionApi(
+  id: string,
+  name: string,
+): Promise<BackendCollection> {
   const res = await api.patch(`/api/collections/${id}`, { name });
   return res.data as BackendCollection;
 }
@@ -224,12 +231,16 @@ export async function setCollectionsForUrlApi(body: {
   return res.data;
 }
 
-export async function fetchCollectionsUrlMap(): Promise<{ map: Record<string, string[]> }> {
+export async function fetchCollectionsUrlMap(): Promise<{
+  map: Record<string, string[]>;
+}> {
   const res = await api.get("/api/collections/url-map");
   return res.data as { map: Record<string, string[]> };
 }
 
-export async function fetchCollectionsUrlMapFor(urls: string[]): Promise<{ map: Record<string, string[]> }> {
+export async function fetchCollectionsUrlMapFor(
+  urls: string[],
+): Promise<{ map: Record<string, string[]> }> {
   const res = await api.post("/api/collections/url-map", { urls });
   return res.data as { map: Record<string, string[]> };
 }
@@ -270,7 +281,12 @@ export type SaveUrlsRequestRow = {
   title: string;
   snippet?: string;
 };
-export type SaveUrlsResponse = { added: number; skipped: number };
+export type SaveUrlsResponse = {
+  added: number;
+  skipped: number;
+  skippedUrls?: string[];
+  rows?: Array<{ id: number; url: string; isNew: boolean }>;
+};
 
 // ---------- Folders ----------
 export type BackendFolder = {
@@ -373,7 +389,9 @@ export async function getFileById(fileId: string): Promise<FileItem> {
 }
 
 export async function getFileExtractedText(fileId: string, maxChars = 200000) {
-  const res = await api.get(`/api/files/${fileId}/extracted-text`, { params: { maxChars } });
+  const res = await api.get(`/api/files/${fileId}/extracted-text`, {
+    params: { maxChars },
+  });
   return res.data as {
     id: string;
     fileName: string;
@@ -519,7 +537,9 @@ export async function listZipChildren(fileId: string, prefix = "") {
   };
 }
 export function streamZipFile(fileId: string, p: string) {
-  return apiUrl(`/api/files/${fileId}/archive/stream?path=${encodeURIComponent(p)}`);
+  return apiUrl(
+    `/api/files/${fileId}/archive/stream?path=${encodeURIComponent(p)}`,
+  );
 }
 export async function searchZip(fileId: string, q: string) {
   const res = await api.get(`/api/files/${fileId}/archive/search`, {
@@ -556,7 +576,6 @@ export async function listTrashFiles(params?: Record<string, any>) {
 export async function listTrash(params?: Record<string, any>) {
   return listTrashFiles(params);
 }
-
 
 // ---------- Generic files query (sorting/filtering/paging passthrough) ----------
 export async function queryFiles(params: Record<string, any>) {

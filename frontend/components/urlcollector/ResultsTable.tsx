@@ -25,6 +25,7 @@ import FolderPickerModal from "../savedurls/FolderPickerModal";
 import { StaggerList, StaggerItem } from "../motion/StaggerList";
 import {
   canonicalize as canonicalizeSaved,
+  getSaved,
   removeSaved,
   SAVED_KEY,
 } from "../../utils/saved";
@@ -226,9 +227,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       backendIdsRef.current = idMap;
       backendSetRef.current = set;
 
-      // If backend is reachable, backend is the source of truth.
-      // Also reconcile local collections to avoid stale “Saved” badges.
-      reconcileUrlCollections(set);
+      // Scrub local saved cache + collection memberships for URLs not present in backend.
+      // Backend is the source of truth when reachable.
+      const localSaved = getSaved();
+      for (const r of localSaved) {
+        const c = canonicalizeSaved(r.url);
+        if (!set.has(c)) {
+          removeSaved(r.url);
+          reconcileUrlCollections(r.url);
+        }
+      }
 
       setRowSaved((prev) => {
         const next = { ...prev };
@@ -622,6 +630,50 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     setPickerOpen(true);
   };
 
+  // Ensure the URL exists in backend and return urlId (strong provenance for captures).
+  const ensureSavedUrlId = async (url: string, title: string) => {
+    const canon = canonicalizeSaved(url);
+    const cached = backendIdsRef.current[canon];
+    if (cached) return cached;
+
+    const snippet = results.find((r) => r.url === url)?.snippet ?? "";
+
+    // Idempotent: backend will return existing id for duplicates.
+    const res = await saveUrls([{ url, title: title || url, snippet }]);
+
+    // Preferred: backend returns ids directly
+    const rows = (res as any)?.rows as
+      | Array<{ id: number; url: string; isNew?: boolean }>
+      | undefined;
+
+    let id: number | undefined;
+
+    if (rows && rows.length) {
+      const hit =
+        rows.find((r) => canonicalizeSaved(r.url) === canon) ??
+        rows.find((r) => r.url === url);
+      if (hit?.id) id = hit.id;
+    }
+
+    // Back-compat fallback (in case backend is older / misconfigured)
+    if (!id) {
+      const saved = await fetchSavedUrls();
+      const hit = saved.find((r) => canonicalizeSaved(r.url) === canon);
+      if (hit?.id) id = hit.id;
+    }
+
+    if (!id) throw new Error("Could not resolve urlId after saving URL.");
+
+    backendIdsRef.current[canon] = id;
+    backendSetRef.current.add(canon);
+
+    // reflect saved status in UI
+    setRowSaved((prev) => ({ ...prev, [url]: true }));
+
+    return id;
+  };
+
+  // confirm + call backend to persist capture
   // confirm + call backend to persist capture
   const onConfirmCapture = async (opts: {
     folderId?: string | null;
@@ -631,18 +683,32 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     setPickerOpen(false);
     const { folderId, fileName, mode } = opts;
     const url = pickerTarget.url;
+    const title = pickerTarget.title;
 
     setCaptureBusy(url);
     try {
+      // 1) Ensure URL row exists → get urlId
+      const urlId = await ensureSavedUrlId(url, title);
+
+      // 2) Capture with urlId (strong linkage URL → snapshot)
       if (mode === "text") {
-        await crawlSaveText(url, folderId ?? undefined, fileName);
+        await crawlSaveText(url, folderId ?? undefined, fileName, urlId);
       } else {
-        await crawlSavePdf(url, folderId ?? undefined, fileName, true, true);
+        await crawlSavePdf(
+          url,
+          folderId ?? undefined,
+          fileName,
+          true,
+          true,
+          urlId,
+        );
       }
+
       pushNotice("success", "Captured and saved successfully.");
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      pushNotice("error", "Capture failed. See console for details.");
+      const msg = e?.message ?? "Unknown error";
+      pushNotice("error", `Capture failed: ${msg}`);
     } finally {
       setCaptureBusy(null);
     }

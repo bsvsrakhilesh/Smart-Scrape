@@ -182,7 +182,21 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
     setTimeout(() => scheduleAiTagForUrl(id), i * STAGGER_MS);
   });
 
-  return { added, skipped, skippedUrls };
+  // Resolve ids for skipped (already-existing) URLs so callers can always get urlId.
+  const existing =
+    skippedUrls.length > 0
+      ? await prisma.url.findMany({
+          where: { url: { in: skippedUrls } },
+          select: { id: true, url: true },
+        })
+      : [];
+
+  const rowsOut = [
+    ...created.map((r) => ({ id: r.id, url: r.url, isNew: true })),
+    ...existing.map((r) => ({ id: r.id, url: r.url, isNew: false })),
+  ];
+
+  return { added, skipped, skippedUrls, rows: rowsOut };
 }
 
 /** Update title/snippet/tags of a URL (does NOT re-run tagger) */

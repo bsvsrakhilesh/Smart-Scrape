@@ -111,7 +111,7 @@ services:
       PORT: 7071
       REDIS_URL: redis://redis:6379/0
     env_file:
-      - ./ai-tagger/.env.example
+      - ./ai-tagger/.env
     ports:
       - "7071:7071"
     depends_on:
@@ -126,7 +126,7 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
     env_file:
-      - ./ai-tagger/.env.example
+      - ./ai-tagger/.env
     depends_on:
       - redis
     command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=2"

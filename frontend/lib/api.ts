@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { FileItem } from "./types";
+import type { FileItem, SearchResult } from "./types";
 
 const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
 const baseURL =
@@ -30,6 +30,56 @@ export function apiUrl(p: string) {
   if (bNorm.endsWith("/") && path.startsWith("/")) return bNorm.slice(0, -1) + path;
   if (!bNorm.endsWith("/") && !path.startsWith("/")) return bNorm + "/" + path;
   return bNorm + path;
+}
+
+// ---------- Web Search API (URL Collector) ----------
+export async function searchWeb(
+  q: string,
+  page = 1,
+  signal?: AbortSignal,
+): Promise<{ rows: SearchResult[]; nextPage: number | null; totalResults: number | null }> {
+  try {
+    const res = await api.get("/api/search", {
+      params: { q, page },
+      headers: { Accept: "application/json" },
+      signal,
+    });
+
+    const data = res.data as SearchResult[];
+    const rows: SearchResult[] = Array.isArray(data)
+      ? data.map((it) => ({
+          title: it?.title ?? "(no title)",
+          url: it?.url ?? "",
+          snippet: it?.snippet ?? "",
+        }))
+      : [];
+
+    // axios lowercases header keys
+    const npRaw = res.headers?.["x-next-page"];
+    const nextPage = npRaw ? Number(npRaw) : null;
+
+    const totalRaw = res.headers?.["x-total-results"];
+    const totalResults = totalRaw ? Number(totalRaw) : null;
+
+    return { rows, nextPage, totalResults };
+  } catch (err: any) {
+    // AbortController cancellation in axios v1
+    if (err?.code === "ERR_CANCELED") throw err;
+
+    const status = err?.response?.status;
+    if (status === 429) throw new Error("RATE_LIMITED");
+
+    // Keep error shape similar to the old fetch() implementation
+    const body = err?.response?.data;
+    const text =
+      typeof body === "string"
+        ? body
+        : body
+          ? JSON.stringify(body)
+          : "";
+
+    throw new Error(`Proxy error ${status ?? "?"}: ${text || err?.message || "request failed"}`);
+  }
 }
 
 export type BackendUrlRow = {

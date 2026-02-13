@@ -401,11 +401,18 @@ export async function crawlTextHandler(
     log.info("crawl_text_done", { ...requestMeta(req), fileId: fileRec.id });
     return res.status(201).json(latest ?? fileRec);
   } catch (err) {
-    log.error("crawlTextHandler_error", {
-      ...requestMeta(req),
-      URL,
-      error: String((err as any)?.message || err),
-    });
+    // logging must never throw, and we must log the actual request url (not global URL).
+    try {
+      const url = (req.body as any)?.url;
+      log.error("crawlTextHandler_error", {
+        ...requestMeta(req),
+        url,
+        error: String((err as any)?.message || err),
+      });
+    } catch {
+      // last-resort logging (never throw from error handler)
+      log.error("crawlTextHandler_error", { error: "logging_failed" });
+    }
     next(err);
   }
 }
@@ -569,11 +576,18 @@ export async function crawlPdfHandler(
     if (res.headersSent || (req as any).timedout) return;
     return res.status(201).json(latest ?? fileRec);
   } catch (err) {
-    log.error("crawlPdfHandler_error", {
-      ...requestMeta(req),
-      URL,
-      error: String((err as any)?.message || err),
-    });
+    // Hardened: logging must never throw, and we must log the actual request url (not global URL).
+    try {
+      const url = (req.body as any)?.url;
+      log.error("crawlPdfHandler_error", {
+        ...requestMeta(req),
+        url,
+        error: String((err as any)?.message || err),
+      });
+    } catch {
+      // last-resort logging (never throw from error handler)
+      log.error("crawlPdfHandler_error", { error: "logging_failed" });
+    }
     next(err);
   }
 }

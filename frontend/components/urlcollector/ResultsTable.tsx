@@ -1021,7 +1021,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
       {/* Results */}
       <StaggerList as="ul" className="space-y-2 m-0 p-0">
-        {pageRows.map((r) => {
+        {pageRows.map((r, idx) => {
           const h = host(r.url);
           const isChecked = selected.has(r.url);
           const isSaved = !!rowSaved[r.url];
@@ -1031,7 +1031,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           return (
             <StaggerItem
               as="li"
-              key={r.url}
+              key={`${r.url}::${idx}`}
               onClick={(e: React.MouseEvent) => {
                 const t = e.target as HTMLElement;
                 if (t.closest("button, a, input, select, textarea, label"))

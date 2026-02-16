@@ -23,19 +23,36 @@ export default function FormField({
   const describedBy = error
     ? `${htmlFor}-error`
     : helpText
-    ? `${htmlFor}-help`
-    : undefined;
+      ? `${htmlFor}-help`
+      : undefined;
 
   return (
     <div className={cn("space-y-2", className)}>
-      <label
-        htmlFor={htmlFor}
-        className="text-sm font-medium text-foreground"
-      >
+      <label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
         {label}
       </label>
 
-      <div aria-describedby={describedBy}>{children}</div>
+      {(() => {
+        // Attach describedBy to the actual form control when possible
+        if (describedBy && React.isValidElement(children)) {
+          const el = children as React.ReactElement<Record<string, unknown>>;
+
+          const existing =
+            (el.props["aria-describedby"] as string | undefined) ?? undefined;
+
+          const merged = existing ? `${existing} ${describedBy}` : describedBy;
+
+          return (
+            <div>
+              {React.cloneElement(el, {
+                "aria-describedby": merged,
+              })}
+            </div>
+          );
+        }
+
+        return <div>{children}</div>;
+      })()}
 
       {helpText && !error && (
         <p id={`${htmlFor}-help`} className="text-xs text-muted">

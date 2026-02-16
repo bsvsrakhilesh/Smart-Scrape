@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import SearchIcon from '../icons/SearchIcon';
-import { PlusButton } from '../ui/PlusButton';
-import FormField from '../forms/FormField';
+import React, { useEffect, useRef, useState } from "react";
+import SearchIcon from "../icons/SearchIcon";
+import { PlusButton } from "../ui/PlusButton";
+import FormField from "../forms/FormField";
 
 interface SearchFormProps {
   onSearch: (website: string, keywords: string) => void;
@@ -15,8 +15,8 @@ interface SearchFormProps {
 const SearchForm: React.FC<SearchFormProps> = ({
   onSearch,
   isLoading,
-  initialWebsite = '',
-  initialKeywords = '',
+  initialWebsite = "",
+  initialKeywords = "",
   onWebsiteChange,
   onKeywordsChange,
 }) => {
@@ -32,16 +32,18 @@ const SearchForm: React.FC<SearchFormProps> = ({
   // Accept full URL or bare domain; return a clean domain for site: filter
   const normalizeWebsite = (raw: string) => {
     const v = raw.trim();
-    if (!v) return '';
+    if (!v) return "";
     try {
       // Add scheme if missing so URL() can parse
-      const maybeUrl = v.match(/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//) ? v : `https://${v}`;
+      const maybeUrl = v.match(/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//)
+        ? v
+        : `https://${v}`;
       const u = new URL(maybeUrl);
       // use hostname only (drop port/path)
-      return u.hostname.replace(/^\s*www\./i, '').trim();
+      return u.hostname.replace(/^\s*www\./i, "").trim();
     } catch {
       // Fallback: keep a permissive domain-ish token
-      return v.replace(/^\s*www\./i, '').split(/[\/\s?#]/)[0];
+      return v.replace(/^\s*www\./i, "").split(/[\/\s?#]/)[0];
     }
   };
 
@@ -62,36 +64,34 @@ const SearchForm: React.FC<SearchFormProps> = ({
 
   return (
     <form onSubmit={submit} noValidate className="w-full">
-      
-        {/* Website input */}
-          <FormField
-            label="Website"
-            htmlFor="website"
-            helpText="Enter a site to scope the search. Leave empty to search the whole web."
-          >
-          <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
+      {/* Website input */}
+      <FormField
+        label="Website"
+        htmlFor="sf-website"
+        helpText="Enter a site to scope the search. Leave empty to search the whole web."
+      >
+        <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
           <input
             id="sf-website"
             ref={siteRef}
-            type="text"            
+            type="text"
             inputMode="url"
             autoComplete="off"
             placeholder="example.com or https://example.com"
             className="md3-input input-pill w-full"
             value={website}
             onChange={(e) => handleWebsite(e.target.value)}
-            aria-describedby="sf-website-hint"
           />
-          </div>
-          </FormField>
+        </div>
+      </FormField>
 
-        {/* Keywords input */}
-        <FormField
-          label="Keywords"
-          htmlFor="keywords"
-          helpText="Comma-separated terms"
-        >
-          <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
+      {/* Keywords input */}
+      <FormField
+        label="Keywords"
+        htmlFor="sf-keywords"
+        helpText="Comma-separated terms"
+      >
+        <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
           <input
             id="sf-keywords"
             ref={keyRef}
@@ -103,24 +103,23 @@ const SearchForm: React.FC<SearchFormProps> = ({
             onChange={(e) => handleKeywords(e.target.value)}
           />
         </div>
-        </FormField>
+      </FormField>
 
-        {/* Submit */}
-        <div className="sm:self-end mt-2">
-          <PlusButton
-            type="submit"
-            size="lg"
-            variant="solid"
-            loading={isLoading}
-            className="w-full md:w-auto rounded-full min-h-[44px] px-5"
-            aria-label="Search the web"
-            title="Search the web"
-          >
-            <SearchIcon className="h-4 w-4" />
-            Search
-          </PlusButton>
-        </div>
-      
+      {/* Submit */}
+      <div className="sm:self-end mt-2">
+        <PlusButton
+          type="submit"
+          size="lg"
+          variant="solid"
+          loading={isLoading}
+          className="w-full md:w-auto rounded-full min-h-[44px] px-5"
+          aria-label="Search the web"
+          title="Search the web"
+        >
+          <SearchIcon className="h-4 w-4" />
+          Search
+        </PlusButton>
+      </div>
     </form>
   );
 };

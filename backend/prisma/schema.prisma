@@ -33,7 +33,8 @@ enum DocumentKind {
 
 model Url {
   id            Int      @id @default(autoincrement())
-  url           String   @unique
+  url           String   
+  canonical_url String?  @unique
   title         String
   snippet       String?
   createdAt     DateTime @default(now())

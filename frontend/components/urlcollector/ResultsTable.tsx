@@ -10,6 +10,7 @@ import {
 } from "../../utils/collections";
 import { SearchResult } from "../../lib/types";
 import {
+  apiUrl,
   fetchSavedUrls,
   urlsExists,
   saveUrls,
@@ -63,7 +64,7 @@ const nicePath = (url: string) => {
 };
 
 const favicon = (url: string) =>
-  `https://icons.duckduckgo.com/ip3/${host(url)}.ico`;
+  apiUrl(`/api/favicon?url=${encodeURIComponent(url)}`);
 
 // Dedupe canonicalization (strip common tracking params)
 const TRACKING_PARAMS = new Set([

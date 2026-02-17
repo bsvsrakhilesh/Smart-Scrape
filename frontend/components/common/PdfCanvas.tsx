@@ -15,7 +15,7 @@ async function ensurePdfWorker() {
     try {
       const url = new URL(
         "pdfjs-dist/build/pdf.worker.min.mjs",
-        import.meta.url
+        import.meta.url,
       );
       const worker = new Worker(url, { type: "module" });
       (GlobalWorkerOptions as any).workerPort = worker;
@@ -35,9 +35,17 @@ type Props = {
   onReady?: (numPages: number) => void;
   /** Called on load/render failure */
   onError?: (message?: string) => void;
+  /** Called after a page is rendered */
+  onRendered?: () => void;
 };
 
-export default function PdfCanvas({ url, page, onReady, onError }: Props) {
+export default function PdfCanvas({
+  url,
+  page,
+  onReady,
+  onError,
+  onRendered,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
 
@@ -87,6 +95,7 @@ export default function PdfCanvas({ url, page, onReady, onError }: Props) {
 
       const renderTask = pg.render({ canvasContext: ctx, viewport });
       await renderTask.promise;
+      if (!cancelled) onRendered?.();
     })().catch((e) => onError?.(e?.message || "Render failed"));
     return () => {
       cancelled = true;

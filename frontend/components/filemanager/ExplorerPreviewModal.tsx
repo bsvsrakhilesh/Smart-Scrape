@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState, useRef } from "react";
 import type { FileDetail } from "../../lib/types";
 import AITagButton from "../common/AITagButton";
+import PdfCanvas from "../common/PdfCanvas";
 import { apiUrl } from "../../lib/api";
 
 type Props = {
@@ -168,8 +169,14 @@ export default function ExplorerPreviewModal(props: Props) {
   ];
 
   const canPaginate = isPDF && !hadError && pdfPages > 1;
-  const goPrev = () => setPdfPage((p) => Math.max(1, p - 1));
-  const goNext = () => setPdfPage((p) => Math.min(pdfPages || p, p + 1));
+  const goPrev = () => {
+    setIsLoading(true);
+    setPdfPage((p) => Math.max(1, p - 1));
+  };
+  const goNext = () => {
+    setIsLoading(true);
+    setPdfPage((p) => Math.min(pdfPages || p, p + 1));
+  };
 
   return (
     <AnimatePresence>
@@ -217,7 +224,7 @@ export default function ExplorerPreviewModal(props: Props) {
                 )}
 
                 {/* Error */}
-                {hadError && hadError !== "pdf" && (
+                {hadError && (
                   <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
                     Failed to load preview. You can still use "Download".
                   </div>
@@ -280,15 +287,29 @@ export default function ExplorerPreviewModal(props: Props) {
                 {/* PDF */}
                 {!hadError && isPDF && (
                   <div className="w-full">
-                    <iframe
-                      src={previewUrl + "#view=FitH&zoom=120"}
-                      title={file.title || "PDF"}
-                      className="w-full flex-1 rounded-xl border border-app min-h-[50vh]"
+                    <PdfCanvas
+                      url={previewUrl}
+                      page={pdfPage}
+                      onReady={(numPages) => {
+                        setPdfPages(numPages);
+                        setPdfPage((p) =>
+                          Math.min(Math.max(1, p), numPages || 1),
+                        );
+                        setIsLoading(false);
+                      }}
+                      onRendered={() => setIsLoading(false)}
+                      onError={(msg) => {
+                        console.error(msg);
+                        setHadError("pdf");
+                        setIsLoading(false);
+                      }}
                     />
+
                     <div className="mt-2 text-sm text-neutral-500">
-                      Viewer fallback shown. You can also use the Download
-                      button.
+                      PDF preview (rendered). Use Download for the original
+                      file.
                     </div>
+
                     {/* PDF Pagination */}
                     {canPaginate && (
                       <div className="mt-2 flex items-center gap-2">

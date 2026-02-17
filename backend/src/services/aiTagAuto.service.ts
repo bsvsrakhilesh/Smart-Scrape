@@ -14,7 +14,10 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-function mergeUnique(existing: string[] | null | undefined, incoming: string[] | null | undefined) {
+function mergeUnique(
+  existing: string[] | null | undefined,
+  incoming: string[] | null | undefined,
+) {
   return Array.from(new Set([...(existing || []), ...(incoming || [])]));
 }
 
@@ -23,15 +26,26 @@ function mergeUnique(existing: string[] | null | undefined, incoming: string[] |
  * - Safe to call multiple times (merges tags)
  * - Skips if file already has ai-tagger output unless force=true
  */
-export async function runAiTagForFile(fileId: string, opts?: { force?: boolean }) {
+export async function runAiTagForFile(
+  fileId: string,
+  opts?: { force?: boolean },
+) {
   const force = Boolean(opts?.force);
 
-  const rec = await prisma.storedFile.findUnique({ where: { id: String(fileId) } });
+  const rec = await prisma.storedFile.findUnique({
+    where: { id: String(fileId) },
+  });
   if (!rec) throw new Error(`StoredFile not found: ${fileId}`);
-  if (!rec.storagePath) throw new Error(`StoredFile.storagePath missing: ${fileId}`);
+  if (!rec.storagePath)
+    throw new Error(`StoredFile.storagePath missing: ${fileId}`);
 
   // Avoid duplicate work unless explicitly forced
-  if (!force && rec.taggerVersion && rec.contentHash && (rec.tags?.length || 0) > 0) {
+  if (
+    !force &&
+    rec.taggerVersion &&
+    rec.contentHash &&
+    (rec.tags?.length || 0) > 0
+  ) {
     return { skipped: true as const, reason: "already_tagged" as const };
   }
 
@@ -42,7 +56,9 @@ export async function runAiTagForFile(fileId: string, opts?: { force?: boolean }
 
   while (true) {
     if (Date.now() - startedAt > MAX_WAIT_MS) {
-      throw new Error(`ai-tagger job timed out for fileId=${fileId} jobId=${jobId}`);
+      throw new Error(
+        `ai-tagger job timed out for fileId=${fileId} jobId=${jobId}`,
+      );
     }
 
     const data = await getJob(jobId);
@@ -60,7 +76,10 @@ export async function runAiTagForFile(fileId: string, opts?: { force?: boolean }
           tags: { set: merged },
           contentHash: data?.hash ?? null,
           taggerVersion: data?.tagger_version ?? null,
-          tagsMeta: { phrases, unigrams } as any,
+          tagsMeta: {
+            ...((rec.tagsMeta as any) || {}),
+            aiTagger: { phrases, unigrams },
+          } as any,
         },
       });
 
@@ -70,7 +89,9 @@ export async function runAiTagForFile(fileId: string, opts?: { force?: boolean }
     if (data?.state === "FAILURE") {
       // Surface useful error info if present
       const err = data?.error || data?.message || "Unknown ai-tagger failure";
-      throw new Error(`ai-tagger failed for fileId=${fileId} jobId=${jobId}: ${err}`);
+      throw new Error(
+        `ai-tagger failed for fileId=${fileId} jobId=${jobId}: ${err}`,
+      );
     }
 
     // PENDING / STARTED / RETRY / etc.
@@ -82,7 +103,10 @@ export async function runAiTagForFile(fileId: string, opts?: { force?: boolean }
 /**
  * Fire-and-forget wrapper (doesn't block request thread).
  */
-export function scheduleAiTagForFile(fileId: string, opts?: { force?: boolean }) {
+export function scheduleAiTagForFile(
+  fileId: string,
+  opts?: { force?: boolean },
+) {
   setImmediate(async () => {
     try {
       await runAiTagForFile(fileId, opts);

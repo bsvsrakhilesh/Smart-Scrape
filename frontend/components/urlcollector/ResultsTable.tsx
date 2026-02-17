@@ -697,20 +697,28 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       const urlId = await ensureSavedUrlId(url, title);
 
       // 2) Capture with urlId (strong linkage URL → snapshot)
-      if (mode === "text") {
-        await crawlSaveText(url, folderId ?? undefined, fileName, urlId);
-      } else {
-        await crawlSavePdf(
-          url,
-          folderId ?? undefined,
-          fileName,
-          true,
-          true,
-          urlId,
-        );
-      }
+      const saved =
+        mode === "text"
+          ? await crawlSaveText(url, folderId ?? undefined, fileName, urlId)
+          : await crawlSavePdf(
+              url,
+              folderId ?? undefined,
+              fileName,
+              true,
+              true,
+              urlId,
+            );
 
-      pushNotice("success", "Captured and saved successfully.");
+      const method = saved?.captureMeta?.method
+        ? `via ${saved.captureMeta.method}`
+        : "";
+      const src = saved?.captureMeta?.capturedUrl
+        ? ` • ${saved.captureMeta.capturedUrl}`
+        : "";
+      const msg = `Captured ${method}${src}`.replace(/\s+/g, " ").trim();
+
+      pushNotice("success", msg || "Captured and saved successfully.");
+
     } catch (e: any) {
       console.error(e);
       const msg = e?.message ?? "Unknown error";
@@ -924,7 +932,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                   />
                   Select this page
                 </label>
-                
+
                 <span className="text-xs text-gray-500">
                   (page: {pageRows.length}, loaded: {filtered.length})
                 </span>
@@ -1298,11 +1306,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
       <FolderPickerModal
         open={pickerOpen}
-        suggestedName={
-          pickerMode === "pdf"
-            ? `${(pickerTarget.title || host(pickerTarget.url) || "page").slice(0, 60)}.pdf`
-            : `${(pickerTarget.title || host(pickerTarget.url) || "page").slice(0, 60)}.txt`
-        }
+        suggestedName={suggestCaptureName(
+          pickerTarget.url,
+          pickerTarget.title,
+          pickerMode,
+        )}
         mode={pickerMode}
         onCancel={() => setPickerOpen(false)}
         onConfirm={onConfirmCapture}
@@ -1310,6 +1318,41 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     </div>
   );
 };
+
+function suggestCaptureName(
+  url: string,
+  title: string | undefined,
+  mode: "pdf" | "text",
+) {
+  const looksLikeUrlTitle = (t?: string) =>
+    !!t && /^https?:\/\//i.test(t.trim());
+
+  const fromUrl = (u: string) => {
+    try {
+      const U = new URL(u);
+
+      // prefer query params containing ".pdf" (like sci.gov.in ?filename=...pdf)
+      for (const [, v] of U.searchParams.entries()) {
+        const s = String(v || "");
+        if (s.toLowerCase().includes(".pdf")) {
+          const base = s.split("/").pop() || "document.pdf";
+          return decodeURIComponent(base);
+        }
+      }
+
+      const base = decodeURIComponent(U.pathname.split("/").pop() || "");
+      return base || U.hostname || "page";
+    } catch {
+      return "page";
+    }
+  };
+
+  const raw =
+    title && !looksLikeUrlTitle(title) ? title.trim() : fromUrl(url).trim();
+
+  const stem = raw.replace(/\.(pdf|txt)$/i, "").slice(0, 60) || "page";
+  return mode === "pdf" ? `${stem}.pdf` : `${stem}.txt`;
+}
 
 export default ResultsTable;
 

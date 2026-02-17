@@ -1265,9 +1265,15 @@ const SavedUrlsPage: React.FC = () => {
             <FolderPickerModal
               open={pickerOpen}
               suggestedName={
-                pickerMode === "pdf"
-                  ? `${(pickerTarget?.title || pickerTarget?.domain || "page").slice(0, 60)}.pdf`
-                  : `${(pickerTarget?.title || pickerTarget?.domain || "page").slice(0, 60)}.txt`
+                pickerTarget
+                  ? suggestCaptureName(
+                      pickerTarget.url,
+                      pickerTarget.title,
+                      pickerMode,
+                    )
+                  : pickerMode === "pdf"
+                    ? "page.pdf"
+                    : "page.txt"
               }
               mode={pickerMode}
               onCancel={() => setPickerOpen(false)}
@@ -1343,4 +1349,40 @@ const SavedUrlsPage: React.FC = () => {
     </main>
   );
 };
+
+function suggestCaptureName(
+  url: string,
+  title: string | undefined,
+  mode: "pdf" | "text",
+) {
+  const looksLikeUrlTitle = (t?: string) =>
+    !!t && /^https?:\/\//i.test(t.trim());
+
+  const fromUrl = (u: string) => {
+    try {
+      const U = new URL(u);
+
+      // prefer query params containing ".pdf" (like sci.gov.in ?filename=...pdf)
+      for (const [, v] of U.searchParams.entries()) {
+        const s = String(v || "");
+        if (s.toLowerCase().includes(".pdf")) {
+          const base = s.split("/").pop() || "document.pdf";
+          return decodeURIComponent(base);
+        }
+      }
+
+      const base = decodeURIComponent(U.pathname.split("/").pop() || "");
+      return base || U.hostname || "page";
+    } catch {
+      return "page";
+    }
+  };
+
+  const raw =
+    title && !looksLikeUrlTitle(title) ? title.trim() : fromUrl(url).trim();
+
+  const stem = raw.replace(/\.(pdf|txt)$/i, "").slice(0, 60) || "page";
+  return mode === "pdf" ? `${stem}.pdf` : `${stem}.txt`;
+}
+
 export default SavedUrlsPage;

@@ -9,6 +9,7 @@ import { recordCaptureEvent } from "../services/provenance.service";
 import { createDom } from "../utils/dom";
 import { Readability } from "@mozilla/readability";
 import puppeteer, { Browser, LaunchOptions, Page } from "puppeteer";
+import pdfParse from "pdf-parse";
 import { scheduleAiTagForFile } from "../services/aiTagAuto.service";
 import dns from "node:dns/promises";
 import * as ipaddr from "ipaddr.js";
@@ -71,8 +72,20 @@ async function isRobotsAllowed(targetUrl: string) {
 }
 
 function isPdfMagic(buf: Buffer) {
-  // PDFs start with: %PDF-
-  return buf.length >= 5 && buf.slice(0, 5).toString("utf8") === "%PDF-";
+  // Some servers prepend whitespace or junk; scan first 1KB for "%PDF-"
+  const max = Math.min(buf.length - 5, 1024);
+  for (let i = 0; i <= max; i++) {
+    if (
+      buf[i] === 0x25 && // %
+      buf[i + 1] === 0x50 && // P
+      buf[i + 2] === 0x44 && // D
+      buf[i + 3] === 0x46 && // F
+      buf[i + 4] === 0x2d // -
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function looksLikePdfUrl(u: URL) {
@@ -97,6 +110,51 @@ function derivePdfNameFromUrl(u: URL): string {
   }
   const base = u.pathname.split("/").pop() || "document.pdf";
   return decodeURIComponent(base);
+}
+
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+function resolveWrappedPdfToDirect(u: URL): string | null {
+  // Handles wrappers like:
+  // https://api.sci.gov.in/pdfdate/index1.php?filename=supremecourt/.../x.pdf&...
+  // -> https://api.sci.gov.in/supremecourt/.../x.pdf
+  const fn = u.searchParams.get("filename");
+  if (!fn) return null;
+
+  const decoded = decodeURIComponent(fn).trim();
+  if (/^https?:\/\//i.test(decoded)) return decoded;
+
+  const cleaned = decoded.replace(/^\/+/, "");
+  if (!cleaned.toLowerCase().includes(".pdf")) return null;
+
+  return `${u.origin}/${cleaned}`;
+}
+
+function filenameFromContentDisposition(cd: string | null): string | null {
+  if (!cd) return null;
+
+  const mStar = cd.match(/filename\*\s*=\s*([^']*)''([^;]+)/i);
+  if (mStar?.[2]) {
+    try {
+      return decodeURIComponent(mStar[2].trim().replace(/^"|"$/g, ""));
+    } catch {
+      return mStar[2].trim().replace(/^"|"$/g, "");
+    }
+  }
+
+  const m = cd.match(/filename\s*=\s*("?)([^";]+)\1/i);
+  if (m?.[2]) return m[2].trim();
+
+  return null;
+}
+
+function bestPdfFileName(u: URL, contentDisposition: string | null) {
+  const fromCd = filenameFromContentDisposition(contentDisposition);
+  const fromUrl = derivePdfNameFromUrl(u);
+  const raw = fromCd || fromUrl || "document.pdf";
+  return raw.toLowerCase().endsWith(".pdf") ? raw : `${raw}.pdf`;
 }
 
 // ===================== Storage helpers =====================
@@ -125,6 +183,169 @@ function inferMime(fileName: string, fallback?: string) {
   return fallback || "application/octet-stream";
 }
 
+type CaptureMeta = {
+  method:
+    | "direct_fetch"
+    | "dom_candidate_fetch"
+    | "puppeteer_intercept"
+    | "page_print";
+  capturedUrl?: string;
+  contentType?: string | null;
+  contentDisposition?: string | null;
+  bytes?: number;
+  notes?: string;
+};
+
+async function cookieHeaderFor(
+  page: any,
+  targetUrl: string,
+): Promise<string | null> {
+  try {
+    const cookies = await page.cookies(targetUrl);
+    if (!Array.isArray(cookies) || cookies.length === 0) return null;
+    return cookies.map((c: any) => `${c.name}=${c.value}`).join("; ");
+  } catch {
+    return null;
+  }
+}
+
+async function extractPdfCandidates(
+  page: any,
+  baseUrl: string,
+): Promise<string[]> {
+  try {
+    const raw: string[] = await page.evaluate(() => {
+      const out: string[] = [];
+      const push = (u: any) => {
+        if (!u || typeof u !== "string") return;
+        const s = u.trim();
+        if (!s) return;
+        // ignore huge inline data URIs
+        if (s.startsWith("data:")) return;
+        out.push(s);
+      };
+
+      // obvious embeds
+      document.querySelectorAll("iframe, embed, object").forEach((el: any) => {
+        push(el.src);
+        push(el.data);
+      });
+
+      // anchors + links with pdf-ish hints
+      document.querySelectorAll("a[href], link[href]").forEach((el: any) => {
+        const href = el.getAttribute("href");
+        if (!href) return;
+        const t = (el.textContent || "").toLowerCase();
+        const h = href.toLowerCase();
+        if (
+          h.includes(".pdf") ||
+          h.includes("pdf") ||
+          t.includes("pdf") ||
+          t.includes("download")
+        ) {
+          push(href);
+        }
+      });
+
+      // pdf.js viewer patterns: ?file=... or #file=...
+      const url = new URL(window.location.href);
+      const params = new URLSearchParams(url.search);
+      const file = params.get("file") || params.get("pdf");
+      if (file) push(file);
+      const hash = String(url.hash || "");
+      const m = hash.match(/(?:^|[?#&])file=([^&]+)/i);
+      if (m && m[1]) push(decodeURIComponent(m[1]));
+
+      return Array.from(new Set(out));
+    });
+
+    const abs = raw
+      .map((u) => {
+        try {
+          return new URL(u, baseUrl).toString();
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as string[];
+
+    // keep only http(s)
+    return abs.filter(
+      (u) => u.startsWith("http://") || u.startsWith("https://"),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function downloadPdfWithHeaders(
+  targetUrl: string,
+  opts: { referer?: string; cookie?: string | null },
+): Promise<{ bytes: Buffer; cd: string | null; ct: string | null } | null> {
+  try {
+    const resp = await fetchWithTimeout(targetUrl, 90_000, {
+      Accept: "application/pdf,*/*",
+      "User-Agent": BROWSER_UA,
+      "Accept-Language": "en-US,en;q=0.9",
+      ...(opts.referer ? { Referer: opts.referer } : {}),
+      ...(opts.cookie ? { Cookie: opts.cookie } : {}),
+    });
+
+    if (!resp.ok) return null;
+
+    const ct = resp.headers.get("content-type");
+    const cd = resp.headers.get("content-disposition");
+    const bytes = Buffer.from(await resp.arrayBuffer());
+    if (!bytes || bytes.length < 1024) return null;
+    if (!isPdfMagic(bytes)) return null;
+
+    return { bytes, cd, ct };
+  } catch {
+    return null;
+  }
+}
+
+async function tryClickPdfDownload(page: any): Promise<boolean> {
+  try {
+    const clicked = await page.evaluate(() => {
+      const score = (el: Element) => {
+        const t = (el.textContent || "").toLowerCase();
+        const href = (el as any).href
+          ? String((el as any).href).toLowerCase()
+          : "";
+        let s = 0;
+        if (t.includes("pdf")) s += 3;
+        if (t.includes("download")) s += 2;
+        if (href.includes(".pdf")) s += 4;
+        if (href.includes("pdf")) s += 1;
+        return s;
+      };
+
+      const candidates: Element[] = Array.from(
+        document.querySelectorAll("a, button, [role='button']"),
+      );
+
+      candidates.sort((a, b) => score(b) - score(a));
+      const best = candidates.find((el) => score(el) >= 4);
+      if (!best) return false;
+
+      // force same-tab navigation when possible
+      if ((best as any).setAttribute) {
+        try {
+          (best as any).setAttribute("target", "_self");
+        } catch {}
+      }
+
+      (best as any).click?.();
+      return true;
+    });
+
+    return Boolean(clicked);
+  } catch {
+    return false;
+  }
+}
+
 async function persistFile(
   data: Buffer | Uint8Array,
   fileName: string,
@@ -134,6 +355,8 @@ async function persistFile(
     captureType?: "UPLOAD" | "URL_TEXT" | "URL_PDF";
     sourceUrl?: string | null;
     urlId?: number | null;
+    requestId?: string | null;
+    captureMeta?: CaptureMeta | null;
   },
 ) {
   ensureDirs();
@@ -165,6 +388,11 @@ async function persistFile(
       sha256,
       contentHash: sha256,
       urlId: meta?.urlId ?? null,
+
+      // keep capture diagnostics (UI can show where bytes came from)
+      tagsMeta: meta?.captureMeta
+        ? ({ capture: meta.captureMeta } as any)
+        : null,
     } as any,
   });
 
@@ -174,11 +402,11 @@ async function persistFile(
   await recordCaptureEvent({
     pipelineName: meta?.captureType === "URL_PDF" ? "crawl.pdf" : "crawl.text",
     pipelineConfig: {
-      // keep minimal but reproducible
       userAgent: "SmartScrape/1.0",
       ssrfGuard: true,
       robotsRespect: true,
       captureType: meta?.captureType ?? "UPLOAD",
+      captureMeta: meta?.captureMeta ?? null,
     },
     captureType: (meta?.captureType as any) ?? "UPLOAD",
     storedFileId: rec.id,
@@ -194,7 +422,6 @@ async function persistFile(
   try {
     await ensureDocumentRevisionForStoredFile(rec.id);
   } catch (e) {
-    // Hard fail + cleanup. We must not leave "orphan snapshots" without provenance.
     try {
       await prisma.storedFile.delete({ where: { id: rec.id } });
     } catch {}
@@ -314,6 +541,130 @@ export async function crawlTextHandler(
       return res.status(403).json({ message: "Blocked by robots.txt" });
     }
     log.info("crawlTextHandler_begin", { ...requestMeta(req), url });
+
+    // ---- PDF-aware text capture (works for URLs that directly serve PDFs or SCI wrappers) ----
+    try {
+      const direct = resolveWrappedPdfToDirect(__u);
+      const candidates = [...(direct && direct !== url ? [direct] : []), url];
+
+      for (const candidate of candidates) {
+        let cu: URL;
+        try {
+          cu = new URL(candidate);
+        } catch {
+          continue;
+        }
+
+        const likelyPdf = looksLikePdfUrl(cu);
+
+        const sniff = await fetchWithTimeout(candidate, 15_000, {
+          Range: "bytes=0-4095",
+          Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          Referer: `${cu.origin}/`,
+        });
+
+        const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
+        const sniffBuf = Buffer.from(await sniff.arrayBuffer());
+
+        const isPdfUrl =
+          likelyPdf ||
+          sniffCt.includes("application/pdf") ||
+          isPdfMagic(sniffBuf);
+
+        if (!isPdfUrl) continue;
+
+        const full = await fetchWithTimeout(candidate, 90_000, {
+          Accept: "application/pdf,*/*",
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          Referer: `${cu.origin}/`,
+        });
+        if (!full.ok) continue;
+
+        const pdfBytes = Buffer.from(await full.arrayBuffer());
+        if (!isPdfMagic(pdfBytes)) continue;
+
+        const cd = full.headers.get("content-disposition");
+        const pdfName = bestPdfFileName(cu, cd);
+        const titleFromPdf = pdfName.replace(/\.pdf$/i, "");
+
+        const parsed = await pdfParse(pdfBytes);
+        const textContentPdf = (parsed.text || "")
+          .replace(/\r\n/g, "\n")
+          .trim();
+
+        const headerPdf = [
+          `Title: ${titleFromPdf}`,
+          `URL: ${url}`,
+          `Source PDF: ${pdfName}`,
+          `Captured: ${new Date().toISOString()}`,
+          "".padEnd(80, "—"),
+          "",
+        ].join("\n");
+
+        const bufferPdf = Buffer.from(
+          headerPdf + textContentPdf + "\n",
+          "utf8",
+        );
+
+        const finalNamePdf = sanitizeName(
+          (fileName as string) || `${titleFromPdf || "document"}.txt`,
+        );
+        const descPdf = `Text extracted from PDF URL ${url}`;
+
+        const fileRecPdf = await persistFile(
+          bufferPdf,
+          finalNamePdf,
+          descPdf,
+          folderId || null,
+          {
+            captureType: "URL_TEXT",
+            sourceUrl: url,
+            urlId: typeof urlId === "number" ? urlId : null,
+          },
+        );
+
+        // Copy tags from the source URL if provided
+        if (urlId !== undefined && urlId !== null) {
+          const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
+          if (!Number.isNaN(idNum)) {
+            try {
+              const src = await prisma.url.findUnique({
+                where: { id: idNum as number },
+                select: { tags: true },
+              });
+              if (src?.tags?.length) {
+                const merged = mergeTags(fileRecPdf.tags, src.tags);
+                await prisma.storedFile.update({
+                  where: { id: fileRecPdf.id },
+                  data: { tags: merged },
+                });
+              }
+            } catch {}
+          }
+        }
+
+        scheduleAiTagForFile(String(fileRecPdf.id));
+
+        const latestPdf = await prisma.storedFile.findUnique({
+          where: { id: fileRecPdf.id },
+        });
+        log.info("crawl_text_done_pdf", {
+          ...requestMeta(req),
+          fileId: fileRecPdf.id,
+        });
+        return res.status(201).json(latestPdf ?? fileRecPdf);
+      }
+    } catch (e) {
+      // Not fatal: fall back to HTML Readability pipeline below
+      log.info("crawl_text_pdf_fallback_to_html", {
+        ...requestMeta(req),
+        url,
+        error: String((e as any)?.message || e),
+      });
+    }
 
     // 1) Fetch HTML (fallback to headless browser)
     let html = "";
@@ -484,7 +835,7 @@ export async function crawlPdfHandler(
     log.info("crawlPdfHandler_begin", { ...requestMeta(req), url });
 
     // --------- Guardrails END ---------
-    
+
     // Common post-processing (copy URL tags + schedule ai-tag + respond)
     const postProcessAndRespond = async (fileRec: any) => {
       // Copy tags from the source URL if provided
@@ -523,39 +874,58 @@ export async function crawlPdfHandler(
       return res.status(201).json(latest ?? fileRec);
     };
 
-    // ===== Fast-path: if the URL itself is a PDF, store the original bytes (no Puppeteer printing) =====
+    // ===== Fast-path: try DIRECT PDF bytes (handles SCI wrapper URLs via filename=...) =====
     try {
-      const likelyPdf = looksLikePdfUrl(__u);
+      const direct = resolveWrappedPdfToDirect(__u);
 
-      // Sniff first 2KB (works even if server ignores Range)
-      const sniff = await fetchWithTimeout(url, 15_000, {
-        Range: "bytes=0-2047",
-        Accept: "application/pdf,*/*",
-      });
+      const candidates = [...(direct && direct !== url ? [direct] : []), url];
 
-      const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
-      const sniffBuf = Buffer.from(await sniff.arrayBuffer());
-
-      const isPdf =
-        sniffCt.includes("application/pdf") ||
-        isPdfMagic(sniffBuf) ||
-        likelyPdf;
-
-      if (isPdf && isPdfMagic(sniffBuf)) {
-        const full = await fetchWithTimeout(url, 60_000, {
-          Accept: "application/pdf,*/*",
-        });
-        if (!full.ok) throw new Error(`PDF_DOWNLOAD_FAILED:${full.status}`);
-
-        const pdfBytes = Buffer.from(await full.arrayBuffer());
-        if (!isPdfMagic(pdfBytes)) {
-          // If it lied, fall back to Puppeteer below.
-          throw new Error("PDF_MAGIC_MISSING_FALLBACK");
+      for (const candidate of candidates) {
+        let cu: URL;
+        try {
+          cu = new URL(candidate);
+        } catch {
+          continue;
         }
 
-        const derivedName = derivePdfNameFromUrl(__u) || "document.pdf";
+        const sniff = await fetchWithTimeout(candidate, 15_000, {
+          Range: "bytes=0-4095",
+          Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          Referer: `${cu.origin}/`,
+        });
+
+        const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
+        const sniffBuf = Buffer.from(await sniff.arrayBuffer());
+
+        const likelyPdf = looksLikePdfUrl(cu);
+        const isPdf =
+          sniffCt.includes("application/pdf") ||
+          isPdfMagic(sniffBuf) ||
+          likelyPdf;
+
+        if (!isPdf) continue;
+
+        const full = await fetchWithTimeout(candidate, 90_000, {
+          Accept: "application/pdf,*/*",
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          Referer: `${cu.origin}/`,
+        });
+        if (!full.ok) continue;
+
+        const pdfBytes = Buffer.from(await full.arrayBuffer());
+        if (!isPdfMagic(pdfBytes)) continue;
+
+        const cd = full.headers.get("content-disposition");
+        const derivedName = bestPdfFileName(cu, cd);
         const finalName = sanitizeName((fileName as string) || derivedName);
-        const desc = `Original PDF from ${url}`;
+
+        const desc =
+          candidate === url
+            ? `Original PDF from ${url}`
+            : `Original PDF (resolved from wrapper) from ${url}`;
 
         const fileRec = await persistFile(
           pdfBytes,
@@ -566,7 +936,7 @@ export async function crawlPdfHandler(
           folderId || null,
           {
             captureType: "URL_PDF",
-            sourceUrl: url,
+            sourceUrl: url, // keep wrapper as provenance
             urlId: typeof urlId === "number" ? urlId : null,
           },
         );
@@ -574,6 +944,7 @@ export async function crawlPdfHandler(
         log.info("crawl_pdf_direct_download_done", {
           ...requestMeta(req),
           url,
+          resolvedUrl: candidate,
           bytes: pdfBytes.length,
           fileId: fileRec.id,
         });
@@ -589,7 +960,217 @@ export async function crawlPdfHandler(
       });
     }
 
-    // Puppeteer PDF capture 
+    // ===== Fallback: open wrapper in Puppeteer and intercept REAL PDF response bytes =====
+    try {
+      const b = await launchBrowser();
+      try {
+        const page = await b.newPage();
+        page.setDefaultTimeout(60_000);
+        page.setDefaultNavigationTimeout(60_000);
+        await page.emulateMediaType("screen");
+
+        await page.setUserAgent(BROWSER_UA);
+        await page.setExtraHTTPHeaders({
+          "Accept-Language": "en-US,en;q=0.9",
+        });
+
+        let done = false;
+        const pdfHit = new Promise<{
+          bytes: Buffer;
+          pdfUrl: string;
+          cd: string | null;
+        } | null>((resolve) => {
+          const finish = (v: any) => {
+            if (done) return;
+            done = true;
+            resolve(v);
+          };
+
+          page.on("response", async (resp) => {
+            try {
+              const respUrl = resp.url();
+              const respUrlL = respUrl.toLowerCase();
+              const h = resp.headers();
+              const ct = String((h as any)["content-type"] || "").toLowerCase();
+              const cd = (h as any)["content-disposition"]
+                ? String((h as any)["content-disposition"])
+                : null;
+
+              // Avoid buffering *everything*. Only buffer if it *might* be a PDF.
+              const ctPdfish =
+                ct.includes("application/pdf") ||
+                ct.includes("application/octet-stream") ||
+                ct.includes("application/download");
+
+              const cdPdfish =
+                !!cd &&
+                (cd.toLowerCase().includes(".pdf") ||
+                  cd.toLowerCase().includes("pdf"));
+
+              const urlPdfish =
+                respUrlL.includes(".pdf") ||
+                respUrlL.includes("pdf") ||
+                respUrlL.includes("download");
+
+              const rt = (resp.request?.() as any)?.resourceType?.() || "";
+              const rtPdfish =
+                rt === "xhr" ||
+                rt === "fetch" ||
+                rt === "document" ||
+                rt === "iframe";
+
+              const maybePdf = ctPdfish || cdPdfish || (urlPdfish && rtPdfish);
+              if (!maybePdf) return;
+
+              const bytes = await (resp as any).buffer();
+              if (!bytes || bytes.length < 1024) return;
+
+              // hard cap (avoid OOM on huge downloads)
+              if (bytes.length > 50 * 1024 * 1024) return;
+
+              if (!isPdfMagic(bytes)) return;
+
+              finish({ bytes, pdfUrl: respUrl, cd });
+            } catch {
+              // ignore
+            }
+          });
+
+          setTimeout(() => finish(null), 45_000);
+        });
+
+        const { reader = true } = req.body || {};
+        if (reader) {
+          try {
+            await setReadableContentOnPage(page, url);
+          } catch {
+            await hardenLivePage(page, url);
+            await navigateWithRetries(page, url);
+            await page.waitForSelector("body", { timeout: 30_000 } as any);
+            await new Promise((r) => setTimeout(r, 700));
+          }
+        } else {
+          await hardenLivePage(page, url);
+          await navigateWithRetries(page, url);
+          await page.waitForSelector("body", { timeout: 30_000 } as any);
+          await new Promise((r) => setTimeout(r, 700));
+        }
+
+        // ===== Step 5: try to discover & fetch real PDFs linked/embedded on the page =====
+        try {
+          const cookie = await cookieHeaderFor(page, url);
+          const candidates = await extractPdfCandidates(page, url);
+
+          for (const c of candidates.slice(0, 15)) {
+            try {
+              const cu = new URL(c);
+              await resolveAndGuard(cu.hostname);
+            } catch {
+              continue;
+            }
+
+            const dl = await downloadPdfWithHeaders(c, {
+              referer: url,
+              cookie,
+            });
+            if (!dl) continue;
+
+            const derivedName = bestPdfFileName(new URL(c), dl.cd);
+            const finalName = sanitizeName((fileName as string) || derivedName);
+            const desc = `Original PDF (found on page) from ${url}`;
+
+            const fileRec = await persistFile(
+              dl.bytes,
+              finalName.toLowerCase().endsWith(".pdf")
+                ? finalName
+                : `${finalName}.pdf`,
+              desc,
+              folderId || null,
+              {
+                captureType: "URL_PDF",
+                sourceUrl: url,
+                urlId: typeof urlId === "number" ? urlId : null,
+                captureMeta: {
+                  method: "dom_candidate_fetch",
+                  capturedUrl: c,
+                  contentDisposition: dl.cd,
+                  contentType: dl.ct,
+                  bytes: dl.bytes.length,
+                },
+              },
+            );
+
+            log.info("crawl_pdf_dom_candidate_done", {
+              ...requestMeta(req),
+              url,
+              candidateUrl: c,
+              bytes: dl.bytes.length,
+              fileId: fileRec.id,
+            });
+
+            return await postProcessAndRespond(fileRec);
+          }
+
+          // If the PDF isn't directly linkable, try a conservative "download/pdf" click to trigger XHR.
+          const clicked = await tryClickPdfDownload(page);
+          if (clicked) {
+            // give interception some time to catch the real PDF response
+            await new Promise((r) => setTimeout(r, 6_000));
+          }
+        } catch (e) {
+          log.info("crawl_pdf_dom_candidate_scan_failed", {
+            ...requestMeta(req),
+            url,
+            error: String((e as any)?.message || e),
+          });
+        }
+
+        const hit = await pdfHit;
+        if (hit?.bytes?.length) {
+          const derivedName =
+            bestPdfFileName(new URL(hit.pdfUrl), hit.cd) ||
+            derivePdfNameFromUrl(__u) ||
+            "document.pdf";
+
+          const finalName = sanitizeName((fileName as string) || derivedName);
+          const desc = `Original PDF (intercepted via browser) from ${url}`;
+
+          const fileRec = await persistFile(
+            hit.bytes,
+            finalName.toLowerCase().endsWith(".pdf")
+              ? finalName
+              : `${finalName}.pdf`,
+            desc,
+            folderId || null,
+            {
+              captureType: "URL_PDF",
+              sourceUrl: url,
+              urlId: typeof urlId === "number" ? urlId : null,
+            },
+          );
+
+          log.info("crawl_pdf_intercepted_pdf_done", {
+            ...requestMeta(req),
+            url,
+            interceptedUrl: hit.pdfUrl,
+            bytes: hit.bytes.length,
+            fileId: fileRec.id,
+          });
+
+          return await postProcessAndRespond(fileRec);
+        }
+      } finally {
+        await b.close().catch(() => {});
+      }
+    } catch (e) {
+      log.info("crawl_pdf_intercepted_pdf_fallback_to_snapshot", {
+        ...requestMeta(req),
+        url,
+        error: String((e as any)?.message || e),
+      });
+    }
+
+    // Puppeteer PDF capture
     const tryMakePdf = async () => {
       const b = await launchBrowser(); // keep your existing launcher if you have one
       try {

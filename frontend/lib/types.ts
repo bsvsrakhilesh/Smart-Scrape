@@ -4,7 +4,7 @@ export interface SearchResult {
   snippet?: string;
 }
 
-export type Page = 'url-collector' | 'saved-urls' | 'file-manager'|'notebook';
+export type Page = "url-collector" | "saved-urls" | "file-manager" | "notebook";
 
 // FileItem and related types for the file manager
 export interface FileUploader {
@@ -12,9 +12,14 @@ export interface FileUploader {
   name: string;
 }
 
-export type Visibility = 'public' | 'private';
+export type Visibility = "public" | "private";
 
-export type TaggingStatus = 'NONE' | 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+export type TaggingStatus =
+  | "NONE"
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED";
 
 export interface FileItem {
   id: string;
@@ -30,11 +35,22 @@ export interface FileItem {
   favoritesCount?: number;
   isFavorited?: boolean;
   visibility: Visibility;
-  captureType?: 'UPLOAD' | 'URL_TEXT' | 'URL_PDF';
+  captureType?: "UPLOAD" | "URL_TEXT" | "URL_PDF";
   sourceUrl?: string | null;
   urlId?: number | null;
   sha256?: string | null;
-
+  captureMeta?: {
+    method:
+      | "direct_fetch"
+      | "dom_candidate_fetch"
+      | "puppeteer_intercept"
+      | "page_print";
+    capturedUrl?: string;
+    contentType?: string | null;
+    contentDisposition?: string | null;
+    bytes?: number;
+    notes?: string;
+  } | null;
 }
 
 export interface FileVersion {
@@ -61,7 +77,7 @@ export interface Folder {
 export interface SnapshotInfo {
   id: string;
   fileName: string;
-  captureType: 'UPLOAD' | 'URL_TEXT' | 'URL_PDF';
+  captureType: "UPLOAD" | "URL_TEXT" | "URL_PDF";
   createdAt: string; // ISO
   sha256?: string | null;
 }

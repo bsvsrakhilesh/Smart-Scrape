@@ -155,6 +155,8 @@ const SavedUrlsPage: React.FC = () => {
   const [pickerMode, setPickerMode] = useState<"text" | "pdf">("text");
   const [pickerTarget, setPickerTarget] = useState<UISavedUrl | null>(null);
 
+  const [captureNotice, setCaptureNotice] = useState<string | null>(null);
+
   // Bulk snapshot enforcement
   const [bulkPickerOpen, setBulkPickerOpen] = useState(false);
   const [bulkPickerMode, setBulkPickerMode] = useState<"text" | "pdf">("text");
@@ -1207,6 +1209,11 @@ const SavedUrlsPage: React.FC = () => {
                 {error}
               </div>
             )}
+            {captureNotice && !loading && (
+              <div className="card border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 p-4">
+                {captureNotice}
+              </div>
+            )}
             {!loading && !error && sorted.length === 0 && (
               <div className="card p-10 text-center text-gray-600 dark:text-gray-300">
                 No saved URLs match your filters.
@@ -1282,27 +1289,41 @@ const SavedUrlsPage: React.FC = () => {
                 const urlId = Number(pickerTarget.id);
 
                 try {
-                  if (mode === "pdf") {
-                    await crawlSavePdf(
-                      pickerTarget.url,
-                      folderId ?? undefined,
-                      fileName,
-                      true,
-                      true,
-                      urlId,
-                    );
-                  } else {
-                    await crawlSaveText(
-                      pickerTarget.url,
-                      folderId ?? undefined,
-                      fileName,
-                      urlId,
-                    );
-                  }
+                  const captured =
+                    mode === "pdf"
+                      ? await crawlSavePdf(
+                          pickerTarget.url,
+                          folderId ?? undefined,
+                          fileName,
+                          true,
+                          true,
+                          urlId,
+                        )
+                      : await crawlSaveText(
+                          pickerTarget.url,
+                          folderId ?? undefined,
+                          fileName,
+                          urlId,
+                        );
 
                   // refresh list so latestSnapshot appears immediately
                   const rows = await apiFetchSavedUrls();
                   setUrls(rows.map(toUISaved));
+
+                  const method = captured?.captureMeta?.method
+                    ? `via ${captured.captureMeta.method}`
+                    : "";
+                  const src = captured?.captureMeta?.capturedUrl
+                    ? ` • ${captured.captureMeta.capturedUrl}`
+                    : "";
+
+                  const msg = `Captured ${method}${src}`
+                    .replace(/\s+/g, " ")
+                    .trim();
+                  setCaptureNotice(msg || "Captured successfully.");
+
+                  // auto-hide after a few seconds
+                  window.setTimeout(() => setCaptureNotice(null), 8000);
                 } catch (e) {
                   alert("Capture failed");
                 } finally {

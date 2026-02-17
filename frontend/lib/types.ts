@@ -51,6 +51,9 @@ export interface FileItem {
     bytes?: number;
     notes?: string;
   } | null;
+  contentHash?: string | null;
+  taggerVersion?: string | null;
+  tagsMetaRaw?: any;
 }
 
 export interface FileVersion {

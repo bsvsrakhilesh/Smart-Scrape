@@ -884,23 +884,31 @@ r.get("/files/:id", async (req, res, next) => {
     const id = req.params.id;
     const f = await prisma.storedFile.findUnique({ where: { id } });
     if (!f) return res.status(404).json({ message: "Not found" });
+    
     res.json({
       id: f.id,
-      title: f.fileName,
-      description: f.description || "",
-      uploader: { id: f.uploaderId || "self", name: f.uploaderName },
-      uploadDate: f.createdAt.toISOString(),
-      size: f.size,
+      fileName: f.fileName,
+      description: f.description ?? null,
+      uploaderName: f.uploaderName,
+      uploaderId: f.uploaderId ?? null,
+      createdAt: f.createdAt,
       mimeType: f.mimeType,
-      thumbnailUrl: "",
+      size: f.size,
       tags: f.tags,
+      visibility: f.visibility,
       downloads: f.downloads,
       favoritesCount: f.favoritesCount,
       isFavorited: f.isFavorited,
-      visibility: (f.visibility as "public" | "private") || "private",
-      mimeSubtype: f.mimeType.split("/")[1] || undefined,
-      versions: [],
-      relatedFiles: [],
+      folderId: f.folderId ?? null,
+
+      // ---- Provenance / traceability ----
+      captureType: f.captureType,
+      sourceUrl: f.sourceUrl ?? null,
+      urlId: f.urlId ?? null,
+      sha256: f.sha256 ?? null,
+      contentHash: f.contentHash ?? null,
+      taggerVersion: f.taggerVersion ?? null,
+      tagsMeta: f.tagsMeta ?? null,
     });
   } catch (err) {
     next(err);

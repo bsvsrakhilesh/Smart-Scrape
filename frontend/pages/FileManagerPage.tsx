@@ -816,6 +816,28 @@ export default function FileManagerPage() {
   };
   const handleDownloadItem = (f: FileItem) => handleDownload(f);
 
+  const openProperties = useCallback(async (f: FileItem) => {
+    // open immediately (no waiting)
+    setPropertiesFile(f);
+    setShowProperties(true);
+
+    // For real files, fetch fresh details (provenance, hashes, etc.)
+    const id = String((f as any)?.id ?? "");
+    const isFolder =
+      (f as any)?.mimeType === "folder" || id.startsWith("folder:");
+    if (isFolder) return;
+
+    // Zip virtual items don't exist as DB files
+    if (isZipDirId(id) || isZipFileId(id)) return;
+
+    try {
+      const fresh = await getFileById(id);
+      setPropertiesFile(fresh);
+    } catch {
+      // non-fatal: keep what we already have
+    }
+  }, []);
+
   const handleDelete = async (file: FileItem) => {
     const isFolder =
       (file as any).mimeType === "folder" ||
@@ -1910,7 +1932,10 @@ export default function FileManagerPage() {
                   <PropertiesModal
                     file={propertiesFile}
                     isOpen={showProperties}
-                    onClose={() => setShowProperties(false)}
+                    onClose={() => {
+                      setShowProperties(false);
+                      setPropertiesFile(null);
+                    }}
                   />
 
                   {!isLoading && !error && visibleFiles.length > 0 && (
@@ -1971,7 +1996,7 @@ export default function FileManagerPage() {
                           sortKey={sortKey}
                           sortDir={sortDir}
                           onShowProperties={(f: FileItem) => {
-                            setPropertiesFile(f);
+                            void openProperties(f);
                           }}
                           onDownload={(f) => {
                             const id = String((f as any).id);
@@ -2094,7 +2119,7 @@ export default function FileManagerPage() {
                             },
 
                             onShowProperties: (f: FileItem) => {
-                              setPropertiesFile(f);
+                              void openProperties(f);
                             },
 
                             onDownload: (f: any) => {

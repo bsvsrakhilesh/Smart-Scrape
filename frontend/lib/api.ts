@@ -126,6 +126,8 @@ export type BackendStoredFile = {
   urlId?: number | null;
   sha256?: string | null;
   tagsMeta?: any;
+  contentHash?: string | null;
+  taggerVersion?: string | null;
 };
 
 export function toFileItem(row: BackendStoredFile): FileItem {
@@ -151,6 +153,9 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     urlId: row.urlId ?? null,
     sha256: (row as any).sha256 ?? null,
     captureMeta: (row as any)?.tagsMeta?.capture ?? null,
+    contentHash: (row as any)?.contentHash ?? null,
+    taggerVersion: (row as any)?.taggerVersion ?? null,
+    tagsMetaRaw: (row as any)?.tagsMeta ?? null,
   };
 }
 

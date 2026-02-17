@@ -70,6 +70,43 @@ async function isRobotsAllowed(targetUrl: string) {
   }
 }
 
+function isPdfMagic(buf: Buffer) {
+  // PDF files start with: %PDF-
+  return buf.length >= 5 && buf.slice(0, 5).toString("utf8") === "%PDF-";
+}
+
+function looksLikePdfUrl(u: URL) {
+  const lowerPath = u.pathname.toLowerCase();
+  if (lowerPath.endsWith(".pdf")) return true;
+
+  // Common patterns like ?filename=...pdf or ?file=...pdf
+  for (const [, v] of u.searchParams.entries()) {
+    const s = String(v || "").toLowerCase();
+    if (s.includes(".pdf")) return true;
+  }
+  return false;
+}
+
+function derivePdfNameFromUrl(u: URL): string | null {
+  // Prefer any query param that contains a .pdf path (like your sci.gov.in ?filename=...pdf)
+  for (const [k, v] of u.searchParams.entries()) {
+    const val = String(v || "");
+    if (val.toLowerCase().includes(".pdf")) {
+      const base = val.split("/").pop() || val;
+      return decodeURIComponent(base);
+    }
+    // sometimes param key is "filename"
+    if (k.toLowerCase().includes("file") && val) {
+      const base = val.split("/").pop() || val;
+      return decodeURIComponent(base);
+    }
+  }
+
+  const base = u.pathname.split("/").pop() || "";
+  if (base.toLowerCase().endsWith(".pdf")) return decodeURIComponent(base);
+  return null;
+}
+
 // ===================== Storage helpers =====================
 const STORAGE_DIR =
   process.env.FILE_STORAGE_DIR || path.join(process.cwd(), "storage");
@@ -455,6 +492,109 @@ export async function crawlPdfHandler(
     log.info("crawlPdfHandler_begin", { ...requestMeta(req), url });
 
     // --------- Guardrails END ---------
+    // Common post-processing (copy URL tags + schedule ai-tag + respond)
+    const postProcessAndRespond = async (fileRec: any) => {
+      // Copy tags from the source URL if provided
+      if (urlId !== undefined && urlId !== null) {
+        const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
+        if (!Number.isNaN(idNum)) {
+          try {
+            const src = await prisma.url.findUnique({
+              where: { id: idNum as number },
+              select: { tags: true },
+            });
+            if (src?.tags?.length) {
+              const merged = mergeTags(fileRec.tags, src.tags);
+              await prisma.storedFile.update({
+                where: { id: fileRec.id },
+                data: { tags: merged },
+              });
+            }
+          } catch (e) {
+            console.error("[crawlPdf] copy URL tags failed", {
+              urlId,
+              fileId: fileRec.id,
+              e,
+            });
+          }
+        }
+      }
+
+      // Background auto-tagging
+      scheduleAiTagForFile(String(fileRec.id));
+
+      const latest = await prisma.storedFile.findUnique({
+        where: { id: fileRec.id },
+      });
+      if (res.headersSent || (req as any).timedout) return;
+      return res.status(201).json(latest ?? fileRec);
+    };
+
+    // ===== Fast-path: if the URL itself is a PDF, store the original bytes (no Puppeteer printing) =====
+    try {
+      const likelyPdf = looksLikePdfUrl(__u);
+
+      // Sniff first 2KB (works even if server ignores Range)
+      const sniff = await fetchWithTimeout(url, 15_000, {
+        Range: "bytes=0-2047",
+        Accept: "application/pdf,*/*",
+      });
+
+      const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
+      const sniffBuf = Buffer.from(await sniff.arrayBuffer());
+
+      const isPdf =
+        sniffCt.includes("application/pdf") ||
+        isPdfMagic(sniffBuf) ||
+        likelyPdf;
+
+      if (isPdf && isPdfMagic(sniffBuf)) {
+        const full = await fetchWithTimeout(url, 60_000, {
+          Accept: "application/pdf,*/*",
+        });
+        if (!full.ok) throw new Error(`PDF_DOWNLOAD_FAILED:${full.status}`);
+
+        const pdfBytes = Buffer.from(await full.arrayBuffer());
+        if (!isPdfMagic(pdfBytes)) {
+          // If it lied, fall back to Puppeteer below.
+          throw new Error("PDF_MAGIC_MISSING_FALLBACK");
+        }
+
+        const derivedName = derivePdfNameFromUrl(__u) || "document.pdf";
+        const finalName = sanitizeName((fileName as string) || derivedName);
+        const desc = `Original PDF from ${url}`;
+
+        const fileRec = await persistFile(
+          pdfBytes,
+          finalName.toLowerCase().endsWith(".pdf")
+            ? finalName
+            : `${finalName}.pdf`,
+          desc,
+          folderId || null,
+          {
+            captureType: "URL_PDF",
+            sourceUrl: url,
+            urlId: typeof urlId === "number" ? urlId : null,
+          },
+        );
+
+        log.info("crawl_pdf_direct_download_done", {
+          ...requestMeta(req),
+          url,
+          bytes: pdfBytes.length,
+          fileId: fileRec.id,
+        });
+
+        return await postProcessAndRespond(fileRec);
+      }
+    } catch (e) {
+      // Not fatal: just fall back to Puppeteer snapshot mode
+      log.info("crawl_pdf_direct_download_fallback", {
+        ...requestMeta(req),
+        url,
+        error: String((e as any)?.message || e),
+      });
+    }
 
     // Puppeteer PDF capture
 
@@ -470,12 +610,24 @@ export async function crawlPdfHandler(
         const { url, reader = true } = req.body || {};
 
         if (reader) {
-          await setReadableContentOnPage(page, url);
+          try {
+            await setReadableContentOnPage(page, url);
+          } catch (e) {
+            log.info("crawl_pdf_reader_failed_fallback_live", {
+              ...requestMeta(req),
+              url,
+              error: String((e as any)?.message || e),
+            });
+            await hardenLivePage(page, url);
+            await navigateWithRetries(page, url);
+            await page.waitForSelector("body", { timeout: 30_000 } as any);
+            await new Promise((r) => setTimeout(r, 700));
+          }
         } else {
           await hardenLivePage(page, url);
-          await navigateWithRetries(page, url); // keep your existing helper
+          await navigateWithRetries(page, url);
           await page.waitForSelector("body", { timeout: 30_000 } as any);
-          await new Promise((r) => setTimeout(r, 700)); // small settle
+          await new Promise((r) => setTimeout(r, 700));
         }
 
         log.info("crawl_pdf_browser_loaded", { ...requestMeta(req), url });

@@ -19,10 +19,22 @@ const PRINT_CSS = `
 export async function setReadableContentOnPage(page: Page, url: string) {
   const res = await fetch(url as any, {
     headers: {
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
       "accept-language": "en-US,en;q=0.8",
+      accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
     },
   });
+
+  if (!res.ok) throw new Error(`FETCH_FAILED:${res.status}`);
+
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  const isHtml =
+    ct.includes("text/html") || ct.includes("application/xhtml+xml");
+
+  // IMPORTANT: never attempt Readability on PDFs/binary
+  if (!isHtml) throw new Error(`NOT_HTML:${ct || "unknown"}`);
+
   const html = await res.text();
 
   const dom = createDom(html, url);
@@ -47,16 +59,22 @@ export async function hardenLivePage(page: Page, originUrl: string) {
   page.on("request", (req) => {
     const type = req.resourceType();
     let host = "";
-    try { host = new URL(req.url()).hostname; } catch {}
+    try {
+      host = new URL(req.url()).hostname;
+    } catch {}
     const thirdParty = host && host !== originHost;
 
-    if (["websocket","eventsource","font","media"].includes(type)) return req.abort();
-    if ((type === "fetch" || type === "xhr" || type === "script") && thirdParty) return req.abort();
+    if (["websocket", "eventsource", "font", "media"].includes(type))
+      return req.abort();
+    if ((type === "fetch" || type === "xhr" || type === "script") && thirdParty)
+      return req.abort();
     req.continue();
   });
 
-  await page.addStyleTag({ content: `
+  await page.addStyleTag({
+    content: `
     .ad,.ads,.advertisement,[id*="ad-"],[class*="ad-"],.adsbygoogle,
     .sponsored,.promo,.subscription,.paywall,.newsletter { display: none !important; }
-  `});
+  `,
+  });
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   motion,
   type Transition,
@@ -83,6 +83,65 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const [hoverKey, setHoverKey] = useState<Page | null>(null);
   const reduce = useReducedMotion();
+  // Roving focus / keyboard navigation across sidebar items
+  const btnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const setBtnRef = useCallback(
+    (key: Page) => (el: HTMLButtonElement | null) => {
+      btnRefs.current[key] = el;
+    },
+    [],
+  );
+
+  const focusKey = useCallback(
+    (key: Page) => {
+      const el = btnRefs.current[key];
+      if (el) el.focus();
+      // In collapsed mode we show tooltip on focus; expanded mode ignores tooltip anyway
+      setHoverKey(isOpen ? null : key);
+    },
+    [isOpen],
+  );
+
+  const handleNavKeyDown = useCallback(
+    (e: React.KeyboardEvent, key: Page) => {
+      const idx = nav.findIndex((n) => n.key === key);
+      if (idx < 0) return;
+
+      let nextIdx = idx;
+
+      switch (e.key) {
+        case "ArrowDown":
+        case "ArrowRight":
+          e.preventDefault();
+          nextIdx = (idx + 1) % nav.length;
+          break;
+        case "ArrowUp":
+        case "ArrowLeft":
+          e.preventDefault();
+          nextIdx = (idx - 1 + nav.length) % nav.length;
+          break;
+        case "Home":
+          e.preventDefault();
+          nextIdx = 0;
+          break;
+        case "End":
+          e.preventDefault();
+          nextIdx = nav.length - 1;
+          break;
+        case "Escape":
+          // Close tooltip / remove hover affordance when keyboard users want it gone
+          setHoverKey(null);
+          return;
+        default:
+          return;
+      }
+
+      const nextKey = nav[nextIdx]?.key;
+      if (nextKey) focusKey(nextKey);
+    },
+    [nav, focusKey],
+  );
 
   // Small helper classes for active state + a reusable glass panel token
   const glassPanel =
@@ -112,16 +171,18 @@ const Sidebar: React.FC<SidebarProps> = ({
         style={
           useParentWidth
             ? ({
-                // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
-                overflowX: "hidden",
+                // allow horizontal overflow for tooltips when collapsed
+                overflowX: isOpen ? "hidden" : "visible",
                 overflowY: isOpen ? "auto" : "hidden",
+
                 ["--sidebar-expanded" as any]: `${EXPANDED}px`,
                 ["--sidebar-collapsed" as any]: `${COLLAPSED}px`,
               } as React.CSSProperties)
             : ({
                 width: isOpen ? EXPANDED : COLLAPSED,
                 // allow horizontal overflow for tooltips when collapsed, hide vertical scrollbar
-                overflowX: "hidden",
+                // allow horizontal overflow for tooltips when collapsed
+                overflowX: isOpen ? "hidden" : "visible",
                 overflowY: isOpen ? "auto" : "hidden",
                 ["--sidebar-expanded" as any]: `${EXPANDED}px`,
                 ["--sidebar-collapsed" as any]: `${COLLAPSED}px`,
@@ -129,7 +190,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       >
         {/* NAV ONLY */}
-        <div className="relative flex-1 overflow-hidden w-full">
+        <div
+          className={`relative flex-1 w-full ${isOpen ? "overflow-hidden" : "overflow-visible"}`}
+        >
           {/* Collapsed (icon-only rail) */}
           {!isOpen && (
             <motion.ul
@@ -149,15 +212,22 @@ const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <motion.button
                       type="button"
+                      ref={setBtnRef(key)}
                       title={!isOpen ? label : undefined}
                       aria-label={label}
                       aria-current={active ? "page" : undefined}
+                      aria-describedby={
+                        !isOpen && hoverKey === key
+                          ? `sb-tip-${key}`
+                          : undefined
+                      }
                       className={[
                         railTap,
                         active ? activeRail : "",
                         "mx-auto",
                       ].join(" ")}
                       onClick={() => setCurrentPage(key)}
+                      onKeyDown={(e) => handleNavKeyDown(e, key)}
                       onMouseEnter={() => setHoverKey(key)}
                       onMouseLeave={() => setHoverKey(null)}
                       onFocus={() => setHoverKey(key)}
@@ -188,6 +258,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                       <AnimatePresence>
                         {hoverKey === key && (
                           <motion.span
+                            id={`sb-tip-${key}`}
+                            role="tooltip"
                             className="absolute left-full top-1/2 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-lg ring-1 ring-black/5 pointer-events-none"
                             initial={
                               reduce
@@ -236,12 +308,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <motion.li key={key} variants={itemVariants}>
                       <motion.button
                         type="button"
+                        ref={setBtnRef(key)}
                         className={[
                           listTap,
                           active ? activeList : "text-foreground/80",
                           "hover:translate-y-[-2px] relative overflow-hidden",
                         ].join(" ")}
                         onClick={() => setCurrentPage(key)}
+                        onKeyDown={(e) => handleNavKeyDown(e, key)}
                         aria-current={active ? "page" : undefined}
                         whileHover={
                           reduce

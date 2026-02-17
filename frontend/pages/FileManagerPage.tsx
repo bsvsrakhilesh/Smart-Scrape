@@ -162,6 +162,42 @@ export default function FileManagerPage() {
   // ---------- hotkeys overlay ----------
   const [showHotkeys, setShowHotkeys] = useState(false);
 
+  // ---------- Bulk AI auto-tag UI ----------
+  const autoTagCancelRef = useRef(false);
+  const [autoTagUI, setAutoTagUI] = useState<{
+    open: boolean;
+    running: boolean;
+    total: number;
+    done: number;
+    success: number;
+    failed: number;
+    currentLabel: string;
+    errors: { id: string; label: string; message: string }[];
+  }>({
+    open: false,
+    running: false,
+    total: 0,
+    done: 0,
+    success: 0,
+    failed: 0,
+    currentLabel: "",
+    errors: [],
+  });
+
+  const requestCancelAutoTag = useCallback(() => {
+    if (!autoTagUI.open) return;
+
+    // If not running, just close the modal
+    if (!autoTagUI.running) {
+      setAutoTagUI((p) => ({ ...p, open: false }));
+      return;
+    }
+
+    // Running: request cancellation
+    autoTagCancelRef.current = true;
+    notify("Cancelling auto-tag…", "info");
+  }, [autoTagUI.open, autoTagUI.running, notify]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "?") setShowHotkeys((v) => !v);
@@ -1109,10 +1145,11 @@ export default function FileManagerPage() {
     [notify, refresh],
   );
 
-  // Bulk AI auto-tag selected files
+  // Bulk AI auto-tag selected files (progress + cancel + proper errors)
   const onAutoTagSelected = useCallback(
     async (ids: string[]) => {
       if (!ids?.length) return;
+
       const { fileIds, folderIds } = splitSelectionIds(ids);
       if (folderIds.length > 0) {
         notify(
@@ -1120,64 +1157,147 @@ export default function FileManagerPage() {
           "info",
         );
       }
+
       const targets = allFiles.filter((f) => fileIds.includes(f.id));
       if (!targets.length) return;
 
-      for (const f of targets) {
-        try {
-          // 1) start job
-          const { jobId } = await startFileTagJob(f.id);
+      // init UI
+      autoTagCancelRef.current = false;
+      setAutoTagUI({
+        open: true,
+        running: true,
+        total: targets.length,
+        done: 0,
+        success: 0,
+        failed: 0,
+        currentLabel: "",
+        errors: [],
+      });
 
-          // 2) poll job
-          let attempt = 0;
-          while (attempt < 90) {
-            // ~90s
-            const data = await getFileTagJob(jobId, f.id);
+      const labelFor = (f: any) =>
+        String(f?.title || f?.name || f?.filename || f?.id || "file");
 
-            if (data?.state === "SUCCESS") {
-              const ai = Array.from(
-                new Set<string>((data.tags ?? []).map(String)),
-              );
+      const pollOne = async (fileId: string) => {
+        // 1) start job
+        const { jobId } = await startFileTagJob(fileId);
 
-              // merge in UI
-              const mergedUi = (curr: string[] = []) =>
-                Array.from(new Set([...(curr ?? []), ...ai]));
+        // 2) poll job (timeout ~90s)
+        let attempt = 0;
+        while (attempt < 90) {
+          if (autoTagCancelRef.current) {
+            throw new Error("Cancelled");
+          }
 
+          const data = await getFileTagJob(jobId, fileId);
+
+          if (data?.state === "SUCCESS") {
+            const ai = Array.from(
+              new Set<string>((data.tags ?? []).map(String)),
+            );
+            return ai;
+          }
+
+          if (data?.state === "FAILURE") {
+            throw new Error(data?.error || "AI tagging failed");
+          }
+
+          await new Promise((r) => setTimeout(r, 1000));
+          attempt++;
+        }
+
+        throw new Error("Timed out waiting for AI tags");
+      };
+
+      // Small concurrency so UI feels fast without hammering backend
+      const CONCURRENCY = Math.min(3, targets.length);
+      let cursor = 0;
+
+      const worker = async () => {
+        while (true) {
+          if (autoTagCancelRef.current) return;
+
+          const i = cursor++;
+          const f = targets[i];
+          if (!f) return;
+
+          const label = labelFor(f);
+          setAutoTagUI((p) => ({ ...p, currentLabel: label }));
+
+          try {
+            const aiTags = await pollOne(f.id);
+
+            // optimistic merge in UI for instant feedback
+            setAllFiles((prev) =>
+              prev.map((x) => {
+                if (x.id !== f.id) return x;
+                const merged = Array.from(
+                  new Set([...(x.tags ?? []), ...aiTags]),
+                );
+                return { ...x, tags: merged };
+              }),
+            );
+
+            // replace optimistic tags with server truth (source of truth)
+            try {
+              const fresh = await getFileById(f.id);
               setAllFiles((prev) =>
                 prev.map((x) =>
-                  x.id === f.id ? { ...x, tags: mergedUi(x.tags) } : x,
+                  x.id === f.id ? { ...x, tags: fresh.tags ?? [] } : x,
                 ),
               );
-
-              // NEW: replace optimistic tags with server truth (backend merge + meta)
-              try {
-                const fresh = await getFileById(f.id);
-                setAllFiles((prev) =>
-                  prev.map((x) =>
-                    x.id === f.id ? { ...x, tags: fresh.tags ?? [] } : x,
-                  ),
-                );
-              } catch (e) {
-                console.warn("Failed to refresh file after AI tag", f.id, e);
-              }
-
-              // Persist is handled by GET /api/tag-jobs/:jobId?fileId=... when state=SUCCESS
-              break;
+            } catch {
+              // non-fatal — UI already updated optimistically
             }
 
-            if (data?.state === "FAILURE") {
-              throw new Error(data?.error || "AI tagging failed");
+            setAutoTagUI((p) => ({
+              ...p,
+              done: p.done + 1,
+              success: p.success + 1,
+            }));
+          } catch (e: any) {
+            // "Cancelled" is not a failure in UX terms
+            const msg = String(e?.message || "Auto-tag failed");
+            if (msg !== "Cancelled") {
+              setAutoTagUI((p) => ({
+                ...p,
+                done: p.done + 1,
+                failed: p.failed + 1,
+                errors: [
+                  ...p.errors,
+                  { id: String(f.id), label, message: msg },
+                ].slice(-10),
+              }));
+            } else {
+              // cancelled: count as done so progress completes gracefully
+              setAutoTagUI((p) => ({ ...p, done: p.done + 1 }));
             }
-
-            await new Promise((r) => setTimeout(r, 1000));
-            attempt++;
           }
-        } catch (err) {
-          console.error("Auto-tag file failed", f.id, err);
         }
+      };
+
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+      // finish UI + show summary toast
+      setAutoTagUI((p) => ({ ...p, running: false, currentLabel: "" }));
+
+      // Use the latest computed state from setAutoTagUI above:
+      // (we can't synchronously read updated state, so compute from targets + cancel flag)
+      if (autoTagCancelRef.current) {
+        notify("Auto-tag cancelled", "info");
+      } else {
+        // We can approximate from UI state by reading via updater:
+        setAutoTagUI((p) => {
+          notify(
+            p.failed > 0
+              ? `Auto-tag done: ${p.success} success, ${p.failed} failed`
+              : `Auto-tag done: ${p.success} tagged`,
+            p.failed > 0 ? "error" : "success",
+          );
+          return p;
+        });
       }
     },
-    [allFiles, setAllFiles],
+    [allFiles, notify, setAllFiles, requestCancelAutoTag],
   );
 
   const onAddTagSelected = useCallback(
@@ -1384,7 +1504,15 @@ export default function FileManagerPage() {
                     onNavigate={async (folderId) => {
                       await onFolderSelect(folderId ?? undefined);
                     }}
-                    onSearchSubmit={(q) => setSearch(q)}
+                    onSearchSubmit={(q) => {
+                      const next = q.trim();
+                      if (next === search) return;
+
+                      setSearch(next);
+                      setPage(1);
+                      setSelected([]);
+                      setEmptyBgMenu(null);
+                    }}
                     initialSearch={search}
                   />
                 </div>
@@ -1800,6 +1928,77 @@ export default function FileManagerPage() {
             onUploaded={handleUploaded}
             folderId={currentFolderId}
           />
+        </Modal>
+        {/* Bulk AI auto-tag modal */}
+        <Modal
+          open={autoTagUI.open}
+          onClose={requestCancelAutoTag}
+          title="AI auto-tagging"
+        >
+          <div className="space-y-4">
+            <div className="text-sm text-neutral-600 dark:text-neutral-300">
+              {autoTagUI.running
+                ? "Tagging selected files…"
+                : "Finished auto-tagging."}
+            </div>
+
+            <div className="text-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span>
+                  {autoTagUI.done}/{autoTagUI.total}
+                </span>
+                <span>
+                  {Math.round(
+                    (autoTagUI.done / Math.max(1, autoTagUI.total)) * 100,
+                  )}
+                  %
+                </span>
+              </div>
+
+              <div className="h-2 w-full bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
+                <div
+                  className="h-2 bg-black/70 dark:bg-white/70"
+                  style={{
+                    width: `${Math.round(
+                      (autoTagUI.done / Math.max(1, autoTagUI.total)) * 100,
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              <div className="mt-3 text-xs text-neutral-600 dark:text-neutral-400 flex gap-4">
+                <span>Success: {autoTagUI.success}</span>
+                <span>Failed: {autoTagUI.failed}</span>
+              </div>
+
+              {autoTagUI.currentLabel && autoTagUI.running && (
+                <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+                  Current:{" "}
+                  <span className="font-medium">{autoTagUI.currentLabel}</span>
+                </div>
+              )}
+            </div>
+
+            {autoTagUI.errors.length > 0 && (
+              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
+                <div className="text-sm font-semibold mb-2">Recent errors</div>
+                <ul className="text-xs text-neutral-700 dark:text-neutral-300 space-y-1">
+                  {autoTagUI.errors.slice(-3).map((e) => (
+                    <li key={e.id}>
+                      <span className="font-medium">{e.label}:</span>{" "}
+                      <span>{e.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <ToolbarButton variant="ghost" onClick={requestCancelAutoTag}>
+                {autoTagUI.running ? "Cancel" : "Close"}
+              </ToolbarButton>
+            </div>
+          </div>
         </Modal>
       </motion.div>
       {showHotkeys && (

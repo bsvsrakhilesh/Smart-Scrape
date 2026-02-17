@@ -1,6 +1,11 @@
 import { Router } from "express";
 import prisma from "../config/database";
-import { createJobFromFile, createJobFromUrl, getJob, healthCheck } from "../services/pyTaggerClient";
+import {
+  createJobFromFile,
+  createJobFromUrl,
+  getJob,
+  healthCheck,
+} from "../services/pyTaggerClient";
 
 const r = Router();
 
@@ -9,7 +14,11 @@ const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
 
 /** Quick health proxy (optional) */
 r.get("/tagger/health", async (_req, res, next) => {
-  try { res.json(await healthCheck()); } catch (e) { next(e); }
+  try {
+    res.json(await healthCheck());
+  } catch (e) {
+    next(e);
+  }
 });
 
 /** FILES: start auto-tag job */
@@ -18,11 +27,14 @@ r.post("/files/:id/auto-tags", async (req, res, next) => {
     const id = String(req.params.id);
     const rec = await prisma.storedFile.findUnique({ where: { id } });
     if (!rec) return res.status(404).json({ message: "File not found" });
-    if (!rec.storagePath) return res.status(400).json({ message: "Missing storagePath" });
+    if (!rec.storagePath)
+      return res.status(400).json({ message: "Missing storagePath" });
 
     const { jobId } = await createJobFromFile(rec.storagePath, TOPK, USE_LLM);
     return res.status(202).json({ jobId });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 /** URLS: start auto-tag job */
@@ -43,7 +55,9 @@ r.post("/urls/:id/auto-tags", async (req, res, next) => {
     });
 
     return res.status(202).json({ jobId });
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 /** JOB STATUS: when SUCCESS, persist tags and return payload */
@@ -51,59 +65,93 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
   try {
     const { jobId } = req.params;
     const fileId = req.query.fileId ? String(req.query.fileId) : null;
-    const urlId  = req.query.urlId  ? Number(req.query.urlId)  : null;
+    const urlId = req.query.urlId ? Number(req.query.urlId) : null;
 
     const data = await getJob(jobId);
 
     if (data.state !== "SUCCESS") {
       if (urlId && data.state === "FAILURE") {
-        const msg = String(data?.error || data?.message || "Unknown ai-tagger failure").slice(0, 500);
+        const msg = String(
+          data?.error || data?.message || "Unknown ai-tagger failure",
+        ).slice(0, 500);
         await prisma.url.update({
           where: { id: urlId },
-          data: { taggingStatus: "FAILED", taggingJobId: null, taggingError: msg },
+          data: {
+            taggingStatus: "FAILED",
+            taggingJobId: null,
+            taggingError: msg,
+          },
         });
       }
       return res.json(data);
     }
 
     const { tags, hash, tagger_version, phrases, unigrams } = data;
-    
-  if (fileId) {
-  const rec = await prisma.storedFile.findUnique({ where: { id: fileId } });
-  if (rec) {
-    const merged = Array.from(new Set([...(rec.tags || []), ...(tags || [])]));
-    await prisma.storedFile.update({
-      where: { id: fileId },
-      data: {
-        tags: { set: merged },
-        contentHash: hash ?? null,
-        taggerVersion: tagger_version ?? null,
-        tagsMeta: { phrases: phrases || [], unigrams: unigrams || [] },
-      },
-    });
-  }
-}
 
-if (urlId) {
-  const row = await prisma.url.findUnique({ where: { id: urlId } });
-  if (row) {
-    const merged = Array.from(new Set([...(row.tags || []), ...(tags || [])]));
-    await prisma.url.update({
-      where: { id: urlId },
-      data: {
-        tags: { set: merged },
-        contentHash: hash ?? null,
-        taggerVersion: tagger_version ?? null,
-        tagsMeta: { phrases: phrases || [], unigrams: unigrams || [] },
-        taggingStatus: "SUCCESS",
-        taggingJobId: null,
-        taggingError: null,
-      },
-    });
-  }
-}
+    const buildNextTagsMeta = (prev: any) => {
+      const p = prev && typeof prev === "object" ? prev : {};
+      const prevTagger =
+        p.tagger && typeof p.tagger === "object" ? p.tagger : {};
+
+      return {
+        ...p, // ✅ preserves p.capture and anything else already present
+        tagger: {
+          ...prevTagger,
+          phrases: phrases || [],
+          unigrams: unigrams || [],
+          topk: TOPK,
+          use_llm: USE_LLM,
+          jobId,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    };
+
+    if (fileId) {
+      const rec = await prisma.storedFile.findUnique({ where: { id: fileId } });
+      if (rec) {
+        const merged = Array.from(
+          new Set([...(rec.tags || []), ...(tags || [])]),
+        );
+
+        await prisma.storedFile.update({
+          where: { id: fileId },
+          data: {
+            tags: { set: merged },
+            contentHash: hash ?? null,
+            taggerVersion: tagger_version ?? null,
+            tagsMeta: buildNextTagsMeta(rec.tagsMeta),
+          },
+        });
+      }
+    }
+
+    if (urlId) {
+      const row = await prisma.url.findUnique({ where: { id: urlId } });
+      if (row) {
+        const merged = Array.from(
+          new Set([...(row.tags || []), ...(tags || [])]),
+        );
+
+        await prisma.url.update({
+          where: { id: urlId },
+          data: {
+            tags: { set: merged },
+            contentHash: hash ?? null,
+            taggerVersion: tagger_version ?? null,
+            tagsMeta: buildNextTagsMeta(row.tagsMeta),
+            taggingStatus: "SUCCESS",
+            taggingJobId: null,
+            taggingError: null,
+          },
+        });
+      }
+    }
+
     return res.json(data);
-  } catch (e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 export default r;

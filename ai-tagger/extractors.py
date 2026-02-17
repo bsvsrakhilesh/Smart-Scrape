@@ -41,7 +41,7 @@ _DEFAULT_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
@@ -252,30 +252,51 @@ def from_text(text: Optional[str]) -> str:
 
 def from_url(url: str) -> str:
     """
-    Fetch a URL with requests (so we control timeout/headers) and run Trafilatura
-    extraction on the retrieved HTML. This avoids trafilatura.fetch_url(..., timeout=...),
-    which is not supported in some installed versions.
+    Fetch a URL and extract text.
+    - If the response is a PDF (by header, URL hint, or magic bytes), run pdfminer.
+    - Otherwise treat as HTML and use trafilatura (+ JSON-LD fallback).
     """
     resp = requests.get(
         url,
-        timeout=(10, 25),
+        timeout=(10, 60),
         headers=_DEFAULT_HEADERS,
         allow_redirects=True,
     )
     resp.raise_for_status()
+
+    ctype = (resp.headers.get("content-type") or "").lower()
+    data = resp.content or b""
+
+    # --- PDF detection (gov sites often mislabel content-type) ---
+    url_l = (url or "").lower()
+    looks_like_pdf_url = (
+        url_l.endswith(".pdf")
+        or ".pdf&" in url_l
+        or ".pdf?" in url_l
+        or "filename=" in url_l and ".pdf" in url_l
+    )
+
+    is_pdf_header = ("application/pdf" in ctype) or ("application/octet-stream" in ctype and looks_like_pdf_url)
+    is_pdf_magic = len(data) >= 5 and data[:5] == b"%PDF-"
+
+    if is_pdf_header or is_pdf_magic or looks_like_pdf_url:
+        # If it isn't actually a PDF, magic bytes check will likely fail and pdfminer returns ""
+        txt = _from_pdf_bytes(data)
+        return _cleanup_extracted_text(txt or "")
+
+    # --- HTML path ---
     html = resp.text or ""
     if not html:
         return ""
-    # Keep original HTML; our pre-clean can be too aggressive for some publishers.
+
     orig_html = html
     cleaned = _strip_boilerplate_html(html)
-    
-    # Only use cleaned HTML if it didn't destroy most of the page
+
     if cleaned and len(cleaned) >= int(0.35 * len(orig_html)):
         html = cleaned
     else:
         html = orig_html
-    # Try a precision-first extraction to reduce chrome leakage.
+
     txt = trafilatura.extract(
         html,
         url=url,
@@ -284,8 +305,7 @@ def from_url(url: str) -> str:
         favor_precision=True,
         deduplicate=True,
     )
-    
-    # Fallback: sometimes precision is too aggressive on certain publishers.
+
     if not txt or len(txt) < 250:
         txt = trafilatura.extract(
             html,
@@ -295,14 +315,14 @@ def from_url(url: str) -> str:
             favor_recall=True,
             deduplicate=True,
         )
-    
-    # Final fallback: JSON-LD often contains the article text even when HTML is JS-heavy
+
     if not txt or len(txt) < 250:
         jsonld_txt = _jsonld_fallback(orig_html)
         if jsonld_txt:
             txt = jsonld_txt
-    
+
     return _cleanup_extracted_text(txt or "")
+
 
 def from_file(file_bytes: bytes, file_name: Optional[str] = None) -> str:
     """

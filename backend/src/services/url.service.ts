@@ -160,14 +160,14 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
 
     // If canonical exists already, skip (even if raw url differs).
     // This prevents duplicate rows before canonical_url becomes unique.
-    const existing = canonical
+    const existingByCanonical = canonical
       ? await prisma.url.findFirst({
           where: { canonical_url: canonical },
           select: { id: true },
         })
       : null;
 
-    if (existing) {
+    if (existingByCanonical) {
       skipped++;
       skippedUrls.push(r0.url);
       continue;
@@ -203,17 +203,46 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
   });
 
   // Resolve ids for skipped (already-existing) URLs so callers can always get urlId.
-  const existing =
+  const skippedCanon = skippedUrls
+    .map((u) => canonicalizeUrl(u))
+    .filter((v): v is string => Boolean(v));
+
+  const existingRows =
     skippedUrls.length > 0
       ? await prisma.url.findMany({
-          where: { url: { in: skippedUrls } },
-          select: { id: true, url: true },
+          where: {
+            OR: [
+              { url: { in: skippedUrls } },
+              { canonical_url: { in: skippedCanon } },
+            ],
+          },
+          select: {
+            id: true,
+            url: true,
+            tags: true,
+            taggerVersion: true,
+            taggingStatus: true,
+          },
         })
       : [];
 
+  // Also tag already-existing rows if they are not tagged yet (or previously failed)
+  existingRows.forEach(({ id, tags, taggerVersion, taggingStatus }, i) => {
+    const needsTagging =
+      !taggerVersion ||
+      !tags ||
+      tags.length === 0 ||
+      taggingStatus === "FAILED";
+
+    if (needsTagging) {
+      const offset = created.length + i; // continue staggering after "created"
+      setTimeout(() => scheduleAiTagForUrl(id), offset * STAGGER_MS);
+    }
+  });
+
   const rowsOut = [
     ...created.map((r) => ({ id: r.id, url: r.url, isNew: true })),
-    ...existing.map((r) => ({ id: r.id, url: r.url, isNew: false })),
+    ...existingRows.map((r) => ({ id: r.id, url: r.url, isNew: false })),
   ];
 
   return { added, skipped, skippedUrls, rows: rowsOut };
@@ -231,10 +260,7 @@ export async function urlsExist(urls: string[]) {
   // During rollout (canonical_url nullable), match either canonical_url OR raw url
   const found = await prisma.url.findMany({
     where: {
-      OR: [
-        { canonical_url: { in: canon } },
-        { url: { in: cleaned } },
-      ],
+      OR: [{ canonical_url: { in: canon } }, { url: { in: cleaned } }],
     },
     select: { id: true, canonical_url: true, url: true },
   });

@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useRef } from "react";
+import { useDialogA11y } from "../common/useDialogA11y";
+
 import { FileItem } from "../../lib/types";
 import { formatBytes } from "../../utils/fileHelpers";
 
@@ -14,6 +16,18 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
   onClose,
 }) => {
   if (!isOpen || !file) return null;
+
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  useDialogA11y({
+    isOpen,
+    onClose,
+    dialogRef: dialogRef as any,
+    initialFocusRef: closeBtnRef as any,
+    closeOnEsc: true,
+    closeOnOutsideClick: true,
+  });
 
   const basic = [
     { label: "Name", value: file.title },
@@ -62,14 +76,27 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
     } catch {}
   };
 
-    return (
+  return (
     <div className="fixed inset-0 z-50 bg-black/50 overflow-y-auto">
       {/* Top padding prevents "clipped" look on short screens */}
       <div className="min-h-full flex items-start justify-center p-4 pt-14 pb-10">
-        <div className="w-full max-w-2xl rounded-2xl bg-surface shadow-2xl overflow-hidden max-h-[85vh]">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="properties-title"
+          className="w-full max-w-2xl rounded-2xl bg-surface shadow-2xl overflow-hidden max-h-[85vh]"
+        >
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Properties</h3>
-            <button className="btn-ghost text-sm px-3" onClick={onClose}>
+            <h3 id="properties-title" className="text-lg font-semibold">
+              Properties
+            </h3>
+
+            <button
+              ref={closeBtnRef}
+              className="btn-ghost text-sm px-3"
+              onClick={onClose}
+            >
               Close
             </button>
           </div>

@@ -2108,7 +2108,7 @@ export default function FileManagerPage() {
   return (
     <PageTransition>
       <motion.div
-        className="h-full py-4 md:py-6 overflow-visible"
+        className="fm-searchfirst h-full py-4 md:py-6 overflow-visible"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}

@@ -1725,6 +1725,65 @@ body,
   border-color: hsl(var(--accent) / 0.28);
 }
 
+/* ==========================================
+   Search-First Canvas (B/2): flatten surfaces
+   - Removes the "stacked cards" look by:
+     * killing heavy shadows + blur
+     * keeping ONE primary surface
+     * using dividers instead of nested cards
+   ========================================== */
+
+.fm-searchfirst .ex-grid {
+  gap: 18px;
+}
+
+.fm-searchfirst .ex-sidebar-surface,
+.fm-searchfirst .ex-main-surface {
+  border-radius: 22px;
+  background: color-mix(in oklab, hsl(var(--surface)) 52%, transparent);
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* Make the top command area feel like a single flat bar */
+.fm-searchfirst .ex-sticky-top {
+  border-radius: 18px;
+  background: color-mix(in oklab, hsl(var(--surface)) 78%, transparent);
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow: none;
+}
+
+/* Address bar + command bar become dividers, not extra "cards" */
+.fm-searchfirst .ex-addressbar {
+  padding: 10px 12px;
+}
+
+.fm-searchfirst .ex-commandbar {
+  border-top: 1px solid hsl(var(--border) / 0.65);
+}
+
+/* Status bar: flatter, more "system" */
+.fm-searchfirst .ex-statusbar {
+  border-radius: 16px;
+  background: color-mix(in oklab, hsl(var(--surface)) 70%, transparent);
+  border: 1px solid hsl(var(--border) / 0.75);
+  box-shadow: none;
+}
+
+/* The main file "panel" should not look like another stacked card */
+.fm-searchfirst .fm-panel {
+  border-radius: 22px;
+  background: color-mix(in oklab, hsl(var(--surface)) 56%, transparent);
+  border: 1px solid hsl(var(--border) / 0.8);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.fm-searchfirst .fm-panel::before {
+  display: none;
+}
+
 .ex-page-size {
   border-radius: 14px;
   border: 1px solid hsl(var(--border));

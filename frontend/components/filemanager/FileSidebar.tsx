@@ -20,11 +20,12 @@ import { fetchRootFolders, fetchChildren } from "../../lib/folders";
 
 type FileSidebarProps = {
   onFolderSelect: (id?: string, name?: string) => void;
+  onViewSelect: (mode: "trash" | "favorites") => void;
   currentFolderId?: string;
   storageUsedBytes?: number;
   storageCapacityBytes?: number;
-  viewMode: "drive" | "trash";
-  setViewMode: (m: "drive" | "trash") => void;
+  viewMode: "drive" | "trash" | "favorites";
+  setViewMode: (m: "drive" | "trash" | "favorites") => void;
 };
 
 const SectionShell: React.FC<{ children: React.ReactNode }> = ({
@@ -129,9 +130,11 @@ async function getLibraryFolders(): Promise<FolderNode[]> {
 
 const FileSidebar: React.FC<FileSidebarProps> = ({
   onFolderSelect,
+  onViewSelect,
   currentFolderId,
   storageUsedBytes,
   storageCapacityBytes,
+  viewMode,
 }) => {
   const [libraryFolders, setLibraryFolders] = useState<FolderNode[] | null>(
     null,
@@ -170,23 +173,23 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   }, [onFolderSelect]);
 
   const goTrash = useCallback(() => {
-    onFolderSelect?.("trash", "Trash");
-  }, [onFolderSelect]);
+    onViewSelect?.("trash");
+  }, [onViewSelect]);
 
   const quickAccess = useMemo(() => {
     const HOME = {
       label: "Home",
       icon: <Star className="w-4 h-4" />,
       go: goHome,
-      active: !currentFolderId,
+      active: viewMode === "drive" && !currentFolderId,
       pinned: true,
     };
 
     const FAVORITES = {
       label: "Favorites",
       icon: <Heart className="w-4 h-4" />,
-      go: () => onFolderSelect?.("favorites", "Favorites"),
-      active: currentFolderId === "favorites",
+      go: () => onViewSelect?.("favorites"),
+      active: viewMode === "favorites",
       pinned: true,
     };
 
@@ -194,7 +197,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
       label: "Trash",
       icon: <Trash2 className="w-4 h-4" />,
       go: goTrash,
-      active: currentFolderId === "trash",
+      active: viewMode === "trash",
       pinned: true,
     };
 
@@ -224,12 +227,20 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
         label: l.name,
         icon: iconFor(l.name),
         go: () => onFolderSelect?.(l.id, l.name),
-        active: currentFolderId === l.id,
+        active: viewMode === "drive" && currentFolderId === l.id,
         pinned: true,
       }));
 
     return [HOME, FAVORITES, ...pinned, TRASH];
-  }, [goHome, currentFolderId, libraryFolders, onFolderSelect]);
+  }, [
+    goHome,
+    goTrash,
+    currentFolderId,
+    libraryFolders,
+    onFolderSelect,
+    onViewSelect,
+    viewMode,
+  ]);
 
   return (
     <nav className="ex-nav" aria-label="Folders">
@@ -296,7 +307,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
                   label={lib.name}
                   onClick={() => onFolderSelect?.(lib.id, lib.name)}
                   left={iconFor(lib.name)}
-                  active={currentFolderId === lib.id}
+                  active={viewMode === "drive" && currentFolderId === lib.id}
                 />
               ))}
             </div>

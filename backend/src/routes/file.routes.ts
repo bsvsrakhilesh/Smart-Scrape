@@ -1106,8 +1106,24 @@ r.get("/folders", async (req, res, next) => {
     const folders = await prisma.folder.findMany({
       where,
       orderBy: { name: "asc" },
+      include: {
+        children: {
+          where: { deletedAt: null },
+          select: { id: true },
+          take: 1,
+        },
+      },
     });
-    res.json(folders);
+
+    res.json(
+      folders.map((f) => {
+        const { children, ...rest } = f as any;
+        return {
+          ...rest,
+          hasChildren: Array.isArray(children) && children.length > 0,
+        };
+      }),
+    );
   } catch (err) {
     next(err);
   }

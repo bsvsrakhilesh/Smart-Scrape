@@ -398,6 +398,7 @@ export type BackendFolder = {
   name: string;
   parentId?: string | null;
   createdAt: string;
+  hasChildren?: boolean; 
 };
 
 export async function listFolders(parentId?: string): Promise<BackendFolder[]> {

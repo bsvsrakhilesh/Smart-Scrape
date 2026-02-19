@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ChevronLeft, Home, Search } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -23,12 +17,11 @@ type Props = {
 
   onNavigate?: (folderId: string | null) => void;
 
-  onResolvePathText?: (
-    text: string
-  ) => Promise<string | null> | string | null;
+  onResolvePathText?: (text: string) => Promise<string | null> | string | null;
 
   onSearchSubmit?: (q: string) => void;
   initialSearch?: string;
+  searchPlaceholder?: string;
 };
 
 export default function Breadcrumbs({
@@ -42,6 +35,7 @@ export default function Breadcrumbs({
   onResolvePathText,
   onSearchSubmit,
   initialSearch = "",
+  searchPlaceholder,
 }: Props) {
   // Ensure the breadcrumbs actually include & end at the current folder
   const displayPath = useMemo(() => {
@@ -141,7 +135,7 @@ export default function Breadcrumbs({
       if (crumb) crumb.onClick();
       else path[path.length - 1]?.onClick();
     },
-    [onNavigate, path]
+    [onNavigate, path],
   );
 
   const internalBack = useCallback(() => {
@@ -179,10 +173,8 @@ export default function Breadcrumbs({
   const internalCanBack = backStack.length > 0;
   const internalCanForward = forwardStack.length > 0;
 
-  const canBack =
-    backEnabled ?? (onBack ? true : internalCanBack);
-  const canForward =
-    forwardEnabled ?? (onForward ? true : internalCanForward);
+  const canBack = backEnabled ?? (onBack ? true : internalCanBack);
+  const canForward = forwardEnabled ?? (onForward ? true : internalCanForward);
 
   const doBack = onBack ?? internalBack;
   const doForward = onForward ?? internalForward;
@@ -211,9 +203,7 @@ export default function Breadcrumbs({
       const segments = text.split(/[\\/]/).map((s) => s.trim());
       const last = segments.filter(Boolean).pop()?.toLowerCase();
       if (last) {
-        const match = displayPath.find(
-          (c) => c.label.toLowerCase() === last
-        );
+        const match = displayPath.find((c) => c.label.toLowerCase() === last);
         if (match) resolved = match.id;
       }
     }
@@ -222,9 +212,7 @@ export default function Breadcrumbs({
     setEditing(false);
   }, [pathText, onResolvePathText, path, runNavigate]);
 
-  const handleAddressKeyDown = (
-    e: React.KeyboardEvent<HTMLInputElement>
-  ) => {
+  const handleAddressKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       resolveAndNavigate();
@@ -248,7 +236,7 @@ export default function Breadcrumbs({
           setSearch(v);
           onSearchSubmit?.(v);
         }}
-        placeholder="Search this folder"
+        placeholder={searchPlaceholder ?? (currentFolderId ? "Search this folder" : "Search")}
         className="h-7 flex-1 bg-transparent text-sm outline-none placeholder:text-[hsl(var(--fm-muted))]"
         aria-label="Search this folder"
       />
@@ -311,10 +299,7 @@ export default function Breadcrumbs({
           </button>
 
           {/* Breadcrumbs or editable path */}
-          <div
-            className="flex-1 min-w-0"
-            ref={crumbsRef}
-          >
+          <div className="flex-1 min-w-0" ref={crumbsRef}>
             {editing ? (
               <input
                 ref={inputRef}
@@ -326,10 +311,8 @@ export default function Breadcrumbs({
               />
             ) : (
               <div className="flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-transparent">
-                {(!displayPath || displayPath.length === 0) ? (
-                  <span className="text-[hsl(var(--fm-muted))]">
-                    This PC
-                  </span>
+                {!displayPath || displayPath.length === 0 ? (
+                  <span className="text-[hsl(var(--fm-muted))]">This PC</span>
                 ) : (
                   path.map((crumb, idx) => {
                     const isLast = idx === displayPath.length;

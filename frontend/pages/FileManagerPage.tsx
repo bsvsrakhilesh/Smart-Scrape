@@ -1139,9 +1139,9 @@ export default function FileManagerPage() {
       return;
     }
 
-    // Safety: never paste into Trash
-    if (viewMode === "trash" || currentFolderId === "trash") {
-      notify("You can’t paste into Trash. Restore items first.", "info");
+    // Safety: only allow paste in Drive
+    if (viewMode !== "drive") {
+      notify("This view is read-only.", "info");
       return;
     }
 
@@ -1205,11 +1205,14 @@ export default function FileManagerPage() {
   }, [clipboard, currentFolderId, notify, refreshAll, viewMode, virtualZip]);
 
   const buildEmptyBGMenu = useCallback((): MenuItem[] => {
+    const isReadOnlyHere = !!virtualZip || viewMode !== "drive";
+
     const items: MenuItem[] = [
       {
         type: "item",
         id: "new-folder",
         label: "New folder",
+        disabled: isReadOnlyHere,
         onSelect: () => {
           void handleNewFolder();
         },
@@ -1218,11 +1221,12 @@ export default function FileManagerPage() {
         type: "item",
         id: "upload",
         label: "Upload files",
+        disabled: isReadOnlyHere,
         onSelect: () => setShowUpload(true),
       },
     ];
 
-    if (clipboard?.files?.length && viewMode !== "trash" && !virtualZip) {
+    if (clipboard?.files?.length && !isReadOnlyHere) {
       items.push({ type: "separator" });
       items.push({
         type: "item",
@@ -1456,6 +1460,7 @@ export default function FileManagerPage() {
 
   const paletteCommands: PaletteCommand[] = useMemo(() => {
     const cmds: PaletteCommand[] = [];
+    const isReadOnly = !!virtualZip || viewMode !== "drive";
 
     // Navigation
     cmds.push({
@@ -1492,7 +1497,13 @@ export default function FileManagerPage() {
       subtitle: "Open upload dialog",
       group: "Actions",
       keywords: ["upload", "import", "add"],
-      run: () => setShowUpload(true),
+      run: () => {
+        if (isReadOnly) {
+          notify("This view is read-only.", "info");
+          return;
+        }
+        setShowUpload(true);
+      },
     });
 
     cmds.push({
@@ -1501,7 +1512,13 @@ export default function FileManagerPage() {
       subtitle: "Create a folder in current location",
       group: "Actions",
       keywords: ["new folder", "mkdir", "create"],
-      run: () => void handleNewFolder(),
+      run: () => {
+        if (isReadOnly) {
+          notify("You can only create folders in Drive.", "info");
+          return;
+        }
+        void handleNewFolder();
+      },
     });
 
     // Search
@@ -1765,6 +1782,9 @@ export default function FileManagerPage() {
     getFileById,
     normalizeFileDetail,
     setPreviewFocusTags,
+    onViewSelect,
+    viewMode,
+    virtualZip,
   ]);
 
   const handleBack = useCallback(() => {
@@ -1802,10 +1822,28 @@ export default function FileManagerPage() {
     }
 
     const folderId = entry || undefined;
+
+    // Polished behavior: if leaving Favorites/Trash and the history entry is "Home" (root),
+    // restore last Drive location instead of dumping user at root.
+    if (!folderId && viewMode !== "drive" && lastDriveLocationRef.current) {
+      const saved = lastDriveLocationRef.current;
+      setViewMode("drive");
+      setCurrentFolderId(saved.folderId);
+      setBreadcrumb(saved.breadcrumb);
+      return;
+    }
+
     setViewMode("drive");
     setCurrentFolderId(folderId);
     buildBreadcrumb(folderId).then(setBreadcrumb);
-  }, [history, historyIndex, buildBreadcrumb, buildZipBreadcrumb, virtualZip]);
+  }, [
+    history,
+    historyIndex,
+    buildBreadcrumb,
+    buildZipBreadcrumb,
+    virtualZip,
+    viewMode,
+  ]);
 
   const handleForward = useCallback(() => {
     if (historyIndex >= history.length - 1) return;
@@ -1842,10 +1880,28 @@ export default function FileManagerPage() {
     }
 
     const folderId = entry || undefined;
+
+    // Polished behavior: if leaving Favorites/Trash and the history entry is "Home" (root),
+    // restore last Drive location instead of dumping user at root.
+    if (!folderId && viewMode !== "drive" && lastDriveLocationRef.current) {
+      const saved = lastDriveLocationRef.current;
+      setViewMode("drive");
+      setCurrentFolderId(saved.folderId);
+      setBreadcrumb(saved.breadcrumb);
+      return;
+    }
+
     setViewMode("drive");
     setCurrentFolderId(folderId);
     buildBreadcrumb(folderId).then(setBreadcrumb);
-  }, [history, historyIndex, buildBreadcrumb, buildZipBreadcrumb, virtualZip]);
+  }, [
+    history,
+    historyIndex,
+    buildBreadcrumb,
+    buildZipBreadcrumb,
+    virtualZip,
+    viewMode,
+  ]);
 
   const onCrumbClick = useCallback(
     async (idx: number) => {
@@ -2344,7 +2400,9 @@ export default function FileManagerPage() {
                       label: idx === 0 ? "Home" : b.name,
                       onClick: () => onCrumbClick(idx),
                     }))}
-                    currentFolderId={viewMode === "drive" ? (currentFolderId ?? null) : null}
+                    currentFolderId={
+                      viewMode === "drive" ? (currentFolderId ?? null) : null
+                    }
                     onBack={handleBack}
                     onForward={handleForward}
                     backEnabled={historyIndex > 0}
@@ -2373,6 +2431,17 @@ export default function FileManagerPage() {
                       setEmptyBgMenu(null);
                     }}
                     initialSearch={search}
+                    searchPlaceholder={
+                      virtualZip
+                        ? "Search in archive"
+                        : viewMode === "favorites"
+                          ? "Search favorites"
+                          : viewMode === "trash"
+                            ? "Search trash"
+                            : currentFolderId
+                              ? "Search this folder"
+                              : "Search drive"
+                    }
                   />
                 </div>
 
@@ -2384,7 +2453,11 @@ export default function FileManagerPage() {
                       setPage(1);
                     }}
                     onNew={handleNewFolder}
-                    onUpload={() => setShowUpload(true)}
+                    onUpload={
+                      virtualZip || viewMode !== "drive"
+                        ? undefined
+                        : () => setShowUpload(true)
+                    }
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSortKeyChange={(k) => {

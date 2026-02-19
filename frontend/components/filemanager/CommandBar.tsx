@@ -119,7 +119,8 @@ export default function CommandBar({
           <button
             type="button"
             onClick={onNew}
-            className="flex items-center h-8 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"
+            disabled={!onNew}
+            className="flex items-center h-8 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-100"
             title="New folder"
           >
             <Plus className="h-4 w-4" />
@@ -129,7 +130,8 @@ export default function CommandBar({
           <button
             type="button"
             onClick={onUpload}
-            className="flex items-center h-8 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium"
+            disabled={!onUpload}
+            className="flex items-center h-8 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-100"
             title="Upload files"
           >
             <Upload className="h-4 w-4" />

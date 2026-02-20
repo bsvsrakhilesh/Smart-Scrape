@@ -8,9 +8,12 @@ import {
   getUrlSnapshots,
   getUrlRevisions,
   getFileExtractedText,
+  crawlSaveText,
+  crawlSavePdf,
   apiUrl,
   type BackendDocumentRevision,
 } from "../../lib/api";
+import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
 
@@ -63,50 +66,65 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     setLocalTags(url.tags);
   }, [url.tags]);
 
+  const { notify } = useToast();
+
+  const [recaptureMode, setRecaptureMode] = useState<"text" | "pdf">("text");
+  const [recaptureLoading, setRecaptureLoading] = useState(false);
+
+  // Reusable reloaders (so we can refresh after re-capture)
+  const refreshSnapshots = async () => {
+    try {
+      setSnapshotsLoading(true);
+      setSnapshotsError(null);
+      const rows = await getUrlSnapshots(Number(url.id), 50);
+      setSnapshots(rows);
+      return rows;
+    } catch (e: any) {
+      setSnapshotsError(e?.message ?? "Failed to load snapshots");
+      return [];
+    } finally {
+      setSnapshotsLoading(false);
+    }
+  };
+
+  const refreshRevisions = async () => {
+    try {
+      setRevisionsLoading(true);
+      setRevisionsError(null);
+      const out = await getUrlRevisions(Number(url.id), 50);
+      const next = out.revisions || [];
+      setRevisions(next);
+      return next;
+    } catch (e: any) {
+      setRevisionsError(e?.message ?? "Failed to load revision history");
+      return [];
+    } finally {
+      setRevisionsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-
-    (async () => {
-      try {
-        setSnapshotsLoading(true);
-        setSnapshotsError(null);
-        const rows = await getUrlSnapshots(Number(url.id), 50);
-        setSnapshots(rows);
-      } catch (e: any) {
-        setSnapshotsError(e?.message ?? "Failed to load snapshots");
-      } finally {
-        setSnapshotsLoading(false);
-      }
-    })();
+    refreshSnapshots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, url.id]);
 
   useEffect(() => {
     if (!isOpen) return;
-
-    (async () => {
-      try {
-        setRevisionsLoading(true);
-        setRevisionsError(null);
-        const out = await getUrlRevisions(Number(url.id), 50);
-        setRevisions(out.revisions || []);
-      } catch (e: any) {
-        setRevisionsError(e?.message ?? "Failed to load revision history");
-      } finally {
-        setRevisionsLoading(false);
-      }
-    })();
+    refreshRevisions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, url.id]);
 
-  async function runCompare() {
-    if (!leftSnapId || !rightSnapId) return;
+  async function runCompare(aId = leftSnapId, bId = rightSnapId) {
+    if (!aId || !bId) return;
 
     try {
       setCompareLoading(true);
       setCompareError(null);
 
       const [L, R] = await Promise.all([
-        getFileExtractedText(leftSnapId, 200000),
-        getFileExtractedText(rightSnapId, 200000),
+        getFileExtractedText(aId, 200000),
+        getFileExtractedText(bId, 200000),
       ]);
 
       setLeftPayload({
@@ -126,6 +144,62 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     } finally {
       setCompareLoading(false);
     }
+  }
+
+  // Re-capture live URL into a new canonical revision
+  async function recaptureNow() {
+    try {
+      setRecaptureLoading(true);
+
+      if (recaptureMode === "pdf") {
+        await crawlSavePdf(
+          url.url,
+          undefined,
+          undefined,
+          false, // fullPage
+          true, // reader mode
+          Number(url.id),
+        );
+      } else {
+        // "text" mode is already PDF-aware on the backend.
+        await crawlSaveText(url.url, undefined, undefined, Number(url.id));
+      }
+
+      notify({ text: "Re-captured. New revision created.", kind: "success" });
+
+      // Reload + auto-compare newest vs previous (best UX for amendments)
+      const nextRevs = await refreshRevisions();
+      await refreshSnapshots();
+
+      const newestId = nextRevs[0]?.storedFile?.id ?? null;
+      const prevId = nextRevs[1]?.storedFile?.id ?? null;
+
+      if (newestId && prevId) {
+        setLeftSnapId(prevId);
+        setRightSnapId(newestId);
+        await runCompare(prevId, newestId);
+      }
+    } catch (e: any) {
+      notify({
+        text: e?.response?.data?.message ?? e?.message ?? "Re-capture failed",
+        kind: "error",
+      });
+    } finally {
+      setRecaptureLoading(false);
+    }
+  }
+
+  // Use any revision inside Notebook (handoff)
+  function useRevisionInNotebook(storedFileId: string) {
+    try {
+      localStorage.setItem(
+        "nb:pendingAddSource",
+        JSON.stringify({ kind: "FILE", id: storedFileId, ts: Date.now() }),
+      );
+    } catch {
+      // ignore
+    }
+    window.location.href = "/notebook";
   }
 
   // Prevent background scroll when modal is open
@@ -291,6 +365,38 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
           {/* Right: Related & Collections */}
           <div className="space-y-4">
+            {/* Re-capture (creates a new canonical revision) */}
+            <div className="border rounded-xl p-3 bg-white">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-semibold text-sm">Re-capture</div>
+
+                <select
+                  className="border rounded-lg px-2 py-1 text-xs"
+                  value={recaptureMode}
+                  onChange={(e) =>
+                    setRecaptureMode(e.target.value as "text" | "pdf")
+                  }
+                  disabled={recaptureLoading}
+                >
+                  <option value="text">Text</option>
+                  <option value="pdf">PDF</option>
+                </select>
+              </div>
+
+              <div className="text-xs text-gray-500 mt-1">
+                Creates a new revision from the current live URL. Use this when
+                a news article is updated or a judgment gets amended.
+              </div>
+
+              <button
+                className="mt-2 w-full px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
+                onClick={recaptureNow}
+                disabled={recaptureLoading}
+                type="button"
+              >
+                {recaptureLoading ? "Re-capturing…" : "Re-capture now"}
+              </button>
+            </div>
             <div>
               {revisionsLoading ? (
                 <div className="text-sm text-gray-500">
@@ -311,6 +417,15 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   onSetB={(storedFileId) => setRightSnapId(storedFileId)}
                   currentA={leftSnapId}
                   currentB={rightSnapId}
+                  onCompareWithPrev={async (currentId, prevId) => {
+                    // Compare prev → show "what changed since last revision"
+                    setLeftSnapId(prevId);
+                    setRightSnapId(currentId);
+                    await runCompare(prevId, currentId);
+                  }}
+                  onUseInNotebook={(storedFileId) =>
+                    useRevisionInNotebook(storedFileId)
+                  }
                 />
               )}
             </div>
@@ -404,9 +519,10 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 </select>
 
                 <button
-                  className="px-3 py-2 border rounded text-sm"
+                  className="mt-2 w-full px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
+                  onClick={() => runCompare()}
                   disabled={!leftSnapId || !rightSnapId || compareLoading}
-                  onClick={runCompare}
+                  type="button"
                 >
                   {compareLoading ? "Comparing…" : "Compare"}
                 </button>

@@ -47,6 +47,18 @@ async function copyToClipboard(txt?: string | null) {
   }
 }
 
+function useRevisionInNotebook(storedFileId: string) {
+  try {
+    localStorage.setItem(
+      "nb:pendingAddSource",
+      JSON.stringify({ kind: "FILE", id: storedFileId, ts: Date.now() }),
+    );
+  } catch {
+    // ignore
+  }
+  window.location.href = "/notebook";
+}
+
 export default function EvidenceInspector({ file }: Props) {
   const sourceUrl = file?.sourceUrl ?? null;
 
@@ -174,6 +186,9 @@ export default function EvidenceInspector({ file }: Props) {
                   apiUrl(`/api/files/${storedFileId}/preview`),
                   "_blank",
                 )
+              }
+              onUseInNotebook={(storedFileId) =>
+                useRevisionInNotebook(storedFileId)
               }
             />
           )}

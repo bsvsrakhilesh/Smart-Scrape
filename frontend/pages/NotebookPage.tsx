@@ -15,15 +15,14 @@ import { ListSkeleton } from "../components/common/Skeleton";
 import SmartCard from "../components/ui/SmartCard";
 import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 import { PlusButton } from "../components/ui/PlusButton";
+import { useToast } from "../components/providers/Toast";
 
 function clsx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
 }
 const ACTIVE_KEY = "nb:lastId";
+const PENDING_ADD_KEY = "nb:pendingAddSource";
 
-// =========================================================
-// Step 2: NotebookLM-grade chrome (shared panel tokens)
-// =========================================================
 const PANEL_SHELL =
   "rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.65)_inset,0_18px_65px_rgba(15,23,42,0.12)] backdrop-blur supports-[backdrop-filter]:bg-white/60";
 const PANEL_CONTENT = "flex flex-col overflow-hidden min-h-0";
@@ -34,6 +33,7 @@ const PANEL_STICKY =
 
 export default function NotebookPage() {
   const qc = useQueryClient();
+  const { notify } = useToast();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [picker, setPicker] = useState<null | "url" | "file">(null);
@@ -41,7 +41,7 @@ export default function NotebookPage() {
 
   // mobile panel switcher state
   const [mobileTab, setMobileTab] = useState<"sources" | "chat" | "notes">(
-    "chat"
+    "chat",
   );
 
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({}); // sourceId -> element
@@ -56,7 +56,7 @@ export default function NotebookPage() {
   // ===== NotebookLM-style scope control (include/exclude sources) =====
   const scopeKey = activeId ? `nb:scope:excluded:${activeId}` : null;
   const [excludedSourceIds, setExcludedSourceIds] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
 
   // load scope when switching notebooks
@@ -100,6 +100,62 @@ export default function NotebookPage() {
     queryFn: () => api.listSources(activeId!),
     enabled: !!activeId,
   });
+
+  // ✅ If another page sent a FILE revision here, add it as a source automatically.
+  useEffect(() => {
+    if (!activeId) return;
+
+    let pendingRaw: string | null = null;
+    try {
+      pendingRaw = localStorage.getItem(PENDING_ADD_KEY);
+    } catch {
+      pendingRaw = null;
+    }
+    if (!pendingRaw) return;
+
+    let payload: any = null;
+    try {
+      payload = JSON.parse(pendingRaw);
+    } catch {
+      payload = null;
+    }
+
+    // Always clear so we don't loop
+    try {
+      localStorage.removeItem(PENDING_ADD_KEY);
+    } catch {
+      // ignore
+    }
+
+    if (!payload || payload.kind !== "FILE" || !payload.id) return;
+
+    const fileId = String(payload.id);
+
+    const already = (sourcesQ.data || []).some(
+      (s: any) => s.kind === "FILE" && s.file?.id === fileId,
+    );
+
+    if (already) {
+      notify({ text: "Already in this notebook.", kind: "info" });
+      return;
+    }
+
+    api
+      .addFileSource(activeId, fileId)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ["nb:sources", activeId] });
+        notify({
+          text: "Added revision to notebook sources.",
+          kind: "success",
+        });
+      })
+      .catch((e: any) => {
+        notify({
+          text: e?.message ?? "Failed to add source to notebook",
+          kind: "error",
+        });
+      });
+  }, [activeId, sourcesQ.data, qc, notify]);
 
   // restore last selected notebook (can be stale if DB was reset)
   useEffect(() => {
@@ -219,7 +275,7 @@ export default function NotebookPage() {
 
   const includedSourceIds = useMemo(
     () => sources.filter((s) => !excludedSourceIds.has(s.id)).map((s) => s.id),
-    [sources, excludedSourceIds]
+    [sources, excludedSourceIds],
   );
 
   const includedCount = includedSourceIds.length;
@@ -337,12 +393,12 @@ export default function NotebookPage() {
         const realUrlIds = new Set(
           real
             .filter((s) => s.kind === "URL" && s.url?.id)
-            .map((s) => String(s.url!.id))
+            .map((s) => String(s.url!.id)),
         );
         const realFileIds = new Set(
           real
             .filter((s) => s.kind === "FILE" && s.file?.id)
-            .map((s) => String(s.file!.id))
+            .map((s) => String(s.file!.id)),
         );
 
         const kept = cur.filter((s) => {
@@ -402,7 +458,7 @@ export default function NotebookPage() {
           <div
             className={clsx(
               PANEL_SHELL,
-              "px-3 py-2 flex items-center justify-between gap-3"
+              "px-3 py-2 flex items-center justify-between gap-3",
             )}
           >
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/5 border border-slate-200/70">
@@ -414,15 +470,15 @@ export default function NotebookPage() {
                     "px-3 py-1.5 rounded-lg text-[12px] font-semibold tracking-tight transition-all",
                     mobileTab === t
                       ? "bg-white text-slate-900 shadow-[0_8px_18px_rgba(15,23,42,0.12)]"
-                      : "text-slate-600 hover:text-slate-800 hover:bg-white/60"
+                      : "text-slate-600 hover:text-slate-800 hover:bg-white/60",
                   )}
                   aria-pressed={mobileTab === t}
                 >
                   {t === "sources"
                     ? "Sources"
                     : t === "chat"
-                    ? "Chat"
-                    : "Notes"}
+                      ? "Chat"
+                      : "Notes"}
                 </button>
               ))}
             </div>
@@ -456,7 +512,7 @@ export default function NotebookPage() {
               PANEL_CONTENT,
               "p-3",
               mobileTab === "sources" ? "flex" : "hidden",
-              "md:flex"
+              "md:flex",
             )}
           >
             {/* Notebooks */}
@@ -489,7 +545,7 @@ export default function NotebookPage() {
                         "shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]",
                         activeId === n.id
                           ? "bg-slate-50 text-slate-900 shadow-[0_10px_26px_rgba(15,23,42,0.12)] -translate-y-[1px]"
-                          : "bg-white/85 text-slate-700 hover:bg-slate-50 hover:shadow-[0_10px_24px_rgba(15,23,42,0.10)] hover:-translate-y-[1px]"
+                          : "bg-white/85 text-slate-700 hover:bg-slate-50 hover:shadow-[0_10px_24px_rgba(15,23,42,0.10)] hover:-translate-y-[1px]",
                       )}
                     >
                       <span
@@ -497,7 +553,7 @@ export default function NotebookPage() {
                           "absolute left-0 top-1/2 -translate-y-1/2 h-5 rounded-r transition-all duration-200",
                           activeId === n.id
                             ? "w-1.5 bg-slate-900/70"
-                            : "w-[3px] bg-slate-300/80 opacity-0 group-hover:opacity-100 group-hover:translate-x-[1px]"
+                            : "w-[3px] bg-slate-300/80 opacity-0 group-hover:opacity-100 group-hover:translate-x-[1px]",
                         )}
                       />
                       <span className="truncate">{n.title}</span>
@@ -509,7 +565,7 @@ export default function NotebookPage() {
                       onClick={(e) => {
                         e.stopPropagation();
                         setConfirmDeleteId((prev) =>
-                          prev === n.id ? null : n.id
+                          prev === n.id ? null : n.id,
                         );
                       }}
                       className={clsx(
@@ -517,7 +573,7 @@ export default function NotebookPage() {
                         "w-8 h-8 rounded-xl grid place-items-center",
                         "border border-transparent",
                         "text-slate-500 hover:text-rose-700 hover:bg-rose-50",
-                        "opacity-0 group-hover:opacity-100 transition-opacity"
+                        "opacity-0 group-hover:opacity-100 transition-opacity",
                       )}
                       aria-label="Delete notebook"
                       title="Delete"
@@ -549,7 +605,7 @@ export default function NotebookPage() {
                         className={clsx(
                           "absolute right-1 top-[calc(100%+6px)] z-20 w-[220px]",
                           "rounded-2xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)]",
-                          "p-3"
+                          "p-3",
                         )}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -659,7 +715,7 @@ export default function NotebookPage() {
                           "h-7 px-2.5 rounded-full text-[11px] font-semibold border transition",
                           sourceKind === k
                             ? "bg-slate-900 text-white border-slate-900 shadow-sm"
-                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50",
                         )}
                         aria-pressed={sourceKind === k}
                       >
@@ -725,13 +781,13 @@ export default function NotebookPage() {
                               window.open(
                                 href,
                                 "_blank",
-                                "noopener,noreferrer"
+                                "noopener,noreferrer",
                               );
                           }}
                           className={clsx(
                             "group relative flex items-start gap-3 p-3 rounded-2xl border border-slate-200/80 bg-white/85",
                             "hover:bg-white hover:shadow-[0_16px_50px_rgba(15,23,42,0.10)] transition-all duration-200",
-                            href ? "cursor-pointer" : "cursor-default"
+                            href ? "cursor-pointer" : "cursor-default",
                           )}
                         >
                           <div
@@ -739,7 +795,7 @@ export default function NotebookPage() {
                               "w-9 h-9 rounded-2xl grid place-items-center border shadow-sm",
                               isUrl
                                 ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                                : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                                : "bg-emerald-50 border-emerald-200 text-emerald-700",
                             )}
                             title={isUrl ? "URL" : "File"}
                           >
@@ -780,7 +836,7 @@ export default function NotebookPage() {
                                   "text-[10px] px-2.5 py-0.5 rounded-full border transition",
                                   excludedSourceIds.has(s.id)
                                     ? "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                                    : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                    : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
                                 )}
                                 title={
                                   excludedSourceIds.has(s.id)
@@ -827,13 +883,13 @@ export default function NotebookPage() {
               PANEL_SHELL,
               PANEL_CONTENT,
               mobileTab === "chat" ? "flex" : "hidden",
-              "md:flex"
+              "md:flex",
             )}
           >
             <div
               className={clsx(
                 PANEL_BAR,
-                "px-5 py-3 flex items-center gap-3 sticky top-0 z-10"
+                "px-5 py-3 flex items-center gap-3 sticky top-0 z-10",
               )}
             >
               <input
@@ -870,7 +926,7 @@ export default function NotebookPage() {
               PANEL_SHELL,
               PANEL_CONTENT,
               mobileTab === "notes" ? "flex" : "hidden",
-              "md:flex"
+              "md:flex",
             )}
           >
             <NotesEditor notebookId={activeId} />

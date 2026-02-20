@@ -6,6 +6,23 @@ function shortHash(h?: string | null) {
   return s.length <= 14 ? s : `${s.slice(0, 10)}…${s.slice(-4)}`;
 }
 
+type Props = {
+  revisions: BackendDocumentRevision[];
+  onOpen: (storedFileId: string) => void;
+
+  // Optional compare controls (Saved URLs modal uses these)
+  onSetA?: (storedFileId: string) => void;
+  onSetB?: (storedFileId: string) => void;
+  currentA?: string;
+  currentB?: string;
+
+  // one-click diff against previous revision
+  onCompareWithPrev?: (currentId: string, prevId: string) => void;
+
+  // handoff this specific revision into Notebook
+  onUseInNotebook?: (storedFileId: string) => void;
+};
+
 export default function RevisionHistoryPanel({
   revisions,
   onOpen,
@@ -13,14 +30,9 @@ export default function RevisionHistoryPanel({
   onSetB,
   currentA,
   currentB,
-}: {
-  revisions: BackendDocumentRevision[];
-  onOpen: (storedFileId: string) => void;
-  onSetA?: (storedFileId: string) => void;
-  onSetB?: (storedFileId: string) => void;
-  currentA?: string;
-  currentB?: string;
-}) {
+  onCompareWithPrev,
+  onUseInNotebook,
+}: Props) {
   return (
     <div className="border rounded-xl p-3 bg-white">
       <div className="flex items-center justify-between">
@@ -36,10 +48,18 @@ export default function RevisionHistoryPanel({
         </div>
       ) : (
         <div className="mt-2 space-y-2">
-          {revisions.map((r) => {
+          {revisions.map((r, idx) => {
             const fileId = r.storedFile?.id;
+            if (!fileId) return null;
+
+            // Backend orders by ordinal DESC → idx+1 is "previous"
+            const prevFileId = revisions[idx + 1]?.storedFile?.id ?? null;
+
             const isA = currentA && fileId === currentA;
             const isB = currentB && fileId === currentB;
+
+            const btn =
+              "inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-medium hover:bg-slate-50";
 
             return (
               <div key={r.id} className="border rounded-lg p-2 text-sm">
@@ -60,33 +80,56 @@ export default function RevisionHistoryPanel({
                     </div>
                   </div>
 
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex flex-wrap gap-2 shrink-0 justify-end">
                     {onSetA && (
                       <button
-                        className={`px-2 py-1 border rounded text-xs ${
-                          isA ? "bg-black text-white" : ""
-                        }`}
+                        className={`${btn} ${isA ? "bg-slate-900 text-white border-slate-900" : ""}`}
                         onClick={() => onSetA(fileId)}
                         title="Set as Compare A"
+                        type="button"
                       >
                         A
                       </button>
                     )}
+
                     {onSetB && (
                       <button
-                        className={`px-2 py-1 border rounded text-xs ${
-                          isB ? "bg-black text-white" : ""
-                        }`}
+                        className={`${btn} ${isB ? "bg-slate-900 text-white border-slate-900" : ""}`}
                         onClick={() => onSetB(fileId)}
                         title="Set as Compare B"
+                        type="button"
                       >
                         B
                       </button>
                     )}
+
+                    {onCompareWithPrev && prevFileId && (
+                      <button
+                        className={btn}
+                        onClick={() => onCompareWithPrev(fileId, prevFileId)}
+                        title="Compare this revision with the immediately previous revision"
+                        type="button"
+                      >
+                        Diff prev
+                      </button>
+                    )}
+
+                    {onUseInNotebook && (
+                      <button
+                        className={btn}
+                        onClick={() => onUseInNotebook(fileId)}
+                        title="Use this revision inside Notebook"
+                        type="button"
+                      >
+                        Notebook
+                      </button>
+                    )}
+
                     <button
-                      className="px-2 py-1 border rounded text-xs"
+                      className={btn}
                       onClick={() => onOpen(fileId)}
                       title="Open preview"
+                      type="button"
                     >
                       Open
                     </button>

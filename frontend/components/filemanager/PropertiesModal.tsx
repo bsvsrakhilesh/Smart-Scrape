@@ -69,6 +69,53 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
     },
   ];
 
+  const advancedProvenance = [
+    {
+      label: "Document ID",
+      value: file.document?.id ?? file.documentRevision?.documentId ?? "—",
+    },
+    { label: "Document kind", value: file.document?.kind ?? "—" },
+    { label: "Revision ID", value: file.documentRevision?.id ?? "—" },
+    {
+      label: "Revision ordinal",
+      value:
+        typeof file.documentRevision?.ordinal === "number"
+          ? String(file.documentRevision.ordinal)
+          : "—",
+    },
+    {
+      label: "Revision created",
+      value: file.documentRevision?.createdAt
+        ? new Date(file.documentRevision.createdAt).toLocaleString()
+        : "—",
+    },
+    { label: "Capture event ID", value: file.captureEvent?.id ?? "—" },
+    {
+      label: "Capture event time",
+      value: file.captureEvent?.createdAt
+        ? new Date(file.captureEvent.createdAt).toLocaleString()
+        : "—",
+    },
+    { label: "Request ID", value: file.captureEvent?.requestId ?? "—" },
+    {
+      label: "Actor",
+      value: file.captureEvent?.actorName ?? file.captureEvent?.actorId ?? "—",
+    },
+    {
+      label: "Pipeline",
+      value: file.captureEvent?.pipelineConfig
+        ? `${file.captureEvent.pipelineConfig.name} @ ${file.captureEvent.pipelineConfig.version}`
+        : "—",
+    },
+    {
+      label: "Pipeline configHash",
+      value: file.captureEvent?.pipelineConfig?.configHash ?? "—",
+    },
+    {
+      label: "Pipeline codeSha",
+      value: file.captureEvent?.pipelineConfig?.codeSha ?? "—",
+    },
+  ];
   const copy = async (txt: string) => {
     try {
       if (!txt || txt === "—") return;
@@ -190,6 +237,48 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
                   </div>
                 );
               })}
+
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm text-muted">
+                  Provenance (advanced)
+                </summary>
+
+                <div className="mt-3 space-y-2">
+                  {advancedProvenance.map(({ label, value }) => {
+                    const v = String(value ?? "—");
+                    const canCopy =
+                      v &&
+                      v !== "—" &&
+                      (label.includes("ID") ||
+                        label.includes("hash") ||
+                        label.includes("Request"));
+
+                    return (
+                      <div
+                        key={label}
+                        className="grid grid-cols-[140px_1fr_auto] gap-3 items-start"
+                      >
+                        <span className="text-muted">{label}:</span>
+                        <span className="text-foreground break-words whitespace-pre-wrap font-mono text-xs">
+                          {v}
+                        </span>
+
+                        {canCopy ? (
+                          <button
+                            className="btn-ghost text-xs px-2 h-7 self-start"
+                            onClick={() => copy(v)}
+                            title="Copy"
+                          >
+                            Copy
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
 
               {file.tagsMetaRaw ? (
                 <details className="mt-2">

@@ -884,8 +884,33 @@ r.get("/storage/usage", async (_req, res, next) => {
 r.get("/files/:id", async (req, res, next) => {
   try {
     const id = req.params.id;
-    const f = await prisma.storedFile.findUnique({ where: { id } });
+
+    const f = await prisma.storedFile.findUnique({
+      where: { id },
+      include: {
+        // if present, this is the “how it got created” event
+        captureEvent: {
+          include: {
+            pipelineConfig: true,
+            documentRevision: { include: { document: true } },
+          },
+        },
+
+        // if present, this is the canonical revision anchor
+        documentRevision: { include: { document: true } },
+      },
+    });
+
     if (!f) return res.status(404).json({ message: "Not found" });
+
+    // Prefer direct docRev link; fallback to captureEvent’s docRev for older records
+    const docRev =
+      (f as any).documentRevision ??
+      (f as any)?.captureEvent?.documentRevision ??
+      null;
+
+    const doc = docRev?.document ?? null;
+    const pc = (f as any)?.captureEvent?.pipelineConfig ?? null;
 
     res.json({
       id: f.id,
@@ -911,6 +936,49 @@ r.get("/files/:id", async (req, res, next) => {
       contentHash: f.contentHash ?? null,
       taggerVersion: f.taggerVersion ?? null,
       tagsMeta: f.tagsMeta ?? null,
+
+      document: doc
+        ? {
+            id: doc.id,
+            kind: doc.kind,
+            urlId: doc.urlId ?? null,
+            primaryFileId: doc.primaryFileId ?? null,
+          }
+        : null,
+
+      documentRevision: docRev
+        ? {
+            id: docRev.id,
+            documentId: docRev.documentId,
+            ordinal: docRev.ordinal,
+            createdAt: docRev.createdAt,
+            captureType: docRev.captureType,
+            contentHash: docRev.contentHash ?? null,
+            storedFileId: docRev.storedFileId,
+          }
+        : null,
+
+      captureEvent: (f as any).captureEvent
+        ? {
+            id: (f as any).captureEvent.id,
+            createdAt: (f as any).captureEvent.createdAt,
+            requestId: (f as any).captureEvent.requestId ?? null,
+            actorId: (f as any).captureEvent.actorId ?? null,
+            actorName: (f as any).captureEvent.actorName ?? null,
+            sourceUrl: (f as any).captureEvent.sourceUrl ?? null,
+            urlId: (f as any).captureEvent.urlId ?? null,
+            pipelineConfig: pc
+              ? {
+                  id: pc.id,
+                  name: pc.name,
+                  version: pc.version,
+                  configHash: pc.configHash,
+                  codeSha: pc.codeSha ?? null,
+                  createdAt: pc.createdAt,
+                }
+              : null,
+          }
+        : null,
     });
   } catch (err) {
     next(err);

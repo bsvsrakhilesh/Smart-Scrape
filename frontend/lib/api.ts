@@ -128,6 +128,9 @@ export type BackendStoredFile = {
   tagsMeta?: any;
   contentHash?: string | null;
   taggerVersion?: string | null;
+  document?: any;
+  documentRevision?: any;
+  captureEvent?: any;
 };
 
 export function toFileItem(row: BackendStoredFile): FileItem {
@@ -156,6 +159,10 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     contentHash: (row as any)?.contentHash ?? null,
     taggerVersion: (row as any)?.taggerVersion ?? null,
     tagsMetaRaw: (row as any)?.tagsMeta ?? null,
+    
+    document: (row as any).document ?? null,
+    documentRevision: (row as any).documentRevision ?? null,
+    captureEvent: (row as any).captureEvent ?? null,
   };
 }
 
@@ -398,7 +405,7 @@ export type BackendFolder = {
   name: string;
   parentId?: string | null;
   createdAt: string;
-  hasChildren?: boolean; 
+  hasChildren?: boolean;
 };
 
 export async function listFolders(parentId?: string): Promise<BackendFolder[]> {

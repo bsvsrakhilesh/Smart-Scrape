@@ -54,6 +54,41 @@ export interface FileItem {
   contentHash?: string | null;
   taggerVersion?: string | null;
   tagsMetaRaw?: any;
+  
+  document?: {
+    id: string;
+    kind: "URL" | "FILE";
+    urlId?: number | null;
+    primaryFileId?: string | null;
+  } | null;
+
+  documentRevision?: {
+    id: string;
+    documentId: string;
+    ordinal: number;
+    createdAt: string;
+    captureType: "UPLOAD" | "URL_TEXT" | "URL_PDF";
+    contentHash?: string | null;
+    storedFileId: string;
+  } | null;
+
+  captureEvent?: {
+    id: string;
+    createdAt: string;
+    requestId?: string | null;
+    actorId?: string | null;
+    actorName?: string | null;
+    sourceUrl?: string | null;
+    urlId?: number | null;
+    pipelineConfig?: {
+      id: string;
+      name: string;
+      version: string;
+      configHash: string;
+      codeSha?: string | null;
+      createdAt: string;
+    } | null;
+  } | null;
 }
 
 export interface FileVersion {

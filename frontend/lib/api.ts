@@ -2,8 +2,21 @@ import axios from "axios";
 import type { FileDetail, FileItem, SearchResult } from "./types";
 
 const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
+
+const isBrowser = typeof window !== "undefined";
+const host = isBrowser ? window.location.hostname : "";
+const isRemoteHost =
+  isBrowser && host && host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+
+const looksLikeLocalhost =
+  typeof rawBase === "string" &&
+  /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(rawBase);
+
 const baseURL =
-  typeof rawBase === "string" && rawBase.includes("://backend:") ? "" : rawBase;
+  typeof rawBase === "string" &&
+  (rawBase.includes("://backend:") || (isRemoteHost && looksLikeLocalhost))
+    ? ""
+    : rawBase;
 
 const api = axios.create({
   // Default: same-origin `/api` (dev proxy + prod nginx proxy)

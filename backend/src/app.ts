@@ -95,17 +95,45 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // -------- CORS (allowlist + credentials) --------
+// Production: strict allowlist via CORS_ORIGINS.
+// Development: also allow private-network origins so you can open the UI from another device on the same Wi-Fi.
+const isProd = process.env.NODE_ENV === "production";
+const devOriginOk = (origin: string) => {
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+
+    // localhost / loopback
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return true;
+
+    // Private IPv4 ranges: 10/8, 192.168/16, 172.16/12
+    if (/^10\.(\d{1,3}\.){2}\d{1,3}$/.test(h)) return true;
+    if (/^192\.168\.(\d{1,3}\.)\d{1,3}$/.test(h)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\.(\d{1,3}\.)\d{1,3}$/.test(h)) return true;
+
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 app.use(
   cors({
     origin: (origin, cb) => {
       // Allow non-browser clients (curl/postman) which may send no Origin
       if (!origin) return cb(null, true);
+      
+      // Explicit allowlist (works for prod + dev)
       if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      // Extra dev convenience: allow LAN/private-network origins
+      if (!isProd && devOriginOk(origin)) return cb(null, true);
+
       return cb(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID","X-Request-Id",],
   }),
 );
 

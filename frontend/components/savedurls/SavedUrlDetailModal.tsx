@@ -16,6 +16,7 @@ import {
 import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
+import StructuredTags from "../common/StructuredTags";
 
 interface SavedUrlDetailModalProps {
   url: SavedUrl;
@@ -341,6 +342,11 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 </div>
               </div>
             </div>
+
+            <StructuredTags
+              structured={(url as any)?.tagsMetaRaw?.tagger?.structured ?? null}
+              compact
+            />
 
             {/* Metadata */}
             <div>

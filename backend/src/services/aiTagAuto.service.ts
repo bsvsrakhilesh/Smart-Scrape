@@ -67,6 +67,7 @@ export async function runAiTagForFile(
       const tags = Array.isArray(data?.tags) ? data.tags : [];
       const phrases = Array.isArray(data?.phrases) ? data.phrases : [];
       const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
+      const structured = data?.structured ?? null;
 
       const merged = mergeUnique(rec.tags, tags);
 
@@ -78,7 +79,15 @@ export async function runAiTagForFile(
           taggerVersion: data?.tagger_version ?? null,
           tagsMeta: {
             ...((rec.tagsMeta as any) || {}),
-            aiTagger: { phrases, unigrams },
+            tagger: {
+              phrases: phrases || [],
+              unigrams: unigrams || [],
+              structured: structured || null,
+              topk: TOPK,
+              use_llm: USE_LLM,
+              jobId,
+              updatedAt: new Date().toISOString(),
+            },
           } as any,
         },
       });

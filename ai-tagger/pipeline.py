@@ -190,8 +190,7 @@ def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = Non
 
     unigrams = _extract_unigrams(tokens, topk=200)
     phrases  = _extract_phrases(tokens, topk=200)
-
-    # NEW: rare-but-important signal terms (DPCC/CPCB/PM10/IIT Bombay/etc.)
+ 
     signals = _extract_signal_terms(content)
 
     # NEW: semantic/keyword candidates (KeyBERT/YAKE/spaCy) when available
@@ -235,10 +234,22 @@ def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = Non
                     tagger_version = f"{TAGGER_VERSION}+llm:{llm_model}"
         except Exception as e:
             log.warning("LLM rerank failed: %s", e)
+        
+        # Structured policy labels (CAQM profile)
+        structured = None
+        try:
+            try:
+                from policy_taxonomy import classify_structured  # type: ignore
+            except Exception:
+                from .policy_taxonomy import classify_structured  # type: ignore
+            structured = classify_structured(content, file_name=file_name, tags=tags)
+        except Exception as e:
+            log.debug("structured tagging failed: %s", e)
+            structured = None
 
     h = hashlib.md5(content.encode("utf-8")).hexdigest()
     return {"tags": tags, "phrases": phrases[:200], "unigrams": unigrams[:200],
             "length": len(content), "hash": h, "tagger_version": tagger_version,
-            "llm_used": llm_used, "llm_model": llm_model}
+            "llm_used": llm_used, "llm_model": llm_model, "structured": structured}
 
 __all__ = ["extract_and_tag_sync"]

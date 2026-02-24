@@ -158,6 +158,9 @@ export type BackendUrlRow = {
     createdAt: string;
     sha256?: string | null;
   } | null;
+  contentHash?: string | null;
+  taggerVersion?: string | null;
+  tagsMeta?: any;
 };
 
 export type BackendStoredFile = {
@@ -711,6 +714,7 @@ export type JobState =
       unigrams?: string[];
       hash?: string;
       tagger_version?: string;
+      structured?: any;
     }
   | { state: "FAILURE"; error?: string };
 export type TagJobState =

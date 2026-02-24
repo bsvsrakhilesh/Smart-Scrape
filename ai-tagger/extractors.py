@@ -21,6 +21,10 @@ from pdfminer.high_level import extract_text as pdfminer_extract
 # Toggle OCR with an env var if your images/PDFs need it
 OCR_ENABLED = os.getenv("OCR_ENABLED", "false").lower() == "true"
 
+# Keep URL fetch timeouts comfortably below Celery soft limit (default 30s)
+URL_CONNECT_TIMEOUT = float(os.getenv("URL_CONNECT_TIMEOUT", "8"))
+URL_READ_TIMEOUT = float(os.getenv("URL_READ_TIMEOUT", "20"))
+
 # Remove common publisher chrome before extraction (nav/footer/live widgets/etc.)
 _DROP_TAGS = {
     "script", "style", "noscript", "svg", "iframe",
@@ -249,6 +253,44 @@ def from_text(text: Optional[str]) -> str:
     """Pass-through for raw text input (compatibility function)."""
     return text or ""
 
+def _extract_from_html(html: str, *, url: Optional[str] = None) -> str:
+    """Shared HTML extraction logic for both URL responses and .html/.htm files."""
+    if not html:
+        return ""
+
+    orig_html = html
+    cleaned = _strip_boilerplate_html(html)
+
+    if cleaned and len(cleaned) >= int(0.35 * len(orig_html)):
+        html = cleaned
+    else:
+        html = orig_html
+
+    txt = trafilatura.extract(
+        html,
+        url=url,
+        include_comments=False,
+        include_tables=False,
+        favor_precision=True,
+        deduplicate=True,
+    )
+
+    if not txt or len(txt) < 250:
+        txt = trafilatura.extract(
+            html,
+            url=url,
+            include_comments=False,
+            include_tables=False,
+            favor_recall=True,
+            deduplicate=True,
+        )
+
+    if not txt or len(txt) < 250:
+        jsonld_txt = _jsonld_fallback(orig_html)
+        if jsonld_txt:
+            txt = jsonld_txt
+
+    return _cleanup_extracted_text(txt or "")
 
 def from_url(url: str) -> str:
     """
@@ -258,7 +300,7 @@ def from_url(url: str) -> str:
     """
     resp = requests.get(
         url,
-        timeout=(10, 60),
+        timeout=(URL_CONNECT_TIMEOUT, URL_READ_TIMEOUT),
         headers=_DEFAULT_HEADERS,
         allow_redirects=True,
     )
@@ -335,7 +377,24 @@ def from_file(file_bytes: bytes, file_name: Optional[str] = None) -> str:
     if name.endswith(".docx"):
         return _from_docx_bytes(file_bytes)
 
-    # Try naive UTF-8 decode as a fallback (covers .txt/.md/.csv etc.)
+    # Handle HTML snapshots properly
+    if name.endswith(".html") or name.endswith(".htm"):
+        try:
+            html = file_bytes.decode("utf-8", "ignore")
+        except Exception:
+            return ""
+        return _extract_from_html(html, url=None)
+
+    # Sniff HTML even if extension is missing/wrong
+    head = (file_bytes[:2048] or b"").lower()
+    if b"<!doctype html" in head or b"<html" in head or b"<body" in head:
+        try:
+            html = file_bytes.decode("utf-8", "ignore")
+        except Exception:
+            return ""
+        return _extract_from_html(html, url=None)
+
+    # Fallback: decode plain text
     try:
         return file_bytes.decode("utf-8", "ignore")
     except Exception:

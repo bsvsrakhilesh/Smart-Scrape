@@ -95,6 +95,9 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
     updatedAt: row.updatedAt,
     visitCount: 0,
     latestSnapshot: (row as any).latestSnapshot ?? null,
+    tagsMetaRaw: (row as any).tagsMeta ?? null,
+    taggerVersion: (row as any).taggerVersion ?? null,
+    contentHash: (row as any).contentHash ?? null,
   };
 }
 

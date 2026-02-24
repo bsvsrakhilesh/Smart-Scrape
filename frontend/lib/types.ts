@@ -54,7 +54,7 @@ export interface FileItem {
   contentHash?: string | null;
   taggerVersion?: string | null;
   tagsMetaRaw?: any;
-  
+
   document?: {
     id: string;
     kind: "URL" | "FILE";
@@ -128,6 +128,9 @@ export interface SavedUrl {
   faviconUrl?: string;
   domain: string;
   tags: string[];
+  tagsMetaRaw?: any;
+  taggerVersion?: string | null;
+  contentHash?: string | null;
   taggingStatus?: TaggingStatus;
   taggingError?: string | null;
   notes?: string;

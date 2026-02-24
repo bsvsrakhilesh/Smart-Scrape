@@ -4,6 +4,8 @@ import { useDialogA11y } from "../common/useDialogA11y";
 import { FileItem } from "../../lib/types";
 import { formatBytes } from "../../utils/fileHelpers";
 
+import StructuredTags from "../common/StructuredTags";
+
 type PropertiesModalProps = {
   file: FileItem | null;
   isOpen: boolean;
@@ -185,6 +187,15 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
                 </div>
               ))}
             </div>
+
+            {/* Smart tags */}
+            <StructuredTags
+              structured={
+                (file as any)?.tagsMetaRaw?.tagger?.structured ??
+                (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
+                null
+              }
+            />
 
             {/* Provenance */}
             <div className="space-y-3 pt-4 border-t border-border">

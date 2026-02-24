@@ -15,7 +15,10 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
-function mergeUnique(existing: string[] | null | undefined, incoming: string[] | null | undefined) {
+function mergeUnique(
+  existing: string[] | null | undefined,
+  incoming: string[] | null | undefined,
+) {
   return Array.from(new Set([...(existing || []), ...(incoming || [])]));
 }
 
@@ -23,14 +26,22 @@ function mergeUnique(existing: string[] | null | undefined, incoming: string[] |
  * Runs Python ai-tagger for an existing Url row and persists results when done.
  * Safe to call multiple times (merges tags).
  */
-export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) {
+export async function runAiTagForUrl(
+  urlId: number,
+  opts?: { force?: boolean },
+) {
   const force = Boolean(opts?.force);
 
   const rec = await prisma.url.findUnique({ where: { id: urlId } });
   if (!rec) throw new Error(`Url not found: ${urlId}`);
 
   // Avoid duplicate work unless forced
-  if (!force && rec.taggerVersion && rec.contentHash && (rec.tags?.length || 0) > 0) {
+  if (
+    !force &&
+    rec.taggerVersion &&
+    rec.contentHash &&
+    (rec.tags?.length || 0) > 0
+  ) {
     return { skipped: true as const, reason: "already_tagged" as const };
   }
 
@@ -49,7 +60,9 @@ export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) 
 
   while (true) {
     if (Date.now() - startedAt > MAX_WAIT_MS) {
-      throw new Error(`ai-tagger job timed out for urlId=${urlId} jobId=${jobId}`);
+      throw new Error(
+        `ai-tagger job timed out for urlId=${urlId} jobId=${jobId}`,
+      );
     }
 
     let data: any;
@@ -58,7 +71,11 @@ export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) 
     } catch (e) {
       // Treat as transient (network hiccup / timeout / tagger under load).
       // Keep polling until MAX_WAIT_MS instead of failing the whole auto-tag run.
-      console.warn("[aiTagUrlAuto] getJob transient error", { urlId, jobId, delay }, e);
+      console.warn(
+        "[aiTagUrlAuto] getJob transient error",
+        { urlId, jobId, delay },
+        e,
+      );
       await sleep(delay);
       delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
       continue;
@@ -68,10 +85,11 @@ export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) 
       const tags = Array.isArray(data?.tags) ? data.tags : [];
       const phrases = Array.isArray(data?.phrases) ? data.phrases : [];
       const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
+      const structured = data?.structured ?? null;
 
       const latest = await prisma.url.findUnique({
         where: { id: urlId },
-        select: { tags: true },
+        select: { tags: true, tagsMeta: true },
       });
 
       const merged = mergeUnique(latest?.tags, tags);
@@ -82,7 +100,20 @@ export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) 
           tags: { set: merged },
           contentHash: data?.hash ?? null,
           taggerVersion: data?.tagger_version ?? null,
-          tagsMeta: { phrases, unigrams } as any,
+          tagsMeta: {
+            ...((rec.tagsMeta as any) || {}),
+            tagger: {
+              phrases,
+              unigrams,
+              structured,
+              topk: TOPK,
+              use_llm: USE_LLM,
+              jobId,
+              updatedAt: new Date().toISOString(),
+            },
+            
+            aiTagger: { phrases, unigrams },
+          } as any,
           taggingStatus: TaggingStatus.SUCCESS,
           taggingJobId: null,
           taggingError: null,
@@ -94,7 +125,9 @@ export async function runAiTagForUrl(urlId: number, opts?: { force?: boolean }) 
 
     if (data?.state === "FAILURE") {
       const err = data?.error || data?.message || "Unknown ai-tagger failure";
-      throw new Error(`ai-tagger failed for urlId=${urlId} jobId=${jobId}: ${err}`);
+      throw new Error(
+        `ai-tagger failed for urlId=${urlId} jobId=${jobId}: ${err}`,
+      );
     }
 
     await sleep(delay);

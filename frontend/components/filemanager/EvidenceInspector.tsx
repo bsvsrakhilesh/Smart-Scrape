@@ -8,6 +8,7 @@ import {
   apiUrl,
 } from "../../lib/api";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
+import StructuredTags from "../common/StructuredTags";
 
 type Props = {
   file: FileItem | null;
@@ -143,6 +144,16 @@ export default function EvidenceInspector({ file }: Props) {
               <Row label="Tags" value={file.tags?.join(", ") || "—"} />
             </div>
           </div>
+
+          <div className="h-3" />
+
+          <StructuredTags
+            structured={
+              (file as any)?.tagsMetaRaw?.tagger?.structured ??
+              (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
+              null
+            }
+          />
 
           <div className="h-3" />
 

@@ -1,0 +1,158 @@
+profile: caqm
+version: 1
+# Policy/operations-oriented taxonomy for CAQM/NCR work.
+# This is intentionally compact (v1): easy to extend without retraining.
+categories:
+  doc_type:
+    direction:
+      keywords: ["direction", "directions", "direction no", "issued by caqm", "commission hereby directs"]
+      patterns:
+        - "\\bDirection\\s*No\\.?\\b"
+        - "\\bDirections?\\s*issued\\s*by\\s*CAQM\\b"
+        - "\\bCommission\\s+for\\s+Air\\s+Quality\\s+Management\\b.*\\bdirects\\b"
+    order:
+      keywords: ["order", "ordered", "hereby ordered", "order no"]
+      patterns:
+        - "\\bOrder\\s*No\\.?\\b"
+        - "\\bhereby\\s+orders?\\b"
+    office_memorandum:
+      keywords: ["office memorandum", "o.m.", "memorandum"]
+      patterns:
+        - "\\bOffice\\s+Memorandum\\b"
+        - "\\bO\\.?M\\.?\\b"
+    notice:
+      keywords: ["notice", "public notice", "notice inviting"]
+      patterns:
+        - "\\bPublic\\s+Notice\\b"
+        - "\\bNotice\\b"
+    minutes:
+      keywords: ["minutes of the meeting", "minutes", "meeting held on"]
+      patterns:
+        - "\\bMinutes\\s+of\\s+the\\s+Meeting\\b"
+        - "\\bMeeting\\s+held\\s+on\\b"
+    sop_guideline:
+      keywords: ["sop", "standard operating procedure", "guidelines", "protocol"]
+      patterns:
+        - "\\bStandard\\s+Operating\\s+Procedure\\b"
+        - "\\bSOP\\b"
+        - "\\bGuidelines\\b"
+
+  sector:
+    transport:
+      keywords: ["traffic", "vehicular", "vehicle", "PUC", "PUCC", "end of life", "EoL", "diesel", "petrol", "BS-VI", "BS VI"]
+      patterns:
+        - "\\bPUC(C)?\\b"
+        - "\\bend\\s+of\\s+life\\b"
+    construction_demolition:
+      keywords: ["construction", "demolition", "C&D", "C and D", "dust", "debris", "construction waste", "demolition waste"]
+      patterns:
+        - "\\bC\\s*&\\s*D\\b"
+        - "\\bconstruction\\s+and\\s+demolition\\b"
+    waste_burning:
+      keywords: ["waste burning", "garbage burning", "open burning", "municipal solid waste", "MSW"]
+      patterns:
+        - "\\bopen\\s+burning\\b"
+        - "\\bMSW\\b"
+    biomass_burning:
+      keywords: ["stubble", "paddy straw", "crop residue", "parali", "farm fires", "biomass burning"]
+      patterns:
+        - "\\bstubble\\s+burning\\b"
+        - "\\bcrop\\s+residue\\b"
+        - "\\bparali\\b"
+    industry_power:
+      keywords: ["industry", "industrial", "stack", "emissions", "power plant", "thermal", "fuel switching", "PNG", "CNG"]
+      patterns:
+        - "\\bstack\\s+emissions\\b"
+    dg_sets:
+      keywords: ["dg set", "diesel generator", "genset", "backup generator"]
+      patterns:
+        - "\\bDG\\s*set(s)?\\b"
+        - "\\bdiesel\\s+generator\\b"
+
+  agency:
+    caqm:
+      keywords: ["CAQM", "Commission for Air Quality Management"]
+      patterns:
+        - "\\bCAQM\\b"
+        - "\\bCommission\\s+for\\s+Air\\s+Quality\\s+Management\\b"
+    cpcb:
+      keywords: ["CPCB", "Central Pollution Control Board"]
+      patterns:
+        - "\\bCPCB\\b"
+        - "\\bCentral\\s+Pollution\\s+Control\\s+Board\\b"
+    dpcc:
+      keywords: ["DPCC", "Delhi Pollution Control Committee"]
+      patterns:
+        - "\\bDPCC\\b"
+        - "\\bDelhi\\s+Pollution\\s+Control\\s+Committee\\b"
+    spcb:
+      keywords: ["SPCB", "State Pollution Control Board", "Pollution Control Board"]
+      patterns:
+        - "\\bSPCB\\b"
+        - "\\bState\\s+Pollution\\s+Control\\s+Board\\b"
+    imd:
+      keywords: ["IMD", "India Meteorological Department"]
+      patterns:
+        - "\\bIMD\\b"
+    iit:
+      keywords: ["IIT", "Indian Institute of Technology"]
+      patterns:
+        - "\\bIIT\\b"
+
+  geography:
+    delhi:
+      keywords: ["Delhi", "NCT of Delhi", "NCT"]
+      patterns:
+        - "\\bNCT\\s+of\\s+Delhi\\b"
+    ncr:
+      keywords: ["NCR", "National Capital Region"]
+      patterns:
+        - "\\bNCR\\b"
+    haryana:
+      keywords: ["Haryana"]
+      patterns: []
+    uttar_pradesh:
+      keywords: ["Uttar Pradesh", "UP"]
+      patterns:
+        - "\\bUttar\\s+Pradesh\\b"
+    rajasthan:
+      keywords: ["Rajasthan"]
+      patterns: []
+
+  program:
+    grap:
+      keywords: ["GRAP", "Graded Response Action Plan"]
+      patterns:
+        - "\\bGRAP\\b"
+        - "\\bGraded\\s+Response\\s+Action\\s+Plan\\b"
+        - "\\bStage\\s*(I|II|III|IV|1|2|3|4)\\b"
+
+  pollutant:
+    pm25:
+      keywords: ["PM2.5", "PM 2.5"]
+      patterns:
+        - "PM\\s*2\\.?5"
+    pm10:
+      keywords: ["PM10", "PM 10"]
+      patterns:
+        - "PM\\s*10"
+    no2:
+      keywords: ["NO2", "NO₂"]
+      patterns:
+        - "\\bNO2\\b"
+    o3:
+      keywords: ["O3", "O₃", "ozone"]
+      patterns:
+        - "\\bozone\\b"
+    co:
+      keywords: ["CO", "carbon monoxide"]
+      patterns:
+        - "\\bcarbon\\s+monoxide\\b"
+
+# Optional: synonyms for canonical free-form tags (used by taxonomy.apply_taxonomy)
+# Keep these short; this is NOT the main structured taxonomy.
+synonyms:
+  c_and_d: ["c&d", "construction and demolition", "construction demolition", "construction waste"]
+  pm2.5: ["pm 2.5", "pm2 5", "pm25"]
+  pm10: ["pm 10", "pm-10"]
+  grap: ["graded response action plan"]

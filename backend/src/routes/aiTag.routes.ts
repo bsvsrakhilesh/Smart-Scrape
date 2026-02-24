@@ -37,14 +37,22 @@ r.post("/files/:id/auto-tags", async (req, res, next) => {
   }
 });
 
-/** URLS: start auto-tag job */
 r.post("/urls/:id/auto-tags", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const row = await prisma.url.findUnique({ where: { id } });
     if (!row) return res.status(404).json({ message: "Url not found" });
 
-    const { jobId } = await createJobFromUrl(row.url, TOPK, USE_LLM);
+    const latestSnap = await prisma.storedFile.findFirst({
+      where: { urlId: id, deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      select: { storagePath: true },
+    });
+
+    const { jobId } = latestSnap?.storagePath
+      ? await createJobFromFile(latestSnap.storagePath, TOPK, USE_LLM)
+      : await createJobFromUrl(row.url, TOPK, USE_LLM);
+
     await prisma.url.update({
       where: { id },
       data: {
@@ -54,7 +62,10 @@ r.post("/urls/:id/auto-tags", async (req, res, next) => {
       },
     });
 
-    return res.status(202).json({ jobId });
+    return res.status(202).json({
+      jobId,
+      source: latestSnap?.storagePath ? "snapshot" : "live-url",
+    });
   } catch (e) {
     next(e);
   }
@@ -86,7 +97,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
       return res.json(data);
     }
 
-    const { tags, hash, tagger_version, phrases, unigrams } = data;
+    const { tags, hash, tagger_version, phrases, unigrams, structured } = data;
 
     const buildNextTagsMeta = (prev: any) => {
       const p = prev && typeof prev === "object" ? prev : {};
@@ -94,7 +105,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
         p.tagger && typeof p.tagger === "object" ? p.tagger : {};
 
       return {
-        ...p, // ✅ preserves p.capture and anything else already present
+        ...p, 
         tagger: {
           ...prevTagger,
           phrases: phrases || [],
@@ -103,6 +114,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
           use_llm: USE_LLM,
           jobId,
           updatedAt: new Date().toISOString(),
+          structured: structured || null,
         },
       };
     };

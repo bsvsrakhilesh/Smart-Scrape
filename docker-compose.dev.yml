@@ -113,6 +113,7 @@ services:
       JOB_HARD_LIMIT: 180
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
+      TAGGER_CACHE_NS: tagger:v1
     env_file:
       - ./ai-tagger/.env
     ports:
@@ -132,6 +133,7 @@ services:
       JOB_HARD_LIMIT: 180
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
+      TAGGER_CACHE_NS: tagger:v1
     env_file:
       - ./ai-tagger/.env
     depends_on:

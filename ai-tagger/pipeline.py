@@ -172,6 +172,25 @@ def _pick_top_tags(phrases: Sequence[str], unigrams: Sequence[str], topk: int) -
                 break
     return tags[:topk]
 
+def _classify_structured_safe(
+    content: str,
+    file_name: Optional[str],
+    tags: List[str],
+):
+    """
+    Returns structured CAQM labels if policy_taxonomy is installed; else None.
+    Safe in Celery workers (no hard import failures).
+    """
+    try:
+        try:
+            from policy_taxonomy import classify_structured  # type: ignore
+        except Exception:
+            from .policy_taxonomy import classify_structured  # type: ignore
+
+        return classify_structured(content, file_name=file_name, tags=tags)
+    except Exception:
+        return None
+    
 def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = None,
                          file_bytes: Optional[bytes] = None, file_name: Optional[str] = None,
                          file_path: Optional[str] = None, topk: int = 20, use_llm: bool = False
@@ -182,11 +201,23 @@ def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = Non
     """
     content = _load_content(text=text, url=url, file_bytes=file_bytes,
                             file_name=file_name, file_path=file_path) or ""
+    
     tokens = _tokenize(content)
+
+    # Structured policy labels (CAQM profile) — even if content is empty
+    structured = _classify_structured_safe(content, file_name, [])
+
     if not tokens:
         h = hashlib.md5(content.encode("utf-8")).hexdigest()
-        return {"tags": [], "phrases": [], "unigrams": [], "length": len(content), "hash": h,
-                "tagger_version": TAGGER_VERSION}
+        return {
+            "tags": [],
+            "phrases": [],
+            "unigrams": [],
+            "length": len(content),
+            "hash": h,
+            "tagger_version": TAGGER_VERSION,
+            "structured": structured,
+        }
 
     unigrams = _extract_unigrams(tokens, topk=200)
     phrases  = _extract_phrases(tokens, topk=200)
@@ -235,17 +266,8 @@ def extract_and_tag_sync(*, text: Optional[str] = None, url: Optional[str] = Non
         except Exception as e:
             log.warning("LLM rerank failed: %s", e)
         
-        # Structured policy labels (CAQM profile)
-        structured = None
-        try:
-            try:
-                from policy_taxonomy import classify_structured  # type: ignore
-            except Exception:
-                from .policy_taxonomy import classify_structured  # type: ignore
-            structured = classify_structured(content, file_name=file_name, tags=tags)
-        except Exception as e:
-            log.debug("structured tagging failed: %s", e)
-            structured = None
+    # Structured labels using final tags (best context)
+    structured = _classify_structured_safe(content, file_name, list(tags))
 
     h = hashlib.md5(content.encode("utf-8")).hexdigest()
     return {"tags": tags, "phrases": phrases[:200], "unigrams": unigrams[:200],

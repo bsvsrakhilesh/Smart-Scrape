@@ -3011,11 +3011,25 @@ export default function FileManagerPage() {
             onToggleFavorite={handleToggleFavorite}
             onTagUpdate={(fileId, newTags) => {
               handleUpdateTags(fileId, newTags);
+
               setSelectedPreview((prev) =>
                 prev && prev.id === fileId
                   ? ({ ...prev, tags: newTags } as any)
                   : prev,
               );
+
+              (async () => {
+                try {
+                  const fresh = await getFileById(String(fileId));
+                  setSelectedPreview((prev) =>
+                    prev && prev.id === fileId
+                      ? ({ ...prev, ...fresh } as any)
+                      : prev,
+                  );
+                } catch {
+                  // ignore; tags already updated
+                }
+              })();
             }}
             autoFocusTags={previewFocusTags}
           />

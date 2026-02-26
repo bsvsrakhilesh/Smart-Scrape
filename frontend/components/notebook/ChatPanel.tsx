@@ -190,12 +190,27 @@ export default function ChatPanel({
     ) => {
       if (!notebookId) return;
 
-      const userMsg: Msg = { id: uid(), ts: Date.now(), role: "user", html: q };
+      const question = (q || "").trim();
+      if (!question) return;
+
+      const userMsg: Msg = {
+        id: uid(),
+        ts: Date.now(),
+        role: "user",
+        html: question,
+      };
+
       setMessages((m) => [...m, userMsg]);
       setPending(true);
 
+      const escHtml = (s: unknown) =>
+        String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+
       try {
-        const res = await api.chat(notebookId, q, { sourceIds });
+        const res = await api.chat(notebookId, question, { sourceIds });
         const full = renderMarkdown(res.answer);
 
         const assistantId = uid();
@@ -210,24 +225,23 @@ export default function ChatPanel({
 
         setMessages((m) => [...m, base]);
 
-        // typewriter streaming (kept, but made safer: no object mutation)
+        if (saveToNotes?.title) {
+          window.dispatchEvent(
+            new CustomEvent("nb:add-note", {
+              detail: {
+                title: saveToNotes.title,
+                content: res.answer,
+                mode: saveToNotes.mode,
+              },
+            }),
+          );
+        }
+
+        // typewriter streaming (kept, but safe: no repeated note dispatch)
         let i = 0;
         const step = 14;
 
         while (i < full.length) {
-          // Studio: push final answer into Notes as a titled artifact (markdown).
-          if (saveToNotes?.title) {
-            window.dispatchEvent(
-              new CustomEvent("nb:add-note", {
-                detail: {
-                  title: saveToNotes.title,
-                  content: res.answer,
-                  mode: saveToNotes.mode,
-                },
-              }),
-            );
-          }
-
           await new Promise((r) => setTimeout(r, 12));
           i += step;
           const slice = full.slice(0, i);
@@ -238,11 +252,25 @@ export default function ChatPanel({
             return [...prev.slice(0, -1), { ...last, html: slice }];
           });
         }
+      } catch (e: any) {
+        const msg = escHtml(e?.message || "Chat failed. Please try again.");
+        setMessages((m) => [
+          ...m,
+          {
+            id: uid(),
+            ts: Date.now(),
+            role: "assistant",
+            html: `<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                    <strong> Error:</strong> ${msg}
+                  </div>`,
+          },
+        ]);
       } finally {
         setPending(false);
       }
     },
-    [notebookId],
+
+    [notebookId, sourceIds],
   );
 
   // Notebook Guide / Studio can fire a "send this prompt" event.

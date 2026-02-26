@@ -30,8 +30,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ---- Dependencies first (better layer caching) ----
 COPY requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip setuptools wheel \
- && pip install -r /app/requirements.txt
+RUN pip install -r /app/requirements.txt
 
 # ---- spaCy model (required for noun_chunks + NER) ----
 RUN python -m spacy download en_core_web_sm

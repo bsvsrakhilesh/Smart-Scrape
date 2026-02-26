@@ -17,6 +17,19 @@ export type NBSource = {
   kind: SourceKind;
   url?: { id: ID; url: string; title?: string | null } | null;
   file?: { id: ID; fileName: string; mimeType?: string | null } | null;
+
+  ingestionJob?: {
+    status: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+    error?: string | null;
+    updatedAt: string;
+  } | null;
+
+  embeddingJob?: {
+    status: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+    error?: string | null;
+    updatedAt: string;
+  } | null;
+
   createdAt: string;
 };
 
@@ -135,11 +148,20 @@ async function j<T = any>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    let msg = "";
+    const raw = await res.text().catch(() => "");
+    let message = raw || `HTTP ${res.status}`;
+
     try {
-      msg = await res.text();
-    } catch {}
-    throw new Error(msg || `HTTP ${res.status}`);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === "object" && "message" in parsed) {
+        const m = (parsed as any).message;
+        if (typeof m === "string" && m.trim()) message = m;
+      }
+    } catch {
+      // ignore JSON parse errors
+    }
+
+    throw new Error(message);
   }
   // 204 No Content
   if (res.status === 204) return undefined as unknown as T;

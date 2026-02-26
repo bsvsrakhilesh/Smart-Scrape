@@ -35,6 +35,17 @@ export default function NotebookPage() {
   const qc = useQueryClient();
   const { notify } = useToast();
 
+  useEffect(() => {
+    const onToast = (e: Event) => {
+      const detail = (e as CustomEvent).detail as any;
+      if (!detail) return;
+      notify(detail);
+    };
+
+    window.addEventListener("nb:toast", onToast as any);
+    return () => window.removeEventListener("nb:toast", onToast as any);
+  }, [notify]);
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const [picker, setPicker] = useState<null | "url" | "file">(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -99,9 +110,25 @@ export default function NotebookPage() {
     queryKey: ["nb:sources", activeId],
     queryFn: () => api.listSources(activeId!),
     enabled: !!activeId,
+    refetchInterval: (query) => {
+      const arr = query.state.data ?? [];
+      const needs = arr.some((s) => {
+        const ing = s.ingestionJob?.status ?? "NONE";
+        const emb = s.embeddingJob?.status ?? "NONE";
+
+        if (ing === "PENDING" || ing === "RUNNING") return true;
+        if (ing === "SUCCESS" && (emb === "PENDING" || emb === "RUNNING"))
+          return true;
+
+        return false;
+      });
+
+      return needs ? 2000 : false;
+    },
+    refetchIntervalInBackground: true,
   });
 
-  // ✅ If another page sent a FILE revision here, add it as a source automatically.
+  // If another page sent a FILE revision here, add it as a source automatically.
   useEffect(() => {
     if (!activeId) return;
 
@@ -264,8 +291,8 @@ export default function NotebookPage() {
   const delSourceM = useMutation({
     mutationFn: (vars: { notebookId: string; sourceId: string }) =>
       api.deleteSource(vars.notebookId, vars.sourceId),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["nb:sources", activeId] }),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] }),
   });
 
   const active: Notebook | null = detailQ.data?.notebook ?? null;
@@ -298,6 +325,69 @@ export default function NotebookPage() {
 
   const sourceSub = (s: NBSource) =>
     s.kind === "URL" ? s.url?.url || "" : s.file?.mimeType || "file";
+
+  const indexBadgeForSource = (s: NBSource) => {
+    const ing = s.ingestionJob?.status || "NONE";
+    const emb = s.embeddingJob?.status || "NONE";
+
+    if (ing === "FAILED") {
+      return {
+        label: "Failed",
+        tone: "red",
+        title: s.ingestionJob?.error || "Ingestion failed",
+      };
+    }
+    if (ing === "PENDING") {
+      return { label: "Queued", tone: "amber", title: "Waiting to ingest" };
+    }
+    if (ing === "RUNNING") {
+      return { label: "Processing", tone: "blue", title: "Ingesting content" };
+    }
+
+    if (ing !== "SUCCESS") {
+      return { label: "Not ready", tone: "slate", title: "Not indexed yet" };
+    }
+
+    if (emb === "FAILED") {
+      return {
+        label: "Index failed",
+        tone: "red",
+        title: s.embeddingJob?.error || "Embedding/index job failed",
+      };
+    }
+    if (emb === "PENDING" || emb === "RUNNING") {
+      return {
+        label: "Indexing",
+        tone: "amber",
+        title: "Building semantic index (embeddings)",
+      };
+    }
+
+    return { label: "Ready", tone: "green", title: "Ready for chat" };
+  };
+
+  const renderIndexBadge = (s: NBSource) => {
+    const b = indexBadgeForSource(s);
+    const cls =
+      b.tone === "green"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+        : b.tone === "amber"
+          ? "border-amber-200 bg-amber-50 text-amber-800"
+          : b.tone === "blue"
+            ? "border-blue-200 bg-blue-50 text-blue-800"
+            : b.tone === "red"
+              ? "border-rose-200 bg-rose-50 text-rose-800"
+              : "border-slate-200 bg-slate-50 text-slate-700";
+
+    return (
+      <span
+        title={b.title}
+        className={`text-[10px] px-2 py-0.5 rounded-full border ${cls}`}
+      >
+        {b.label}
+      </span>
+    );
+  };
 
   const filteredSources = useMemo(() => {
     const q = sourceQuery.trim().toLowerCase();
@@ -823,6 +913,7 @@ export default function NotebookPage() {
                             </div>
 
                             <div className="mt-2 flex items-center gap-2">
+                              {renderIndexBadge(s)}
                               <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
                                 {isUrl ? "URL" : "FILE"}
                               </span>

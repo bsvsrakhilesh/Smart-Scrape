@@ -4,6 +4,7 @@ import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
 import { enqueueEmbeddingJob } from "../queues/embedding.queue";
 import { enqueueIngestionJob } from "../queues/ingestion.queue";
 import crypto from "crypto";
+import { Prisma } from "@prisma/client";
 
 export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });
@@ -24,7 +25,12 @@ export async function getNotebook(id: string) {
 
   const sources = await prisma.notebookSource.findMany({
     where: { notebookId: id },
-    include: { url: true, file: true },
+    include: {
+      url: true,
+      file: true,
+      ingestionJob: { select: { status: true, error: true, updatedAt: true } },
+      embeddingJob: { select: { status: true, error: true, updatedAt: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -57,55 +63,138 @@ export async function deleteNotebook(id: string) {
 export async function listSources(notebookId: string) {
   return prisma.notebookSource.findMany({
     where: { notebookId },
-    include: { url: true, file: true },
+    include: {
+      url: true,
+      file: true,
+      ingestionJob: { select: { status: true, error: true, updatedAt: true } },
+      embeddingJob: { select: { status: true, error: true, updatedAt: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function attachUrlSource(notebookId: string, urlId: number) {
   const url = await prisma.url.findUnique({ where: { id: urlId } });
-  if (!url) throw new Error("URL not found");
+  if (!url) {
+    const err: any = new Error("URL not found");
+    err.status = 404;
+    throw err;
+  }
 
-  const src = await prisma.notebookSource.create({
-    data: { notebookId, kind: "URL", urlId },
-  });
+  try {
+    const src = await prisma.notebookSource.create({
+      data: { notebookId, kind: "URL", urlId },
+    });
 
-  // Durable ingestion (Phase 3): enqueue job + track status
-  await prisma.ingestionJob.upsert({
-    where: { sourceId: src.id },
-    create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
-    update: { status: "PENDING", error: null },
-  });
+    // Durable ingestion enqueue job + track status
+    await prisma.ingestionJob.upsert({
+      where: { sourceId: src.id },
+      create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
+      update: { status: "PENDING", error: null },
+    });
 
-  await enqueueIngestionJob(src.id);
+    await enqueueIngestionJob(src.id);
 
-  return prisma.notebookSource.findUnique({
-    where: { id: src.id },
-    include: { url: true, file: true },
-  });
+    return prisma.notebookSource.findUnique({
+      where: { id: src.id },
+      include: {
+        url: true,
+        file: true,
+        ingestionJob: {
+          select: { status: true, error: true, updatedAt: true },
+        },
+        embeddingJob: {
+          select: { status: true, error: true, updatedAt: true },
+        },
+      },
+    });
+  } catch (e: any) {
+    // Duplicate attach -> 409
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
+      const err: any = new Error(
+        "This URL is already attached to the notebook.",
+      );
+      err.status = 409;
+      throw err;
+    }
+
+    // Notebook does not exist (FK constraint) -> 404
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2003"
+    ) {
+      const err: any = new Error("Notebook not found");
+      err.status = 404;
+      throw err;
+    }
+
+    throw e;
+  }
 }
 
 export async function attachFileSource(notebookId: string, fileId: string) {
   const file = await prisma.storedFile.findUnique({ where: { id: fileId } });
-  if (!file) throw new Error("File not found");
+  if (!file) {
+    const err: any = new Error("File not found");
+    err.status = 404;
+    throw err;
+  }
 
-  const src = await prisma.notebookSource.create({
-    data: { notebookId, kind: "FILE", fileId },
-  });
+  try {
+    const src = await prisma.notebookSource.create({
+      data: { notebookId, kind: "FILE", fileId },
+    });
 
-  // Durable ingestion (Phase 3): enqueue job + track status
-  await prisma.ingestionJob.upsert({
-    where: { sourceId: src.id },
-    create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
-    update: { status: "PENDING", error: null },
-  });
+    // Durable ingestion enqueue job + track status
+    await prisma.ingestionJob.upsert({
+      where: { sourceId: src.id },
+      create: { sourceId: src.id, status: "PENDING", attemptCount: 0 },
+      update: { status: "PENDING", error: null },
+    });
 
-  await enqueueIngestionJob(src.id);
+    await enqueueIngestionJob(src.id);
 
-  return prisma.notebookSource.findUnique({
-    where: { id: src.id },
-    include: { url: true, file: true },
-  });
+    return prisma.notebookSource.findUnique({
+      where: { id: src.id },
+      include: {
+        url: true,
+        file: true,
+        ingestionJob: {
+          select: { status: true, error: true, updatedAt: true },
+        },
+        embeddingJob: {
+          select: { status: true, error: true, updatedAt: true },
+        },
+      },
+    });
+  } catch (e: any) {
+    // Duplicate attach -> 409
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
+      const err: any = new Error(
+        "This file is already attached to the notebook.",
+      );
+      err.status = 409;
+      throw err;
+    }
+
+    // Notebook does not exist (FK constraint) -> 404
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2003"
+    ) {
+      const err: any = new Error("Notebook not found");
+      err.status = 404;
+      throw err;
+    }
+
+    throw e;
+  }
 }
 
 export async function deleteSource(notebookId: string, sourceId: string) {

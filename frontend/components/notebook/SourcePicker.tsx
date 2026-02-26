@@ -20,7 +20,6 @@ export default function SourcePicker({
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // ✅ NEW: prevent white-screen crashes
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -58,7 +57,7 @@ export default function SourcePicker({
   const filtered = useMemo(() => {
     const key = (x: any) => (kind === "url" ? x.title || x.url : x.fileName);
     return items.filter((x) =>
-      String(key(x)).toLowerCase().includes(q.toLowerCase())
+      String(key(x)).toLowerCase().includes(q.toLowerCase()),
     );
   }, [items, q, kind]);
 
@@ -104,26 +103,72 @@ export default function SourcePicker({
                   mimeType: x.mimeType ?? null,
                 },
                 createdAt: now,
-              }
+              },
         );
 
       onClose();
       emit("nb:sources-optimistic", { notebookId, sources: optimisticSources });
 
-      // 2) Attach in parallel (much faster than sequential awaits)
-      const real = await Promise.all(
+      // 2) Attach in parallel, but do not let one failure kill the whole batch
+      const results = await Promise.allSettled(
         selectedIds.map((id) =>
           kind === "url"
             ? api.addUrlSource(notebookId, id)
-            : api.addFileSource(notebookId, id)
-        )
+            : api.addFileSource(notebookId, id),
+        ),
       );
 
-      emit("nb:sources-confirmed", { notebookId, sources: real });
+      const ok = results
+        .filter(
+          (r): r is PromiseFulfilledResult<any> => r.status === "fulfilled",
+        )
+        .map((r) => r.value);
+
+      const bad = results.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+
+      // If anything succeeded, confirm those (this replaces matching temp cards)
+      if (ok.length) {
+        emit("nb:sources-confirmed", { notebookId, sources: ok });
+      }
+
+      // Clear leftover temp cards (especially needed when some failed)
+      if (!ok.length || bad.length) {
+        emit("nb:sources-rollback", { notebookId });
+      }
+
+      // Optional: emit a toast event for failures (Step 3 will wire the listener)
+      if (bad.length) {
+        const reason0: any = bad[0].reason;
+        const msg =
+          reason0?.message ||
+          (typeof reason0 === "string"
+            ? reason0
+            : "Some items failed to attach.");
+
+        window.dispatchEvent(
+          new CustomEvent("nb:toast", {
+            detail: {
+              kind: ok.length ? "warning" : "error",
+              text: ok.length
+                ? `Attached ${ok.length}; failed ${bad.length}. ${msg}`
+                : `Attach failed. ${msg}`,
+            },
+          }),
+        );
+      }
     } catch (e: any) {
-      // remove any temp cards + hard refetch
       emit("nb:sources-rollback", { notebookId });
-      setErr(e?.message || "Failed to attach selected items.");
+
+      const msg = e?.message || "Failed to attach selected items.";
+      setErr(msg);
+
+      window.dispatchEvent(
+        new CustomEvent("nb:toast", {
+          detail: { kind: "error", text: msg },
+        }),
+      );
     } finally {
       setLoading(false);
     }

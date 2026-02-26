@@ -1,10 +1,9 @@
 import prisma from "../config/database";
 import { env } from "../config/env";
-import { extractTextFromUrl, extractTextFromFile } from "./extract.service";
 import { enqueueEmbeddingJob } from "../queues/embedding.queue";
 import { enqueueIngestionJob } from "../queues/ingestion.queue";
 import crypto from "crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "../generated/prisma/client";
 
 export async function listNotebooks() {
   return prisma.notebook.findMany({ orderBy: { updatedAt: "desc" } });

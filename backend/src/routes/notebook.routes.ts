@@ -17,6 +17,7 @@ import {
   postNotebookSourceRetryEmbeddingHandler,
   postNotebookSourceRebuildEmbeddingHandler,
   getNotebookSourceDiagnosticsHandler,
+  postNotebookSourceRunOcrHandler,
 } from "../controllers/notebook.controller";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
@@ -117,6 +118,14 @@ r.post(
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
   postNotebookSourceRetryIngestionHandler,
+);
+
+r.post(
+  "/notebooks/:id/sources/:sourceId/run-ocr",
+  validate({
+    params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
+  }),
+  postNotebookSourceRunOcrHandler,
 );
 
 r.post(

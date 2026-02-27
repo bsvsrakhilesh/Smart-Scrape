@@ -10,6 +10,7 @@ import {
 import { createChunksForSource } from "../services/notebook.service";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
 import { getOrCreatePipelineConfig } from "../services/provenance.service";
+import { ocrPdfToPagesFromFile } from "../services/ocr.service";
 
 function bullConnection(): ConnectionOptions {
   const u = new URL(env.REDIS_URL);
@@ -32,7 +33,10 @@ function isPdf(mime?: string | null, fileName?: string | null) {
 export const ingestionWorker = new Worker(
   "ingestion",
   async (job) => {
-    const { sourceId } = job.data as { sourceId: string };
+    const { sourceId, forceOcr } = job.data as {
+      sourceId: string;
+      forceOcr?: boolean;
+    };
     if (!sourceId) throw new Error("Missing sourceId");
 
     await prisma.ingestionJob.upsert({
@@ -120,22 +124,57 @@ export const ingestionWorker = new Worker(
       const pages = await extractPdfPagesFromFile(f.storagePath);
       const scan = detectScannedPdf(pages);
 
-      if (scan.isScannedLikely) {
-        // Phase 3: no silent failure. Either OCR or a clean FAILED state.
+      const shouldOcr = Boolean(forceOcr) || scan.isScannedLikely;
+
+      if (shouldOcr) {
         if (!env.OCR_ENABLED) {
           throw new Error(
-            `PDF appears scanned (pageCount=${scan.pageCount}, totalChars=${scan.totalChars}, avgCharsPerPage=${scan.avgCharsPerPage.toFixed(
+            `PDF appears scanned or OCR was requested (pageCount=${scan.pageCount}, totalChars=${scan.totalChars}, avgCharsPerPage=${scan.avgCharsPerPage.toFixed(
               1,
             )}). OCR is disabled (OCR_ENABLED=false).`,
           );
         }
 
-        // OCR path will be implemented next; for now fail explicitly (no junk output)
-        throw new Error(
-          `PDF appears scanned (pageCount=${scan.pageCount}, totalChars=${scan.totalChars}, avgCharsPerPage=${scan.avgCharsPerPage.toFixed(
-            1,
-          )}). OCR_ENABLED=true but OCR pipeline is not implemented yet.`,
-        );
+        const maxPages = Math.max(1, env.OCR_MAX_PAGES);
+        const dpi = Math.max(72, env.OCR_DPI);
+
+        const ocrPages = await ocrPdfToPagesFromFile(f.storagePath, {
+          maxPages,
+          dpi,
+          langs: env.OCR_LANGS,
+          renderTimeoutMs: env.OCR_RENDER_TIMEOUT_MS,
+          pageTimeoutMs: env.OCR_PAGE_TIMEOUT_MS,
+        });
+
+        const fullText = ocrPages
+          .map((p) => (p.text || "").trim())
+          .join("\n\n")
+          .trim();
+
+        const pc = await getOrCreatePipelineConfig("ingestion.file.pdf.ocr", {
+          scannedPdfDetection: true,
+          ocrUsed: true,
+          ocrEngine: "tesseract",
+          ocrLangs: env.OCR_LANGS,
+          ocrDpi: dpi,
+          ocrMaxPages: maxPages,
+          forceOcr: Boolean(forceOcr),
+          scanMetrics: scan,
+          pageSeparator: "\n\n",
+        });
+
+        await createChunksForSource(sourceId, {
+          fullText,
+          pages: ocrPages,
+          documentRevisionId,
+          pipelineConfigId: pc.id,
+        });
+
+        await prisma.ingestionJob.update({
+          where: { sourceId },
+          data: { status: "SUCCESS", error: null },
+        });
+        return;
       }
 
       // IMPORTANT: keep page separator to preserve global offsets for page mapping

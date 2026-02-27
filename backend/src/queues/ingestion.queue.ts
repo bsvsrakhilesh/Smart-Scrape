@@ -23,14 +23,26 @@ export const ingestionQueue = new Queue("ingestion", {
   },
 });
 
-export async function enqueueIngestionJob(sourceId: string) {
-  // idempotent: jobId prevents duplicates
-  // Note: getJob exists in BullMQ, safer than relying on QueueOptions.limiter types.
-  const existing = await ingestionQueue.getJob(sourceId);
-  if (existing && (await existing.isActive() || await existing.isWaiting() || await existing.isDelayed())) {
+export async function enqueueIngestionJob(
+  sourceId: string,
+  opts?: { forceOcr?: boolean },
+) {
+  const mode = opts?.forceOcr ? "ocr" : "ingest";
+  const jobId = `${sourceId}:${mode}`;
+
+  const existing = await ingestionQueue.getJob(jobId);
+  if (
+    existing &&
+    ((await existing.isActive()) ||
+      (await existing.isWaiting()) ||
+      (await existing.isDelayed()))
+  ) {
     return;
   }
 
-  await ingestionQueue.add("ingest_source", { sourceId }, { jobId: sourceId });
+  await ingestionQueue.add(
+    "ingest_source",
+    { sourceId, forceOcr: Boolean(opts?.forceOcr) },
+    { jobId },
+  );
 }
-

@@ -447,6 +447,23 @@ export default function NotebookPage() {
       notify({ text: e?.message || "Failed to rebuild index", kind: "error" }),
   });
 
+  const runOcrM = useMutation({
+    mutationFn: (vars: { notebookId: string; sourceId: string }) =>
+      apiReq<NBSource>(
+        "POST",
+        `/notebooks/${vars.notebookId}/sources/${vars.sourceId}/run-ocr`,
+      ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
+      qc.invalidateQueries({
+        queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+      });
+      notify({ text: "OCR started… (this can take a bit)", kind: "success" });
+    },
+    onError: (e: any) =>
+      notify({ text: e?.message || "Failed to start OCR", kind: "error" }),
+  });
+
   const diag = diagQ.data as SourceDiagnostics | undefined;
 
   const active: Notebook | null = detailQ.data?.notebook ?? null;
@@ -1481,6 +1498,29 @@ export default function NotebookPage() {
                           >
                             Retry indexing
                           </button>
+
+                          {diag?.source?.kind === "FILE" &&
+                          ((diag.source.file?.mimeType || "")
+                            .toLowerCase()
+                            .includes("pdf") ||
+                            (diag.source.file?.fileName || "")
+                              .toLowerCase()
+                              .endsWith(".pdf")) ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                runOcrM.mutate({
+                                  notebookId: activeId,
+                                  sourceId: fixSourceId,
+                                })
+                              }
+                              disabled={runOcrM.isPending}
+                              className="text-sm font-semibold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-60"
+                              title="Use OCR for scanned PDFs"
+                            >
+                              Run OCR
+                            </button>
+                          ) : null}
 
                           <button
                             type="button"

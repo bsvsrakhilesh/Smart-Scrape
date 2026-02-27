@@ -114,10 +114,20 @@ export async function getSourceDiagnostics(
       url: true,
       file: true,
       ingestionJob: {
-        select: { status: true, error: true, updatedAt: true, attemptCount: true },
+        select: {
+          status: true,
+          error: true,
+          updatedAt: true,
+          attemptCount: true,
+        },
       },
       embeddingJob: {
-        select: { status: true, error: true, updatedAt: true, attemptCount: true },
+        select: {
+          status: true,
+          error: true,
+          updatedAt: true,
+          attemptCount: true,
+        },
       },
       activeRevision: {
         select: {
@@ -125,7 +135,9 @@ export async function getSourceDiagnostics(
           ordinal: true,
           contentHash: true,
           createdAt: true,
-          pipelineConfig: { select: { name: true, version: true, configHash: true } },
+          pipelineConfig: {
+            select: { name: true, version: true, configHash: true },
+          },
         },
       },
     },
@@ -226,7 +238,10 @@ export async function getSourceDiagnostics(
   };
 }
 
-export async function retrySourceIngestion(notebookId: string, sourceId: string) {
+export async function retrySourceIngestion(
+  notebookId: string,
+  sourceId: string,
+) {
   await assertSourceInNotebook(notebookId, sourceId);
 
   await prisma.ingestionJob.upsert({
@@ -243,21 +258,77 @@ export async function retrySourceIngestion(notebookId: string, sourceId: string)
   });
 }
 
-export async function retrySourceEmbedding(notebookId: string, sourceId: string) {
+export async function runSourceOcr(notebookId: string, sourceId: string) {
+  const src = await prisma.notebookSource.findUnique({
+    where: { id: sourceId },
+    include: { file: true },
+  });
+
+  if (!src || src.notebookId !== notebookId) {
+    const err: any = new Error("Source not found");
+    err.status = 404;
+    throw err;
+  }
+
+  if (src.kind !== "FILE" || !src.file) {
+    const err: any = new Error("OCR can only run on FILE sources");
+    err.status = 400;
+    throw err;
+  }
+
+  const isPdf =
+    (src.file.mimeType || "").toLowerCase().includes("pdf") ||
+    (src.file.fileName || "").toLowerCase().endsWith(".pdf");
+
+  if (!isPdf) {
+    const err: any = new Error("OCR can only run on PDF files");
+    err.status = 400;
+    throw err;
+  }
+
+  await prisma.ingestionJob.upsert({
+    where: { sourceId },
+    create: { sourceId, status: "PENDING", attemptCount: 0 },
+    update: { status: "PENDING", error: null },
+  });
+
+  await enqueueIngestionJob(sourceId, { forceOcr: true });
+
+  return prisma.notebookSource.findUnique({
+    where: { id: sourceId },
+    include: {
+      url: true,
+      file: true,
+      ingestionJob: { select: { status: true, error: true, updatedAt: true } },
+      embeddingJob: { select: { status: true, error: true, updatedAt: true } },
+    },
+  });
+}
+
+export async function retrySourceEmbedding(
+  notebookId: string,
+  sourceId: string,
+) {
   const src = await assertSourceInNotebook(notebookId, sourceId);
 
   if (!env.OPENAI_ENABLED) {
-    const err: any = new Error("Embeddings are disabled (OPENAI_ENABLED=false).");
+    const err: any = new Error(
+      "Embeddings are disabled (OPENAI_ENABLED=false).",
+    );
     err.status = 400;
     throw err;
   }
   if (!src.activeRevisionId) {
-    const err: any = new Error("This source has no active revision yet. Ingest it first.");
+    const err: any = new Error(
+      "This source has no active revision yet. Ingest it first.",
+    );
     err.status = 400;
     throw err;
   }
   if (src.ingestionJob?.status !== "SUCCESS") {
-    const err: any = new Error("Ingestion is not complete. Fix ingestion first.");
+    const err: any = new Error(
+      "Ingestion is not complete. Fix ingestion first.",
+    );
     err.status = 400;
     throw err;
   }
@@ -276,16 +347,23 @@ export async function retrySourceEmbedding(notebookId: string, sourceId: string)
   });
 }
 
-export async function rebuildSourceEmbedding(notebookId: string, sourceId: string) {
+export async function rebuildSourceEmbedding(
+  notebookId: string,
+  sourceId: string,
+) {
   const src = await assertSourceInNotebook(notebookId, sourceId);
 
   if (!env.OPENAI_ENABLED) {
-    const err: any = new Error("Embeddings are disabled (OPENAI_ENABLED=false).");
+    const err: any = new Error(
+      "Embeddings are disabled (OPENAI_ENABLED=false).",
+    );
     err.status = 400;
     throw err;
   }
   if (!src.activeRevisionId) {
-    const err: any = new Error("This source has no active revision yet. Ingest it first.");
+    const err: any = new Error(
+      "This source has no active revision yet. Ingest it first.",
+    );
     err.status = 400;
     throw err;
   }

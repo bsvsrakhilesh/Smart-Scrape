@@ -17,6 +17,7 @@ import {
   retrySourceIngestion,
   retrySourceEmbedding,
   rebuildSourceEmbedding,
+  runSourceOcr,
 } from "../services/notebook.service";
 
 import { runNotebookChat } from "../services/notebookChat.service";
@@ -137,6 +138,19 @@ export async function postNotebookSourceRetryIngestionHandler(
 ) {
   try {
     const data = await retrySourceIngestion(req.params.id, req.params.sourceId);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function postNotebookSourceRunOcrHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const data = await runSourceOcr(req.params.id, req.params.sourceId);
     res.json(data);
   } catch (e) {
     next(e);

@@ -21,8 +21,13 @@ const EnvSchema = z.object({
   EMBEDDING_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
   INGESTION_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
 
-  // OCR if disabled we will FAIL loudly on scanned PDFs
+  // OCR for scanned PDFs
   OCR_ENABLED: BoolFromEnv,
+  OCR_LANGS: z.string().optional().default("eng"), // e.g. "eng" or "eng+hin"
+  OCR_DPI: z.coerce.number().optional().default(200),
+  OCR_MAX_PAGES: z.coerce.number().optional().default(50),
+  OCR_RENDER_TIMEOUT_MS: z.coerce.number().optional().default(60_000),
+  OCR_PAGE_TIMEOUT_MS: z.coerce.number().optional().default(120_000),
 
   // Retrieval tuning (pgvector cosine distance; lower = more similar)
   RETRIEVAL_MAX_COSINE_DISTANCE: z.coerce.number().optional().default(0.42),

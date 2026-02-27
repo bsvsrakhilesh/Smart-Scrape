@@ -87,6 +87,12 @@ export default function ChatPanel({
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
 
+  // Keep latest messages in a ref so we can build chat history without re-creating callbacks
+  const messagesRef = useRef<Msg[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -222,6 +228,21 @@ export default function ChatPanel({
     window.dispatchEvent(new CustomEvent("nb:add-note", { detail: clean }));
   };
 
+  const buildHistory = (maxMsgs = 12) => {
+    const prior = messagesRef.current ?? [];
+    const MAX_CHARS = 1400; // keep prompts bounded for latency + cost
+
+    return prior
+      .filter((m) => String(m?.text ?? "").trim())
+      .filter((m) => !(m.role === "assistant" && /^Error:/i.test(m.text)))
+      .slice(-maxMsgs)
+      .map((m) => ({
+        role: m.role,
+        content:
+          m.text.length > MAX_CHARS ? m.text.slice(0, MAX_CHARS) + "…" : m.text,
+      }));
+  };
+
   const send = useCallback(
     async (
       q: string,
@@ -231,6 +252,8 @@ export default function ChatPanel({
 
       const question = (q || "").trim();
       if (!question) return;
+
+      const history = buildHistory(12);
 
       const userMsg: Msg = {
         id: uid(),
@@ -250,7 +273,10 @@ export default function ChatPanel({
           .replace(/>/g, "&gt;");
 
       try {
-        const res = await api.chat(notebookId, question, { sourceIds });
+        const res = await api.chat(notebookId, question, {
+          sourceIds,
+          history,
+        });
         const full = renderMarkdown(res.answer);
 
         const assistantId = uid();

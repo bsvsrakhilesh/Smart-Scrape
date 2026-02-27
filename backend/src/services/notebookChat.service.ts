@@ -487,6 +487,7 @@ export async function runNotebookChat(p: {
   const system = [
     "You are a helpful assistant for a Notebook-like product.",
     "Answer using ONLY the provided SOURCE_CHUNKS as evidence.",
+    "Conversation history (if present) is for context only; it is NOT evidence. Never cite it; cite only SOURCE_CHUNKS.",
     "If the sources do not contain the answer, say you cannot verify it from the sources.",
     "",
     "OUTPUT FORMAT:",

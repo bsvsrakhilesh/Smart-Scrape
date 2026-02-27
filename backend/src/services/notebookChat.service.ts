@@ -328,6 +328,43 @@ function mapGlobalToPage(
   };
 }
 
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type QuoteMatch = { idx: number; quote: string };
+
+function findVerbatimQuote(
+  chunkText: string,
+  quoteFromModel: string,
+): QuoteMatch | null {
+  const raw = (quoteFromModel ?? "").replace(/\u00a0/g, " ").trim(); // normalize NBSP only
+  if (!raw) return null;
+  if (raw.length < 20) return null;
+
+  // Exact match first (fast path)
+  const exactIdx = chunkText.indexOf(raw);
+  if (exactIdx >= 0) {
+    const q = raw.length > 240 ? raw.slice(0, 240) : raw;
+    return { idx: exactIdx, quote: q };
+  }
+
+  // Whitespace-flex match: token1\s+token2\s+...
+  const tokens = raw.split(/\s+/g).filter(Boolean);
+  if (tokens.length < 3) return null;
+
+  const pattern = tokens.map(escapeRegExp).join("\\s+");
+  const re = new RegExp(pattern, "m");
+  const m = re.exec(chunkText);
+  if (!m || m.index == null) return null;
+
+  const matched = m[0];
+  if (matched.length < 20) return null;
+
+  const quote = matched.length > 240 ? matched.slice(0, 240) : matched;
+  return { idx: m.index, quote };
+}
+
 function formatContext(
   chunks: Awaited<ReturnType<typeof loadChunksForContext>>,
 ) {
@@ -537,12 +574,13 @@ export async function runNotebookChat(p: {
       const chunk: any = byChunkId.get(c.chunkId);
       if (!chunk) return null;
 
-      const quote = (c.quote || "").replace(/\s+/g, " ").trim();
-      if (quote.length < 20 || quote.length > 240) return null;
+      const chunkText = chunk.text || "";
+      const match = findVerbatimQuote(chunkText, c.quote || "");
+      if (!match) return null;
 
-      // Must be a verbatim substring of the chunk text
-      const idx = (chunk.text || "").indexOf(quote);
-      if (idx < 0) return null;
+      const quote = match.quote;
+      const idx = match.idx;
+      if (quote.length < 20 || quote.length > 240) return null;
 
       // Quote-level global offsets (preferred)
       const hasGlobal = typeof chunk.globalStart === "number";

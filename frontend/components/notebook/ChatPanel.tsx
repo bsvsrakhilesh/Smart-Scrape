@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notebookClient as api } from "../../lib/notebookClient";
+import type {
+  AnswerMode,
+  EvidenceBlock,
+  Citation,
+} from "../../lib/notebookClient";
 import { Loader2 } from "lucide-react";
 import CitationBadge from "./CitationBadge";
 import MessageActions from "./MessageActions";
@@ -24,8 +29,10 @@ type Msg = {
   role: "user" | "assistant";
   text: string;
   html: string;
-  citations?: import("../../lib/notebookClient").Citation[];
   suggested?: string[];
+  mode?: AnswerMode;
+  evidence?: EvidenceBlock[];
+  citations?: Citation[];
 };
 
 function uid() {
@@ -179,6 +186,34 @@ export default function ChatPanel({
     };
   }, [historyKey, messages]);
 
+  // ===== Answer mode (Draft / Evidence / Briefing) =====
+  const modeKey = notebookId ? `nb:chatMode:${notebookId}` : null;
+  const [answerMode, setAnswerMode] = useState<AnswerMode>("draft");
+
+  // Load persisted mode when notebook changes
+  useEffect(() => {
+    if (!modeKey) {
+      setAnswerMode("draft");
+      return;
+    }
+    const saved = localStorage.getItem(modeKey) as AnswerMode | null;
+    if (saved === "draft" || saved === "evidence" || saved === "briefing") {
+      setAnswerMode(saved);
+    } else {
+      setAnswerMode("draft");
+    }
+  }, [modeKey]);
+
+  // Persist mode
+  useEffect(() => {
+    if (!modeKey) return;
+    try {
+      localStorage.setItem(modeKey, answerMode);
+    } catch {
+      // ignore
+    }
+  }, [modeKey, answerMode]);
+
   // Persist composer draft per notebook
   const draftKey = notebookId ? `nb:chatDraft:${notebookId}` : null;
   useEffect(() => {
@@ -282,6 +317,7 @@ export default function ChatPanel({
         const res = await api.chat(notebookId, question, {
           sourceIds,
           history,
+          answerMode,
         });
         const full = renderMarkdown(res.answer);
 
@@ -294,6 +330,8 @@ export default function ChatPanel({
           html: "",
           citations: res.citations,
           suggested: res.suggested,
+          mode: res.mode,
+          evidence: res.evidence,
         };
 
         setMessages((m) => [...m, base]);
@@ -439,6 +477,50 @@ export default function ChatPanel({
           ) : null}
 
           <div className="flex-1" />
+
+          <div
+            className="inline-flex items-center rounded-full border border-slate-200 bg-white overflow-hidden"
+            role="group"
+            aria-label="Answer mode"
+            title="Controls the style of the answer. Evidence mode returns atomic claims with quotes. Briefing mode is policy/ops oriented."
+          >
+            <button
+              type="button"
+              onClick={() => setAnswerMode("draft")}
+              className={clsx(
+                "px-3 py-1 text-[11px] font-semibold",
+                answerMode === "draft"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-700 hover:bg-slate-50",
+              )}
+            >
+              Draft
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnswerMode("evidence")}
+              className={clsx(
+                "px-3 py-1 text-[11px] font-semibold border-l border-slate-200",
+                answerMode === "evidence"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-700 hover:bg-slate-50",
+              )}
+            >
+              Evidence
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnswerMode("briefing")}
+              className={clsx(
+                "px-3 py-1 text-[11px] font-semibold border-l border-slate-200",
+                answerMode === "briefing"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-700 hover:bg-slate-50",
+              )}
+            >
+              Briefing
+            </button>
+          </div>
 
           <button
             type="button"
@@ -608,8 +690,46 @@ export default function ChatPanel({
                         : { children: m.html })}
                     />
 
+                    {/* Evidence blocks (Evidence mode) */}
+                    {m.role === "assistant" && m.evidence?.length ? (
+                      <div className="mt-2 space-y-2">
+                        <div className="text-[11px] font-semibold tracking-wide text-slate-600">
+                          Evidence
+                        </div>
+
+                        {m.evidence.map((b, bIdx) => (
+                          <div
+                            key={`${m.id}_ev_${bIdx}`}
+                            className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur px-4 py-3 shadow-sm"
+                          >
+                            <div className="text-sm text-slate-900 leading-[1.5]">
+                              <span className="font-semibold mr-2">
+                                {bIdx + 1}.
+                              </span>
+                              {b.claim}
+                            </div>
+
+                            {b.citations?.length ? (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {b.citations.map((c, idx) => (
+                                  <CitationBadge
+                                    key={`${c.chunkId}_${idx}`}
+                                    index={idx + 1}
+                                    citation={c}
+                                    onOpenSource={openSource}
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {/* Citations */}
-                    {m.role === "assistant" && m.citations?.length ? (
+                    {m.role === "assistant" &&
+                    !m.evidence?.length &&
+                    m.citations?.length ? (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {m.citations.map((c, idx) => (
                           <CitationBadge
@@ -626,6 +746,8 @@ export default function ChatPanel({
                     {m.role === "assistant" ? (
                       <MessageActions
                         text={m.text}
+                        citations={m.citations}
+                        mode={m.mode}
                         onRegenerate={() => onRegenerate(i)}
                         onAddToNotes={addToNotes}
                       />

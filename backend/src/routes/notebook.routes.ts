@@ -29,13 +29,13 @@ r.post(
       description: z.string().max(2000).optional(),
     }),
   }),
-  postNotebookHandler
+  postNotebookHandler,
 );
 
 r.get(
   "/notebooks/:id",
   validate({ params: z.object({ id: z.string().min(1) }) }),
-  getNotebookDetailHandler
+  getNotebookDetailHandler,
 );
 
 r.patch(
@@ -47,19 +47,19 @@ r.patch(
       description: z.string().max(2000).optional(),
     }),
   }),
-  patchNotebookHandler
+  patchNotebookHandler,
 );
 
 r.delete(
   "/notebooks/:id",
   validate({ params: z.object({ id: z.string().min(1) }) }),
-  deleteNotebookHandler
+  deleteNotebookHandler,
 );
 
 r.get(
   "/notebooks/:id/sources",
   validate({ params: z.object({ id: z.string().min(1) }) }),
-  getNotebookSourcesHandler
+  getNotebookSourcesHandler,
 );
 
 r.post(
@@ -71,7 +71,7 @@ r.post(
       title: z.string().min(1).optional(),
     }),
   }),
-  postNotebookSourceUrlHandler
+  postNotebookSourceUrlHandler,
 );
 
 r.post(
@@ -83,7 +83,7 @@ r.post(
       fileId: z.string().min(1),
     }),
   }),
-  postNotebookSourceFileHandler
+  postNotebookSourceFileHandler,
 );
 
 r.delete(
@@ -91,7 +91,7 @@ r.delete(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
-  deleteNotebookSourceHandler
+  deleteNotebookSourceHandler,
 );
 
 r.post(
@@ -102,13 +102,17 @@ r.post(
       message: z.string().min(1),
       history: z
         .array(
-          z.object({ role: z.enum(["user", "assistant"]), content: z.string() })
+          z.object({
+            role: z.enum(["user", "assistant"]),
+            content: z.string().min(1),
+          }),
         )
         .optional(),
       sourceIds: z.array(z.string().min(1)).optional(),
+      answerMode: z.enum(["draft", "evidence", "briefing"]).optional(),
     }),
   }),
-  postNotebookChatHandler
+  postNotebookChatHandler,
 );
 
 r.post(
@@ -121,7 +125,7 @@ r.post(
       citations: z.any().optional(),
     }),
   }),
-  postNotebookNoteHandler
+  postNotebookNoteHandler,
 );
 
 r.patch(
@@ -139,10 +143,10 @@ r.patch(
           v.title !== undefined ||
           v.content !== undefined ||
           v.citations !== undefined,
-        { message: "At least one field (title/content/citations) is required" }
+        { message: "At least one field (title/content/citations) is required" },
       ),
   }),
-  patchNotebookNoteHandler
+  patchNotebookNoteHandler,
 );
 
 r.delete(
@@ -150,7 +154,7 @@ r.delete(
   validate({
     params: z.object({ id: z.string().min(1), noteId: z.string().min(1) }),
   }),
-  deleteNotebookNoteHandler
+  deleteNotebookNoteHandler,
 );
 
 export default r;

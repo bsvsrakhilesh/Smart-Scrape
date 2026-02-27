@@ -11,6 +11,8 @@ export type Notebook = {
   updatedAt: string;
 };
 
+export type AnswerMode = "draft" | "evidence" | "briefing";
+
 export type NBSource = {
   id: ID;
   notebookId: ID;
@@ -78,15 +80,29 @@ export type NBNote = {
 export type Citation = {
   chunkId: string;
   quote: string;
+
   pageStart?: number | null;
   pageEnd?: number | null;
   charStart?: number | null;
   charEnd?: number | null;
+
+  sourceId?: string | null;
+  sourceKind?: SourceKind | null;
+  sourceLabel?: string | null;
+  sourceUrl?: string | null;
+  fileName?: string | null;
+};
+
+export type EvidenceBlock = {
+  claim: string;
+  citations: Citation[];
 };
 
 export type ChatAnswer = {
-  answer: string; // markdown
+  mode: AnswerMode;
+  answer: string;
   citations: Citation[];
+  evidence?: EvidenceBlock[];
   suggested: string[];
 };
 
@@ -113,6 +129,7 @@ export interface NotebookClient {
     opts?: {
       sourceIds?: ID[];
       history?: { role: "user" | "assistant"; content: string }[];
+      answerMode?: AnswerMode;
     },
   ): Promise<ChatAnswer>;
   getChunk(chunkId: ID): Promise<ChunkDetail>;
@@ -214,6 +231,7 @@ export const notebookClient: NotebookClient = {
       message,
       sourceIds: opts?.sourceIds,
       history: opts?.history,
+      answerMode: opts?.answerMode,
     });
   },
   // chunks

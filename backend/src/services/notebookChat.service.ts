@@ -12,17 +12,35 @@ export type ChatHistoryItem = {
   content: string;
 };
 
+export type AnswerMode = "draft" | "evidence" | "briefing";
+
 const CitationSchema = z.object({
   chunkId: z.string().min(1),
   quote: z.string().min(20).max(240),
 });
 
+const EvidenceBlockSchema = z.object({
+  claim: z.string().min(5).max(800),
+  citations: z
+    .array(CitationSchema)
+    .min(1)
+    .max(6)
+    .describe("Citations that directly support this claim."),
+});
+
 const ChatAnswerSchema = z.object({
+  mode: z.enum(["draft", "evidence", "briefing"]).default("draft"),
   answer: z.string().describe("Markdown answer for the user."),
   citations: z
     .array(CitationSchema)
     .describe(
-      "List of citations used to answer. Each citation must include a verbatim quote substring from the chunk text.",
+      "Flat list of citations used anywhere in the answer. Each citation must include a verbatim quote substring from the chunk text.",
+    ),
+  evidence: z
+    .array(EvidenceBlockSchema)
+    .optional()
+    .describe(
+      "If mode=evidence, provide a list of atomic claims with their supporting citations. If not evidence mode, omit or return an empty array.",
     ),
   suggested: z
     .array(z.string().min(1))
@@ -435,11 +453,13 @@ async function buildFallbackCitations(chunkIds: string[], limit = 4) {
 export async function runNotebookChat(p: {
   notebookId: string;
   message: string;
-  history?: ChatHistoryItem[];
   sourceIds?: string[];
+  history?: ChatHistoryItem[];
+  answerMode?: AnswerMode;
 }) {
   const notebookId = p.notebookId;
   const message = (p.message ?? "").trim();
+  const mode: AnswerMode = p.answerMode ?? "draft";
   const history = Array.isArray(p.history) ? p.history.slice(-12) : [];
   const filterSourceIds = p.sourceIds;
 
@@ -530,8 +550,14 @@ export async function runNotebookChat(p: {
     "Conversation history (if present) is for context only; it is NOT evidence. Never cite it; cite only SOURCE_CHUNKS.",
     "If the sources do not contain the answer, say you cannot verify it from the sources.",
     "",
+    "MODE GUIDANCE:",
+    "- mode=draft: normal helpful answer.",
+    "- mode=evidence: return evidence blocks (atomic claims + citations); answer should be a short summary (3–8 lines).",
+    "- mode=briefing: write like a policy/ops briefing (executive summary, key findings, recommendations, uncertainties), still fully cited.",
+    "",
     "OUTPUT FORMAT:",
     "Return a JSON object that matches the required schema.",
+    "- mode MUST equal ANSWER_MODE (draft/evidence/briefing).",
     "",
     "CITATIONS RULES:",
     "- Every non-trivial claim MUST have citations.",
@@ -540,13 +566,15 @@ export async function runNotebookChat(p: {
     "- quote length must be 20–240 characters.",
     "- Only cite chunks from SOURCE_CHUNKS (IDs provided). Never invent IDs.",
     "- If you cannot find a verbatim quote supporting a claim, say you cannot verify it from the sources.",
+    "- If mode=evidence, ALSO return evidence: an array of { claim, citations } where each claim has 1–6 citations.",
+    "- If mode!=evidence, omit evidence or return an empty array.",
     "",
     "SUGGESTED:",
     "- Return 3–6 suggested follow-up questions as plain strings.",
   ].join("\n");
 
   const user = [
-    `USER_QUESTION:\n${message}`,
+    `ANSWER_MODE: ${mode}\n\nUSER_QUESTION:\n${message}`,
     "",
     "SOURCE_CHUNKS:",
     finalContext,
@@ -609,53 +637,91 @@ export async function runNotebookChat(p: {
     // If SourcePage isn't available for some sources, we keep page fields null.
   }
 
-  const validatedCitations = (out.citations ?? [])
-    .filter((c: any) => allowed.has(c.chunkId))
-    .map((c: any) => {
-      const chunk: any = byChunkId.get(c.chunkId);
-      if (!chunk) return null;
+  const validateCitations = (raw: any[], max = 10) => {
+    return (raw ?? [])
+      .filter((c: any) => allowed.has(c.chunkId))
+      .map((c: any) => {
+        const chunk: any = byChunkId.get(c.chunkId);
+        if (!chunk) return null;
 
-      const chunkText = chunk.text || "";
-      const match = findVerbatimQuote(chunkText, c.quote || "");
-      if (!match) return null;
+        const chunkText = chunk.text || "";
+        const match = findVerbatimQuote(chunkText, c.quote || "");
+        if (!match) return null;
 
-      const quote = match.quote;
-      const idx = match.idx;
-      if (quote.length < 20 || quote.length > 240) return null;
+        const quote = match.quote;
+        const idx = match.idx;
+        if (quote.length < 20 || quote.length > 240) return null;
 
-      // Quote-level global offsets (preferred)
-      const hasGlobal = typeof chunk.globalStart === "number";
-      const quoteGlobalStart = hasGlobal ? chunk.globalStart + idx : null;
-      const quoteGlobalEnd = hasGlobal ? quoteGlobalStart + quote.length : null;
-
-      const ranges = pageRangesBySource.get(chunk.sourceId) ?? [];
-
-      const s =
-        quoteGlobalStart != null
-          ? mapGlobalToPage(ranges, quoteGlobalStart, false)
-          : null;
-      const e =
-        quoteGlobalEnd != null
-          ? mapGlobalToPage(ranges, quoteGlobalEnd, true)
+        const hasGlobal = typeof chunk.globalStart === "number";
+        const quoteGlobalStart = hasGlobal ? chunk.globalStart + idx : null;
+        const quoteGlobalEnd = hasGlobal
+          ? quoteGlobalStart + quote.length
           : null;
 
-      return {
-        chunkId: c.chunkId,
-        quote,
+        const ranges = pageRangesBySource.get(chunk.sourceId) ?? [];
+        const s =
+          quoteGlobalStart != null
+            ? mapGlobalToPage(ranges, quoteGlobalStart, false)
+            : null;
+        const e =
+          quoteGlobalEnd != null
+            ? mapGlobalToPage(ranges, quoteGlobalEnd, true)
+            : null;
 
-        // Quote span mapping (Phase 2)
-        pageStart: s?.pageNumber ?? null,
-        pageEnd: e?.pageNumber ?? null,
-        charStart: s?.char ?? null,
-        charEnd: e?.char ?? null,
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 10) as any[];
+        const kind = chunk.source?.kind ?? null;
+        const sourceId = chunk.sourceId ?? null;
+
+        const sourceLabel =
+          kind === "URL"
+            ? (chunk.source?.url?.title ?? chunk.source?.url?.url ?? "URL")
+            : (chunk.source?.file?.fileName ?? "FILE");
+
+        const sourceUrl =
+          kind === "URL" ? (chunk.source?.url?.url ?? null) : null;
+        const fileName =
+          kind === "FILE" ? (chunk.source?.file?.fileName ?? null) : null;
+
+        return {
+          chunkId: c.chunkId,
+          quote,
+
+          sourceId,
+          sourceKind: kind,
+          sourceLabel,
+          sourceUrl,
+          fileName,
+
+          pageStart: s?.pageNumber ?? null,
+          pageEnd: e?.pageNumber ?? null,
+          charStart: s?.char ?? null,
+          charEnd: e?.char ?? null,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, max) as any[];
+  };
+
+  const validatedCitations = validateCitations(out.citations ?? [], 12);
+
+  const evidence =
+    (out.mode ?? mode) === "evidence"
+      ? (out.evidence ?? [])
+          .slice(0, 12)
+          .map((b: any) => {
+            const claim = String(b?.claim ?? "").trim();
+            if (!claim) return null;
+            const citations = validateCitations(b?.citations ?? [], 6);
+            if (!citations.length) return null;
+            return { claim, citations };
+          })
+          .filter(Boolean)
+      : [];
 
   return {
+    mode: (out.mode ?? mode) as any,
     answer: out.answer,
     citations: validatedCitations,
+    evidence,
     suggested: out.suggested ?? [],
   };
 }

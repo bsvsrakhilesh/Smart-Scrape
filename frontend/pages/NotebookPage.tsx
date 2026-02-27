@@ -256,7 +256,57 @@ export default function NotebookPage() {
   const updateTitle = useMutation({
     mutationFn: (p: { id: string; title: string }) =>
       api.updateNotebook(p.id, { title: p.title }),
-    onSuccess: (_, vars) => {
+
+    onMutate: async (vars) => {
+      // Cancel in-flight fetches so our optimistic update isn't overwritten.
+      await qc.cancelQueries({ queryKey: ["nb:list"] });
+      await qc.cancelQueries({ queryKey: ["nb:detail", vars.id] });
+
+      const prevList = qc.getQueryData(["nb:list"]) as Notebook[] | undefined;
+      const prevDetail = qc.getQueryData(["nb:detail", vars.id]) as any;
+
+      const nowIso = new Date().toISOString();
+
+      // Optimistically update list
+      if (prevList) {
+        qc.setQueryData(
+          ["nb:list"],
+          prevList.map((n) =>
+            n.id === vars.id
+              ? { ...n, title: vars.title, updatedAt: nowIso }
+              : n,
+          ),
+        );
+      }
+
+      // Optimistically update detail
+      if (prevDetail?.notebook) {
+        qc.setQueryData(["nb:detail", vars.id], {
+          ...prevDetail,
+          notebook: {
+            ...prevDetail.notebook,
+            title: vars.title,
+            updatedAt: nowIso,
+          },
+        });
+      }
+
+      return { prevList, prevDetail };
+    },
+
+    onError: (err, vars, ctx) => {
+      // Rollback optimistic update
+      if (ctx?.prevList) qc.setQueryData(["nb:list"], ctx.prevList);
+      if (ctx?.prevDetail)
+        qc.setQueryData(["nb:detail", vars.id], ctx.prevDetail);
+
+      notify({
+        text: `Could not rename notebook: ${String((err as any)?.message || err)}`,
+        kind: "error",
+      });
+    },
+
+    onSettled: (_data, _err, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:list"] });
       qc.invalidateQueries({ queryKey: ["nb:detail", vars.id] });
     },
@@ -296,6 +346,117 @@ export default function NotebookPage() {
   });
 
   const active: Notebook | null = detailQ.data?.notebook ?? null;
+
+  // ===== Notebook title editing (world-class UX) =====
+  const TITLE_DEBOUNCE_MS = 650;
+
+  const [titleDraft, setTitleDraft] = useState<string>("");
+  const titleTimerRef = useRef<number | null>(null);
+  const pendingTitleRef = useRef<string>("");
+  const lastSavedTitleRef = useRef<string>("");
+  const activeIdRef = useRef<string | null>(null);
+  const titleReqSeqRef = useRef<number>(0);
+
+  const normalizeTitle = (t: string) =>
+    String(t ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const flushTitleSave = (raw?: string) => {
+    if (titleTimerRef.current != null) {
+      window.clearTimeout(titleTimerRef.current);
+      titleTimerRef.current = null;
+    }
+    if (!activeId) return;
+
+    const candidate = normalizeTitle(
+      raw ?? pendingTitleRef.current ?? titleDraft,
+    );
+    const next = candidate || "Untitled notebook";
+    const prev = normalizeTitle(lastSavedTitleRef.current);
+
+    if (next === prev) return;
+
+    // Sequence guard to prevent late responses from overwriting newer state
+    const seq = ++titleReqSeqRef.current;
+
+    updateTitle.mutate(
+      { id: activeId, title: next },
+      {
+        onSuccess: () => {
+          if (seq === titleReqSeqRef.current) {
+            lastSavedTitleRef.current = next;
+          }
+        },
+      },
+    );
+  };
+
+  const scheduleTitleSave = (nextDraft: string) => {
+    pendingTitleRef.current = nextDraft;
+
+    if (titleTimerRef.current != null) {
+      window.clearTimeout(titleTimerRef.current);
+      titleTimerRef.current = null;
+    }
+
+    titleTimerRef.current = window.setTimeout(() => {
+      flushTitleSave(nextDraft);
+    }, TITLE_DEBOUNCE_MS);
+  };
+
+  // Sync draft when switching notebooks, without clobbering in-progress edits
+  useEffect(() => {
+    const serverTitle = detailQ.data?.notebook?.title ?? "";
+
+    // No active notebook
+    if (!activeId) {
+      setTitleDraft("");
+      pendingTitleRef.current = "";
+      lastSavedTitleRef.current = "";
+      activeIdRef.current = null;
+
+      if (titleTimerRef.current != null) {
+        window.clearTimeout(titleTimerRef.current);
+        titleTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Notebook switched
+    if (activeIdRef.current !== activeId) {
+      activeIdRef.current = activeId;
+      setTitleDraft(serverTitle);
+      pendingTitleRef.current = serverTitle;
+      lastSavedTitleRef.current = serverTitle;
+
+      if (titleTimerRef.current != null) {
+        window.clearTimeout(titleTimerRef.current);
+        titleTimerRef.current = null;
+      }
+      return;
+    }
+
+    // If server updates title and user isn't dirty, sync it
+    const dirty =
+      normalizeTitle(titleDraft) !== normalizeTitle(lastSavedTitleRef.current);
+
+    if (!dirty && serverTitle !== lastSavedTitleRef.current) {
+      setTitleDraft(serverTitle);
+      pendingTitleRef.current = serverTitle;
+      lastSavedTitleRef.current = serverTitle;
+    }
+  }, [activeId, detailQ.data?.notebook?.title, titleDraft]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (titleTimerRef.current != null) {
+        window.clearTimeout(titleTimerRef.current);
+        titleTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // ===== Sources Library computed list =====
   const sources: NBSource[] = (sourcesQ.data || []) as NBSource[];
@@ -997,22 +1158,65 @@ export default function NotebookPage() {
               )}
             >
               <input
-                value={detailQ.data?.notebook?.title || ""}
-                onChange={(e) =>
-                  activeId &&
-                  updateTitle.mutate({ id: activeId, title: e.target.value })
-                }
+                value={titleDraft}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setTitleDraft(next);
+                  scheduleTitleSave(next);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    // Normalize display + flush immediately
+                    const normalized =
+                      normalizeTitle(titleDraft) || "Untitled notebook";
+                    setTitleDraft(normalized);
+                    pendingTitleRef.current = normalized;
+                    flushTitleSave(normalized);
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    // Revert to last saved
+                    const back =
+                      lastSavedTitleRef.current || "Untitled notebook";
+                    setTitleDraft(back);
+                    pendingTitleRef.current = back;
+                    if (titleTimerRef.current != null) {
+                      window.clearTimeout(titleTimerRef.current);
+                      titleTimerRef.current = null;
+                    }
+                    (e.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                onBlur={() => {
+                  const normalized =
+                    normalizeTitle(titleDraft) || "Untitled notebook";
+                  setTitleDraft(normalized);
+                  pendingTitleRef.current = normalized;
+                  flushTitleSave(normalized);
+                }}
                 disabled={!active}
                 className="text-xl font-semibold w-full bg-transparent border-none outline-none placeholder:text-slate-400 text-slate-900 focus:ring-2 focus:ring-emerald-400/40 focus:ring-offset-0 rounded-md px-1 -mx-1"
                 placeholder="Untitled notebook"
               />
+
               <div className="ml-auto text-[11px] text-slate-600 bg-slate-100/70 px-2 py-0.5 rounded-md tabular-nums">
-                {active
-                  ? new Date(active.updatedAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })
-                  : ""}
+                {(() => {
+                  const dirty =
+                    normalizeTitle(titleDraft) !==
+                    normalizeTitle(lastSavedTitleRef.current);
+
+                  if (updateTitle.isPending) return "Saving…";
+                  if (dirty) return "Unsaved";
+
+                  return active
+                    ? new Date(active.updatedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "";
+                })()}
               </div>
             </div>
 

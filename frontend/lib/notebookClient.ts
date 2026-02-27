@@ -308,7 +308,7 @@ export const notebookClient: NotebookClient = {
     await j<void>("DELETE", `/notebooks/${notebookId}/sources/${sourceId}`);
   },
 
-  // B3: repair + diagnostics
+  // repair + diagnostics
   getSourceDiagnostics(notebookId, sourceId, maxChars = 20000) {
     return j<SourceDiagnostics>(
       "GET",

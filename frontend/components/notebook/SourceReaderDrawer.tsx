@@ -107,6 +107,9 @@ export default function SourceReaderDrawer({
 
   const [pageText, setPageText] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
+  const [pageErr, setPageErr] = useState<string | null>(null);
+  const [viewPage, setViewPage] = useState<number | null>(null);
+  const [pageJump, setPageJump] = useState<string>("");
 
   // Lock background scroll while the drawer is open (prevents scroll bleed / jank)
   useEffect(() => {
@@ -139,10 +142,19 @@ export default function SourceReaderDrawer({
 
   useEffect(() => {
     if (!open) return;
+
     setRadius(3);
     setQuery("");
     setReader(null);
     setErr(null);
+
+    setPageText(null);
+    setPageErr(null);
+
+    const initial =
+      citation?.pageStart != null ? Number(citation.pageStart) : null;
+    setViewPage(initial);
+    setPageJump(initial != null ? String(initial) : "");
   }, [open, citation?.chunkId]);
 
   useEffect(() => {
@@ -170,8 +182,10 @@ export default function SourceReaderDrawer({
 
   useEffect(() => {
     if (!open || !reader?.sourceId) return;
-    if (citation?.pageStart == null) {
+
+    if (viewPage == null) {
       setPageText(null);
+      setPageErr(null);
       return;
     }
 
@@ -180,13 +194,15 @@ export default function SourceReaderDrawer({
     (async () => {
       try {
         setPageLoading(true);
-        const page = await api.getSourcePage(
-          reader.sourceId,
-          Number(citation.pageStart),
-        );
+        setPageErr(null);
+
+        const page = await api.getSourcePage(reader.sourceId, Number(viewPage));
         if (!cancelled) setPageText(page.text || "");
-      } catch {
-        if (!cancelled) setPageText(null);
+      } catch (e: any) {
+        if (!cancelled) {
+          setPageText(null);
+          setPageErr(e?.message || "Page text unavailable.");
+        }
       } finally {
         if (!cancelled) setPageLoading(false);
       }
@@ -195,13 +211,99 @@ export default function SourceReaderDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, reader?.sourceId, citation?.pageStart]);
+  }, [open, reader?.sourceId, viewPage]);
 
   const title = useMemo(
     () => (reader ? sourceTitle(reader.source) : "Source"),
     [reader],
   );
   const sub = useMemo(() => (reader ? sourceSub(reader.source) : ""), [reader]);
+
+  const citedPages = useMemo(() => {
+    const ps = citation?.pageStart;
+    const pe = citation?.pageEnd ?? ps;
+    if (ps == null) return [];
+    const start = Number(ps);
+    const end = pe != null ? Number(pe) : start;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+    const a = Math.min(start, end);
+    const b = Math.max(start, end);
+
+    const span = b - a;
+    if (span > 10)
+      return [a, a + 1, a + 2, b - 2, b - 1, b].filter((x) => x >= 1);
+
+    const out: number[] = [];
+    for (let p = a; p <= b; p++) out.push(p);
+    return out;
+  }, [citation?.pageStart, citation?.pageEnd]);
+
+  const highlightForViewPage = useMemo(() => {
+    if (!pageText || viewPage == null)
+      return { start: null as number | null, end: null as number | null };
+
+    const ps = citation?.pageStart;
+    const pe = citation?.pageEnd ?? ps;
+    if (ps == null) return { start: null, end: null };
+
+    const startPage = Number(ps);
+    const endPage = pe != null ? Number(pe) : startPage;
+
+    if (startPage === endPage) {
+      return {
+        start: citation?.charStart ?? null,
+        end: citation?.charEnd ?? null,
+      };
+    }
+
+    if (viewPage === startPage)
+      return { start: citation?.charStart ?? null, end: pageText.length };
+    if (viewPage === endPage)
+      return { start: 0, end: citation?.charEnd ?? null };
+
+    if (
+      viewPage > Math.min(startPage, endPage) &&
+      viewPage < Math.max(startPage, endPage)
+    ) {
+      return { start: 0, end: pageText.length };
+    }
+
+    return { start: null, end: null };
+  }, [
+    citation?.pageStart,
+    citation?.pageEnd,
+    citation?.charStart,
+    citation?.charEnd,
+    viewPage,
+    pageText,
+  ]);
+
+  const goToPage = (raw: string) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    const p = Math.max(1, Math.floor(n));
+    setViewPage(p);
+    setPageJump(String(p));
+  };
+
+  const copyEvidence = async () => {
+    if (viewPage == null || pageText == null) return;
+
+    const s = highlightForViewPage.start;
+    const e = highlightForViewPage.end;
+
+    let out = pageText;
+    if (s != null && e != null && e > s) out = pageText.slice(s, e);
+
+    const header = `${title} · page ${viewPage}`;
+    await navigator.clipboard.writeText(`${header}\n\n${out}`.trim());
+
+    window.dispatchEvent(
+      new CustomEvent("nb:toast", {
+        detail: { kind: "success", text: "Evidence copied to clipboard." },
+      }),
+    );
+  };
 
   const jumpToSourceCard = () => {
     if (!reader) return;
@@ -404,31 +506,120 @@ export default function SourceReaderDrawer({
                 </div>
 
                 {/* Page view */}
-                {citation?.pageStart != null ? (
+                {viewPage != null ? (
                   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
-                      Evidence · Page {citation.pageStart}
-                      {citation.pageEnd &&
-                      citation.pageEnd !== citation.pageStart ? (
-                        <>–{citation.pageEnd}</>
-                      ) : null}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+                          Evidence · Page {viewPage}
+                          {citation?.pageStart != null &&
+                          citation?.pageEnd != null &&
+                          citation.pageEnd !== citation.pageStart ? (
+                            <>
+                              {" "}
+                              (cited p.{citation.pageStart}–{citation.pageEnd})
+                            </>
+                          ) : null}
+                        </div>
+
+                        {citedPages.length ? (
+                          <div className="mt-1 text-[11px] text-slate-500 truncate">
+                            Click a cited page:{" "}
+                            {citedPages.map((p, i) => (
+                              <button
+                                key={`${p}-${i}`}
+                                type="button"
+                                onClick={() => goToPage(String(p))}
+                                className={clsx(
+                                  "inline-flex items-center px-2 h-5 rounded-full border text-[11px] mr-1 mt-1",
+                                  p === viewPage
+                                    ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                                )}
+                                title={`Jump to page ${p}`}
+                              >
+                                {p}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <button
+                        onClick={copyEvidence}
+                        disabled={pageText == null || pageLoading}
+                        className="shrink-0 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 text-[12px] font-semibold hover:bg-slate-50 disabled:opacity-60"
+                        title="Copy highlighted evidence (or full page if no highlight)"
+                      >
+                        Copy evidence
+                      </button>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          goToPage(String(Math.max(1, (viewPage ?? 1) - 1)))
+                        }
+                        disabled={(viewPage ?? 1) <= 1 || pageLoading}
+                        className="px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 text-[12px] font-semibold hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        ← Prev
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => goToPage(String((viewPage ?? 1) + 1))}
+                        disabled={pageLoading}
+                        className="px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 text-[12px] font-semibold hover:bg-slate-50 disabled:opacity-60"
+                      >
+                        Next →
+                      </button>
+
+                      <div className="w-px h-6 bg-slate-200 mx-1" />
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={pageJump}
+                          onChange={(e) => setPageJump(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") goToPage(pageJump);
+                          }}
+                          placeholder="Page #"
+                          inputMode="numeric"
+                          className="w-20 px-3 py-1.5 rounded-full border border-slate-200 text-[12px]"
+                          disabled={pageLoading}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => goToPage(pageJump)}
+                          disabled={pageLoading || !pageJump.trim()}
+                          className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[12px] font-semibold hover:bg-black disabled:opacity-60"
+                        >
+                          Go
+                        </button>
+                      </div>
                     </div>
 
                     {pageLoading ? (
-                      <div className="mt-2 text-sm text-slate-600">
+                      <div className="mt-3 text-sm text-slate-600">
                         Loading page…
                       </div>
+                    ) : pageErr ? (
+                      <div className="mt-3 text-sm text-rose-700">
+                        {pageErr}
+                      </div>
                     ) : pageText == null ? (
-                      <div className="mt-2 text-sm text-rose-700">
+                      <div className="mt-3 text-sm text-rose-700">
                         Page text unavailable (source has no per-page
                         extraction).
                       </div>
                     ) : (
-                      <div className="mt-2 text-sm leading-relaxed text-slate-900 whitespace-pre-wrap">
+                      <div className="mt-3 text-sm leading-relaxed text-slate-900 whitespace-pre-wrap">
                         {highlightSpan(
                           pageText,
-                          citation.charStart,
-                          citation.charEnd,
+                          highlightForViewPage.start,
+                          highlightForViewPage.end,
                         )}
                       </div>
                     )}

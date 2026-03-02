@@ -813,7 +813,15 @@ r.get("/files", async (req, res, next) => {
       const skip = (p - 1) * ps;
       try {
         const [items, total, sum] = await Promise.all([
-          prisma.storedFile.findMany({ where, orderBy, skip, take: ps }),
+          prisma.storedFile.findMany({
+            where,
+            orderBy,
+            skip,
+            take: ps,
+            include: {
+              url: { select: { publishedAt: true, authors: true } },
+            },
+          }),
           prisma.storedFile.count({ where }),
           prisma.storedFile.aggregate({ where, _sum: { size: true } }),
         ]);
@@ -826,10 +834,13 @@ r.get("/files", async (req, res, next) => {
           const { folderId: _omit, ...whereNoFolder } = where;
           const [items, total, sum] = await Promise.all([
             prisma.storedFile.findMany({
-              where: whereNoFolder,
+              where,
               orderBy,
               skip,
               take: ps,
+              include: {
+                url: { select: { publishedAt: true, authors: true } },
+              },
             }),
             prisma.storedFile.count({ where: whereNoFolder }),
             prisma.storedFile.aggregate({
@@ -846,7 +857,11 @@ r.get("/files", async (req, res, next) => {
     }
 
     try {
-      const files = await prisma.storedFile.findMany({ where, orderBy });
+      const files = await prisma.storedFile.findMany({
+        where,
+        orderBy,
+        include: { url: { select: { publishedAt: true, authors: true } } },
+      });
       res.json(files);
     } catch (e: any) {
       if (String(e?.message || "").includes("Unknown argument `folderId`")) {
@@ -896,6 +911,7 @@ r.get("/files/:id", async (req, res, next) => {
           include: {
             pipelineConfig: true,
             documentRevision: { include: { document: true } },
+            url: { select: { publishedAt: true, authors: true } },
           },
         },
 
@@ -935,6 +951,8 @@ r.get("/files/:id", async (req, res, next) => {
       captureType: f.captureType,
       sourceUrl: f.sourceUrl ?? null,
       urlId: f.urlId ?? null,
+      sourcePublishedAt: (f as any).url?.publishedAt ?? null,
+      sourceAuthors: (f as any).url?.authors ?? [],
       sha256: f.sha256 ?? null,
       contentHash: f.contentHash ?? null,
       taggerVersion: f.taggerVersion ?? null,

@@ -212,6 +212,10 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     captureType: row.captureType,
     sourceUrl: row.sourceUrl ?? null,
     urlId: row.urlId ?? null,
+    sourcePublishedAt:
+      (row as any).sourcePublishedAt ?? (row as any)?.url?.publishedAt ?? null,
+    sourceAuthors:
+      (row as any).sourceAuthors ?? (row as any)?.url?.authors ?? null,
     sha256: (row as any).sha256 ?? null,
     captureMeta: (row as any)?.tagsMeta?.capture ?? null,
     contentHash: (row as any)?.contentHash ?? null,

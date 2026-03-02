@@ -38,6 +38,8 @@ export interface FileItem {
   captureType?: "UPLOAD" | "URL_TEXT" | "URL_PDF";
   sourceUrl?: string | null;
   urlId?: number | null;
+  sourcePublishedAt?: string | null;
+  sourceAuthors?: string[] | null;
   sha256?: string | null;
   captureMeta?: {
     method:
@@ -125,6 +127,8 @@ export interface SavedUrl {
   url: string;
   title: string;
   description?: string;
+  publishedAt?: string | null;
+  authors?: string[];
   faviconUrl?: string;
   domain: string;
   tags: string[];

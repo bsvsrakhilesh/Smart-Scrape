@@ -9,6 +9,8 @@ export type CreateUrlInput = {
   url: string;
   title: string;
   snippet?: string | null;
+  publishedAt?: Date | null;
+  authors?: string[] | null;
 };
 
 /** Update payload */
@@ -256,6 +258,8 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
       canonical_url: canonical,
       title: r0.title?.trim() || r0.url,
       snippet: r0.snippet ?? null,
+      publishedAt: r0.publishedAt ?? null,
+      authors: Array.isArray(r0.authors) ? r0.authors : [],
     };
 
     try {

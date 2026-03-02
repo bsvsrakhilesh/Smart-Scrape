@@ -48,6 +48,19 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
   const provenance = [
     { label: "Capture type", value: file.captureType || "—" },
     { label: "Source URL", value: file.sourceUrl || "—" },
+    {
+      label: "Published",
+      value: file.sourcePublishedAt
+        ? new Date(file.sourcePublishedAt).toLocaleString()
+        : "—",
+    },
+    {
+      label: "Authors",
+      value:
+        Array.isArray(file.sourceAuthors) && file.sourceAuthors.length
+          ? file.sourceAuthors.join(", ")
+          : "—",
+    },
     { label: "URL ID", value: file.urlId != null ? String(file.urlId) : "—" },
     { label: "SHA-256", value: file.sha256 || "—" },
     { label: "Content hash", value: file.contentHash || "—" },

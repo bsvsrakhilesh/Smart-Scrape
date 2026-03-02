@@ -365,6 +365,19 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 <div>
                   <strong>Visibility:</strong> {url.visibility}
                 </div>
+                <div>
+                  <strong>Published:</strong>{" "}
+                  {(url as any).publishedAt
+                    ? formatDate((url as any).publishedAt)
+                    : "—"}
+                </div>
+                <div>
+                  <strong>Authors:</strong>{" "}
+                  {Array.isArray((url as any).authors) &&
+                  (url as any).authors.length
+                    ? (url as any).authors.join(", ")
+                    : "—"}
+                </div>
               </div>
             </div>
           </div>

@@ -37,6 +37,8 @@ model Url {
   canonical_url String?  @unique
   title         String
   snippet       String?
+  publishedAt   DateTime?
+  authors       String[]  @default([])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isFavorited   Boolean  @default(false)

@@ -16,7 +16,7 @@ import {
   UpdateUrlInput,
   getUrlSnapshots,
 } from "../services/url.service";
-import { extractPreviewFromUrl } from "../services/extract.service";
+import { extractUrlMetadata } from "../services/extract.service";
 import { listRevisionsForUrl } from "../services/document.service";
 
 /* ----------------------- helpers ----------------------- */
@@ -254,7 +254,40 @@ export async function createUrlsHandler(
       });
     }
 
-    const result = await createManyUrls(rows);
+    // Best-effort metadata enrichment (fast + resilient).
+    // Only enrich rows that look "thin" (title==url or missing snippet).
+    const enriched = [];
+    for (const r of rows) {
+      const needs =
+        !r.snippet ||
+        !String(r.snippet).trim() ||
+        !r.title ||
+        r.title.trim() === r.url.trim();
+
+      if (!needs) {
+        enriched.push(r);
+        continue;
+      }
+
+      try {
+        const meta = await extractUrlMetadata(r.url);
+        enriched.push({
+          ...r,
+          title:
+            r.title?.trim() && r.title.trim() !== r.url.trim()
+              ? r.title
+              : meta.title,
+          snippet:
+            r.snippet && String(r.snippet).trim() ? r.snippet : meta.snippet,
+          authors: meta.authors,
+          publishedAt: meta.publishedAt,
+        } as any);
+      } catch {
+        enriched.push(r);
+      }
+    }
+
+    const result = await createManyUrls(enriched as any);
     return res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -304,8 +337,16 @@ export async function previewUrlHandler(
     if (!url)
       return res.status(400).json({ message: "Body must include { url }" });
 
-    const { title, snippet } = await extractPreviewFromUrl(url);
-    res.json({ url, title, snippet });
+    const { title, snippet, authors, publishedAt } =
+      await extractUrlMetadata(url);
+
+    res.json({
+      url,
+      title,
+      snippet,
+      authors,
+      publishedAt: publishedAt ? publishedAt.toISOString() : null,
+    });
   } catch (err) {
     next(err);
   }

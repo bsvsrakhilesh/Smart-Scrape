@@ -7,6 +7,8 @@ import AITagButton from "../common/AITagButton";
 import {
   getUrlSnapshots,
   getUrlRevisions,
+  getUrlById,
+  refreshUrlMetadata,
   getFileExtractedText,
   crawlSaveText,
   crawlSavePdf,
@@ -68,6 +70,20 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   }, [url.tags]);
 
   const { notify } = useToast();
+
+  const [metaRefreshing, setMetaRefreshing] = useState(false);
+  const [publishedAt, setPublishedAt] = useState<string | null>(
+    (url as any).publishedAt ?? null,
+  );
+  const [authors, setAuthors] = useState<string[]>(
+    Array.isArray((url as any).authors) ? (url as any).authors : [],
+  );
+
+  // keep in sync when the modal receives a different URL
+  useEffect(() => {
+    setPublishedAt((url as any).publishedAt ?? null);
+    setAuthors(Array.isArray((url as any).authors) ? (url as any).authors : []);
+  }, [url.id]);
 
   const [recaptureMode, setRecaptureMode] = useState<"text" | "pdf">("text");
   const [recaptureLoading, setRecaptureLoading] = useState(false);
@@ -350,7 +366,35 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
             {/* Metadata */}
             <div>
-              <div className="text-sm text-gray-500">Metadata</div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-500">Metadata</div>
+                <button
+                  type="button"
+                  className="px-2 py-1 border rounded text-xs disabled:opacity-50"
+                  disabled={metaRefreshing}
+                  onClick={async () => {
+                    try {
+                      setMetaRefreshing(true);
+                      await refreshUrlMetadata(Number(url.id));
+                      const fresh = await getUrlById(Number(url.id));
+                      setPublishedAt((fresh as any).publishedAt ?? null);
+                      setAuthors(
+                        Array.isArray((fresh as any).authors)
+                          ? (fresh as any).authors
+                          : [],
+                      );
+                      notify("Metadata refreshed");
+                    } catch (e: any) {
+                      notify(e?.message || "Failed to refresh metadata");
+                    } finally {
+                      setMetaRefreshing(false);
+                    }
+                  }}
+                  title="Re-fetch published date and author(s) from the live page"
+                >
+                  {metaRefreshing ? "Refreshing…" : "Refresh metadata"}
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-4 text-xs mt-1">
                 <div>
                   <strong>Created:</strong> {formatDate(url.createdAt)}
@@ -367,16 +411,11 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 </div>
                 <div>
                   <strong>Published:</strong>{" "}
-                  {(url as any).publishedAt
-                    ? formatDate((url as any).publishedAt)
-                    : "—"}
+                  {publishedAt ? formatDate(publishedAt) : "—"}
                 </div>
                 <div>
                   <strong>Authors:</strong>{" "}
-                  {Array.isArray((url as any).authors) &&
-                  (url as any).authors.length
-                    ? (url as any).authors.join(", ")
-                    : "—"}
+                  {authors.length ? authors.join(", ") : "—"}
                 </div>
               </div>
             </div>

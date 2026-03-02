@@ -37,6 +37,7 @@ import {
   listZipChildren,
   streamZipFile,
   getFileById,
+  refreshFileMetadata,
   queryFiles,
   getStorageUsage,
   renameFile,
@@ -2639,6 +2640,21 @@ export default function FileManagerPage() {
                         onClose={() => {
                           setShowProperties(false);
                           setPropertiesFile(null);
+                        }}
+                        onRefreshMetadata={async (fileId) => {
+                          await refreshFileMetadata(fileId);
+                          const latest = await getFileById(fileId);
+                          setPropertiesFile(latest);
+                          setAllFiles((prev) =>
+                            prev.map((x) =>
+                              String((x as any).id) === fileId ? latest : x,
+                            ),
+                          );
+                          setSelected((prev) =>
+                            prev.map((x) =>
+                              String((x as any).id) === fileId ? latest : x,
+                            ),
+                          );
                         }}
                       />
 

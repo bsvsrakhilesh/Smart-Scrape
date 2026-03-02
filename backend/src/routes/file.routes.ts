@@ -12,6 +12,7 @@ import yazl from "yazl";
 import crypto from "crypto";
 import unzipper from "unzipper";
 import pdfParse from "pdf-parse";
+import { extractUrlMetadata } from "../services/extract.service";
 
 // ===== Upload hardening =====
 const MAX_UPLOAD_BYTES = Number(
@@ -1113,6 +1114,107 @@ r.get("/files/:id", async (req, res, next) => {
               : null,
           }
         : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/files/:id/refresh-metadata
+// Re-extracts publishedAt + authors for:
+// - Uploaded PDFs (PDF info dict)
+// - URL-derived files (re-fetch URL metadata; updates Url + StoredFile)
+r.post("/files/:id/refresh-metadata", async (req, res, next) => {
+  try {
+    const id = String(req.params.id || "").trim();
+
+    const f = await prisma.storedFile.findUnique({
+      where: { id },
+      include: { url: true },
+    });
+
+    if (!f) return res.status(404).json({ message: "Not found" });
+    if (f.deletedAt)
+      return res.status(410).json({ message: "File was deleted" });
+
+    const contentType = inferMimeType(f.fileName, f.mimeType);
+
+    let sourcePublishedAt: Date | null = null;
+    let sourceAuthors: string[] = [];
+
+    // If this is a PDF file stored locally, extract PDF metadata
+    if (
+      contentType.toLowerCase().includes("pdf") ||
+      f.fileName.toLowerCase().endsWith(".pdf")
+    ) {
+      try {
+        const meta = await extractPdfFileMetadata(f.storagePath);
+        sourcePublishedAt = meta.sourcePublishedAt ?? null;
+        sourceAuthors = Array.isArray(meta.sourceAuthors)
+          ? meta.sourceAuthors
+          : [];
+      } catch {
+        // ignore
+      }
+    }
+
+    // If it has a source URL (URL_TEXT / URL_PDF / or manual sourceUrl), refresh from web
+    const refreshUrl = (f.sourceUrl || (f as any).url?.url || "").trim();
+    if (refreshUrl) {
+      try {
+        const meta = await extractUrlMetadata(refreshUrl);
+
+        // update Url row if linked
+        if (f.urlId) {
+          await prisma.url.update({
+            where: { id: f.urlId },
+            data: {
+              publishedAt: meta.publishedAt,
+              authors: meta.authors ?? [],
+            },
+          });
+        }
+
+        // If file fields are empty (or PDF had no metadata), prefer URL metadata
+        if (!sourcePublishedAt) sourcePublishedAt = meta.publishedAt ?? null;
+        if (!sourceAuthors.length && Array.isArray(meta.authors))
+          sourceAuthors = meta.authors;
+      } catch {
+        // ignore
+      }
+    }
+
+    const updated = await prisma.storedFile.update({
+      where: { id },
+      data: {
+        sourcePublishedAt,
+        sourceAuthors,
+      },
+    });
+
+    // provenance: record metadata refresh as a capture event
+    try {
+      const docRev = await ensureDocumentRevisionForStoredFile(
+        String(updated.id),
+      );
+      await recordCaptureEvent({
+        pipelineName: "metadata.refresh",
+        pipelineConfig: { pdf: true, url: true },
+        captureType: (updated.captureType as any) || "UPLOAD",
+        storedFileId: String(updated.id),
+        documentRevisionId: docRev.id,
+        urlId: updated.urlId ?? null,
+        sourceUrl: updated.sourceUrl ?? null,
+        actorId: updated.uploaderId ?? null,
+        actorName: updated.uploaderName ?? null,
+        requestId: (req as any)?.requestId ?? null,
+      });
+    } catch {}
+
+    return res.json({
+      id: updated.id,
+      sourcePublishedAt: updated.sourcePublishedAt ?? null,
+      sourceAuthors: updated.sourceAuthors ?? [],
     });
   } catch (err) {
     next(err);

@@ -345,6 +345,16 @@ export async function getUrlById(id: number): Promise<BackendUrlRow> {
   const res = await api.get(`/api/urls/${id}`);
   return res.data as BackendUrlRow;
 }
+
+export async function refreshUrlMetadata(urlId: number): Promise<{
+  id: number;
+  publishedAt: string | null;
+  authors: string[];
+}> {
+  const res = await api.post(`/api/urls/${urlId}/refresh-metadata`);
+  return res.data;
+}
+
 export async function getUrlSnapshots(urlId: number, limit = 50) {
   const res = await api.get(`/api/urls/${urlId}/snapshots`, {
     params: { limit },
@@ -636,6 +646,15 @@ export async function getFileById(fileId: string): Promise<FileItem> {
   const res = await api.get(`/api/files/${fileId}`);
   const data = res.data as BackendStoredFile;
   return toFileItem(data);
+}
+
+export async function refreshFileMetadata(fileId: string): Promise<{
+  id: string;
+  sourcePublishedAt: string | null;
+  sourceAuthors: string[];
+}> {
+  const res = await api.post(`/api/files/${fileId}/refresh-metadata`);
+  return res.data;
 }
 
 export async function getFileExtractedText(fileId: string, maxChars = 200000) {

@@ -12,6 +12,7 @@ import {
   retryFailedUrlTaggingHandler,
   getUrlSnapshotsHandler,
   getUrlRevisionsHandler,
+  refreshUrlMetadataHandler,
 } from "../controllers/url.controller";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
@@ -74,6 +75,7 @@ r.post(
 );
 
 r.get("/urls/:id", getUrlByIdHandler);
+r.post("/urls/:id/refresh-metadata", refreshUrlMetadataHandler);
 r.get(
   "/urls/:id/snapshots",
   validate({ query: urlSnapshotsQuery }),

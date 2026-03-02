@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { useDialogA11y } from "../common/useDialogA11y";
 
 import { FileItem } from "../../lib/types";
@@ -10,14 +10,18 @@ type PropertiesModalProps = {
   file: FileItem | null;
   isOpen: boolean;
   onClose: () => void;
+  onRefreshMetadata: (fileId: string) => Promise<void>;
 };
 
 const PropertiesModal: React.FC<PropertiesModalProps> = ({
   file,
   isOpen,
   onClose,
+  onRefreshMetadata,
 }) => {
   if (!isOpen || !file) return null;
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -153,6 +157,22 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
             <h3 id="properties-title" className="text-lg font-semibold">
               Properties
             </h3>
+
+            <button
+              className="btn text-sm px-3"
+              disabled={isRefreshing}
+              onClick={async () => {
+                try {
+                  setIsRefreshing(true);
+                  await onRefreshMetadata(String((file as any).id));
+                } finally {
+                  setIsRefreshing(false);
+                }
+              }}
+              title="Re-extract published date and author(s)"
+            >
+              {isRefreshing ? "Refreshing…" : "Refresh metadata"}
+            </button>
 
             <button
               ref={closeBtnRef}

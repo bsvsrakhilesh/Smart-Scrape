@@ -17,7 +17,12 @@ import {
   getUrlSnapshots,
 } from "../services/url.service";
 import { extractUrlMetadata } from "../services/extract.service";
-import { listRevisionsForUrl } from "../services/document.service";
+import {
+  listRevisionsForUrl,
+  ensureDocumentRevisionForStoredFile,
+} from "../services/document.service";
+import prisma from "../config/database";
+import { recordCaptureEvent } from "../services/provenance.service";
 
 /* ----------------------- helpers ----------------------- */
 
@@ -414,6 +419,94 @@ export async function retryFailedUrlTaggingHandler(
     };
     const result = await retryFailedUrlTagging({ ids, limit });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function refreshUrlMetadataHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const id = ensureNumericId(req);
+
+    const u = await prisma.url.findUnique({
+      where: { id },
+      select: { id: true, url: true },
+    });
+
+    if (!u) return res.status(404).json({ message: "URL not found" });
+
+    // re-extract from live URL
+    const meta = await extractUrlMetadata(u.url);
+
+    const updatedUrl = await prisma.url.update({
+      where: { id },
+      data: {
+        publishedAt: meta.publishedAt,
+        authors: meta.authors ?? [],
+      },
+      select: {
+        id: true,
+        publishedAt: true,
+        authors: true,
+      },
+    });
+
+    await prisma.storedFile.updateMany({
+      where: {
+        urlId: id,
+        OR: [{ sourcePublishedAt: null }, { sourceAuthors: { equals: [] } }],
+      },
+      data: {
+        sourcePublishedAt: meta.publishedAt ?? null,
+        sourceAuthors: meta.authors ?? [],
+      },
+    });
+
+    // provenance: record capture event on latest URL snapshot (if any)
+    try {
+      const latest = await prisma.storedFile.findFirst({
+        where: { urlId: id, deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          captureType: true,
+          urlId: true,
+          sourceUrl: true,
+          uploaderId: true,
+          uploaderName: true,
+        },
+      });
+
+      if (latest) {
+        const docRev = await ensureDocumentRevisionForStoredFile(latest.id);
+        await recordCaptureEvent({
+          pipelineName: "metadata.refresh",
+          pipelineConfig: { url: true },
+          captureType: (latest.captureType as any) || "URL_TEXT",
+          storedFileId: latest.id,
+          documentRevisionId: docRev.id,
+          urlId: latest.urlId ?? null,
+          sourceUrl: latest.sourceUrl ?? null,
+          actorId: latest.uploaderId ?? null,
+          actorName: latest.uploaderName ?? null,
+          requestId: (req as any)?.requestId ?? null,
+        });
+      }
+    } catch {
+      // non-fatal
+    }
+
+    return res.json({
+      id: updatedUrl.id,
+      publishedAt: updatedUrl.publishedAt
+        ? updatedUrl.publishedAt.toISOString()
+        : null,
+      authors: updatedUrl.authors ?? [],
+    });
   } catch (err) {
     next(err);
   }

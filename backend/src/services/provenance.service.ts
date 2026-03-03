@@ -55,10 +55,25 @@ export async function recordCaptureEvent(args: {
   actorName?: string | null;
   requestId?: string | null;
 }) {
-  const pc = await getOrCreatePipelineConfig(args.pipelineName, args.pipelineConfig);
+  const pc = await getOrCreatePipelineConfig(
+    args.pipelineName,
+    args.pipelineConfig,
+  );
 
-  return prisma.captureEvent.create({
-    data: {
+  return prisma.captureEvent.upsert({
+    where: { storedFileId: args.storedFileId },
+    update: {
+      // Keep the “latest” capture metadata for this storedFile
+      pipelineConfigId: pc.id,
+      captureType: args.captureType as any,
+      documentRevisionId: args.documentRevisionId,
+      urlId: args.urlId ?? null,
+      sourceUrl: args.sourceUrl ?? null,
+      actorId: args.actorId ?? null,
+      actorName: args.actorName ?? null,
+      requestId: args.requestId ?? null,
+    },
+    create: {
       pipelineConfigId: pc.id,
       captureType: args.captureType as any,
       storedFileId: args.storedFileId,

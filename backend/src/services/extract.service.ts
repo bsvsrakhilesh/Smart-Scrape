@@ -10,10 +10,13 @@ import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import fs from "node:fs/promises";
 
 const MAX_HTML_BYTES = Number(
-  process.env.EXTRACT_MAX_HTML_BYTES || 5 * 1024 * 1024,
-); // 5MB
+  process.env.EXTRACT_MAX_HTML_BYTES || 10 * 1024 * 1024,
+);
 const PREVIEW_SNIPPET_CHARS = Number(process.env.EXTRACT_PREVIEW_CHARS || 260);
 const USER_AGENT = process.env.EXTRACT_USER_AGENT || "SmartScrapeBot/1.0";
+const URL_METADATA_TIMEOUT_MS = Number(
+  process.env.EXTRACT_URL_TIMEOUT_MS || 30000,
+);
 
 function ipv4ToInt(ip: string) {
   const parts = ip.split(".").map((x) => Number(x));
@@ -235,7 +238,7 @@ export async function extractUrlMetadata(url: string): Promise<{
   await assertSafeUrl(url);
 
   const { data: html } = await axios.get<string>(url, {
-    timeout: 15000,
+    timeout: URL_METADATA_TIMEOUT_MS,
     responseType: "text",
     maxContentLength: MAX_HTML_BYTES,
     maxBodyLength: MAX_HTML_BYTES,

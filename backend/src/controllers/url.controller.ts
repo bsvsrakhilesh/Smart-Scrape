@@ -440,7 +440,25 @@ export async function refreshUrlMetadataHandler(
     if (!u) return res.status(404).json({ message: "URL not found" });
 
     // re-extract from live URL
-    const meta = await extractUrlMetadata(u.url);
+    let meta: Awaited<ReturnType<typeof extractUrlMetadata>>;
+    try {
+      meta = await extractUrlMetadata(u.url);
+    } catch (err: any) {
+      const isTimeout =
+        err?.code === "ECONNABORTED" ||
+        String(err?.message || "")
+          .toLowerCase()
+          .includes("timeout");
+
+      return res.status(isTimeout ? 504 : 502).json({
+        code: isTimeout ? "METADATA_TIMEOUT" : "METADATA_FETCH_FAILED",
+        message: isTimeout
+          ? "Metadata refresh timed out while fetching the URL."
+          : "Metadata refresh failed while fetching the URL.",
+        url: u.url,
+        requestId: (req as any)?.requestId ?? null,
+      });
+    }
 
     const updatedUrl = await prisma.url.update({
       where: { id },

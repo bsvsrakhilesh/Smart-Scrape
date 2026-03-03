@@ -27,6 +27,7 @@ interface SavedUrlDetailModalProps {
   onFavoriteToggle: (url: SavedUrl) => void;
   onTagUpdate?: (urlId: string, newTags: string[]) => void;
   onNotesChange?: (urlId: string, notes: string) => void;
+  onUrlHydrate?: (fresh: any) => void;
 }
 
 const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
@@ -36,6 +37,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   onFavoriteToggle,
   onTagUpdate,
   onNotesChange,
+  onUrlHydrate,
 }) => {
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
@@ -377,6 +379,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                       setMetaRefreshing(true);
                       await refreshUrlMetadata(Number(url.id));
                       const fresh = await getUrlById(Number(url.id));
+                      onUrlHydrate?.(fresh);
                       setPublishedAt((fresh as any).publishedAt ?? null);
                       setAuthors(
                         Array.isArray((fresh as any).authors)

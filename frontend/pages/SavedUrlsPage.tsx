@@ -82,6 +82,8 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
     url: row.url,
     title: row.title || row.url,
     description: row.snippet || "",
+    publishedAt: (row as any).publishedAt ?? null,
+    authors: Array.isArray((row as any).authors) ? (row as any).authors : [],
     faviconUrl: faviconFor(row.url),
     domain: domain || "",
     tags: row.tags || [],
@@ -1365,6 +1367,15 @@ const SavedUrlsPage: React.FC = () => {
                 onFavoriteToggle={handleFavoriteToggle}
                 onTagUpdate={updateTags}
                 onNotesChange={handleNotesChange}
+                onUrlHydrate={(fresh) => {
+                  const next = toUISaved(fresh);
+                  setUrls((prev) =>
+                    prev.map((u) => (u.id === next.id ? { ...u, ...next } : u)),
+                  );
+                  setDetail((prev) =>
+                    prev && prev.id === next.id ? { ...prev, ...next } : prev,
+                  );
+                }}
               />
             )}
           </div>

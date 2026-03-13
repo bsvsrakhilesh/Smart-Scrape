@@ -854,7 +854,10 @@ r.post("/files/finalize", async (req, res, next) => {
 
 // GET /api/files
 // Supports optional filtering and pagination
-// Query: q, tags (csv), mimeTypes (csv), visibility, favoritesOnly, sortKey (createdAt|fileName|size), sortOrder (asc|desc), page, pageSize, folderId
+// Query: q, tags (csv), mimeTypes (csv), visibility, favoritesOnly,
+// captureKind (all|upload|web), integrity (all|verified|hashed|pending),
+// revision (all|revisioned|base), sourceDomain,
+// sortKey (createdAt|fileName|size), sortOrder (asc|desc), page, pageSize, folderId
 r.get("/files", async (req, res, next) => {
   try {
     const {
@@ -863,6 +866,10 @@ r.get("/files", async (req, res, next) => {
       mimeTypes,
       visibility,
       favoritesOnly,
+      captureKind,
+      integrity,
+      revision,
+      sourceDomain,
       sortKey = "createdAt",
       sortOrder = "desc",
       page,
@@ -873,37 +880,90 @@ r.get("/files", async (req, res, next) => {
     const where: any = {
       deletedAt: null,
     };
+
+    const andClauses: any[] = [];
+
     if (q && q.trim()) {
-      const term = q.trim().toLowerCase();
-      where.OR = [
-        { fileName: { contains: term, mode: "insensitive" } },
-        { description: { contains: term, mode: "insensitive" } },
-      ];
+      const term = q.trim();
+      andClauses.push({
+        OR: [
+          { fileName: { contains: term, mode: "insensitive" } },
+          { description: { contains: term, mode: "insensitive" } },
+          { sourceUrl: { contains: term, mode: "insensitive" } },
+        ],
+      });
     }
+
     if (tags) {
       const arr = String(tags)
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
-      if (arr.length) where.tags = { hasEvery: arr };
+
+      if (arr.length) {
+        andClauses.push({ tags: { hasEvery: arr } });
+      }
     }
+
     if (mimeTypes) {
       const arr = String(mimeTypes)
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
-      if (arr.length) where.mimeType = { in: arr };
+
+      if (arr.length) {
+        andClauses.push({ mimeType: { in: arr } });
+      }
     }
+
     if (visibility && (visibility === "public" || visibility === "private")) {
-      where.visibility = visibility;
+      andClauses.push({ visibility });
     }
+
     if (favoritesOnly === "true") {
-      where.isFavorited = true;
+      andClauses.push({ isFavorited: true });
+    }
+
+    if (captureKind === "upload") {
+      andClauses.push({ captureType: "UPLOAD" });
+    } else if (captureKind === "web") {
+      andClauses.push({
+        captureType: { in: ["URL_TEXT", "URL_PDF"] },
+      });
+    }
+
+    if (integrity === "verified") {
+      andClauses.push({ sha256: { not: null } });
+    } else if (integrity === "hashed") {
+      andClauses.push({
+        OR: [{ sha256: { not: null } }, { contentHash: { not: null } }],
+      });
+    } else if (integrity === "pending") {
+      andClauses.push({ sha256: null, contentHash: null });
+    }
+
+    if (revision === "revisioned") {
+      andClauses.push({ documentRevision: { isNot: null } });
+    } else if (revision === "base") {
+      andClauses.push({ documentRevision: { is: null } });
+    }
+
+    if (sourceDomain && sourceDomain.trim()) {
+      andClauses.push({
+        sourceUrl: {
+          contains: sourceDomain.trim(),
+          mode: "insensitive",
+        },
+      });
     }
 
     if (typeof folderId === "string" && prismaSupportsFolders()) {
       if (folderId === "root" || folderId === "") where.folderId = null;
       else where.folderId = folderId;
+    }
+
+    if (andClauses.length) {
+      where.AND = andClauses;
     }
 
     const orderBy: any = {};
@@ -914,6 +974,47 @@ r.get("/files", async (req, res, next) => {
     } else {
       orderBy.createdAt = "desc";
     }
+
+    const fileInclude = {
+      url: {
+        select: {
+          publishedAt: true,
+          authors: true,
+        },
+      },
+      documentRevision: {
+        select: {
+          id: true,
+          documentId: true,
+          ordinal: true,
+          createdAt: true,
+          captureType: true,
+          contentHash: true,
+          storedFileId: true,
+        },
+      },
+      captureEvent: {
+        select: {
+          id: true,
+          createdAt: true,
+          requestId: true,
+          actorId: true,
+          actorName: true,
+          sourceUrl: true,
+          urlId: true,
+          pipelineConfig: {
+            select: {
+              id: true,
+              name: true,
+              version: true,
+              configHash: true,
+              codeSha: true,
+              createdAt: true,
+            },
+          },
+        },
+      },
+    };
 
     const hasPagination =
       Number.isInteger(Number(page)) && Number.isInteger(Number(pageSize));
@@ -928,9 +1029,7 @@ r.get("/files", async (req, res, next) => {
             orderBy,
             skip,
             take: ps,
-            include: {
-              url: { select: { publishedAt: true, authors: true } },
-            },
+            include: fileInclude,
           }),
           prisma.storedFile.count({ where }),
           prisma.storedFile.aggregate({ where, _sum: { size: true } }),
@@ -948,9 +1047,7 @@ r.get("/files", async (req, res, next) => {
               orderBy,
               skip,
               take: ps,
-              include: {
-                url: { select: { publishedAt: true, authors: true } },
-              },
+              include: fileInclude,
             }),
             prisma.storedFile.count({ where: whereNoFolder }),
             prisma.storedFile.aggregate({
@@ -970,7 +1067,7 @@ r.get("/files", async (req, res, next) => {
       const files = await prisma.storedFile.findMany({
         where,
         orderBy,
-        include: { url: { select: { publishedAt: true, authors: true } } },
+        include: fileInclude,
       });
       res.json(files);
     } catch (e: any) {

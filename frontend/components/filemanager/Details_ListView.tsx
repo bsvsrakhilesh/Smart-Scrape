@@ -27,8 +27,27 @@ import {
 
 type ViewMode = "details" | "list";
 type ColumnKey = "name" | "date" | "type" | "size";
+type ArchiveColumnId =
+  | "evidence"
+  | "source"
+  | "captured"
+  | "integrity"
+  | "revision"
+  | "tags";
 
-const ALL_COLS: ColumnKey[] = ["name", "date", "type", "size"];
+const DETAIL_COLUMNS: Array<{
+  id: ArchiveColumnId;
+  label: string;
+  sortKey?: ColumnKey;
+  align?: "left" | "right";
+}> = [
+  { id: "evidence", label: "Evidence", sortKey: "name" },
+  { id: "source", label: "Source" },
+  { id: "captured", label: "Captured", sortKey: "date" },
+  { id: "integrity", label: "Integrity" },
+  { id: "revision", label: "Revision" },
+  { id: "tags", label: "Tags" },
+];
 
 const isZip = (f: FileItem) => {
   const n =
@@ -63,6 +82,127 @@ const getDateLabel = (f: FileItem): string => {
   }
 };
 
+const getShortDateLabel = (f: FileItem): string => {
+  const d =
+    (f as any).updatedAt ||
+    (f as any).modifiedAt ||
+    (f as any).uploadDate ||
+    (f as any).createdAt ||
+    (f as any).lastModified ||
+    null;
+
+  if (!d) return "Unknown";
+  try {
+    return new Date(d).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "Unknown";
+  }
+};
+
+const getSourceHost = (f: FileItem): string => {
+  const raw = (f as any).sourceUrl || (f as any).captureEvent?.sourceUrl || "";
+
+  if (!raw) {
+    return String((f as any).captureType || "").startsWith("URL_")
+      ? "Captured web"
+      : "Direct upload";
+  }
+
+  try {
+    return new URL(raw).hostname.replace(/^www\./, "");
+  } catch {
+    return (
+      String(raw)
+        .replace(/^https?:\/\//, "")
+        .split("/")[0] || "Unknown source"
+    );
+  }
+};
+
+const getActorLabel = (f: FileItem): string =>
+  (f as any).captureEvent?.actorName ||
+  (f as any).uploader?.name ||
+  "Unknown actor";
+
+const getCaptureLabel = (f: FileItem): string => {
+  const captureType = String((f as any).captureType || "");
+  const mime = String((f as any).mimeType || "").toLowerCase();
+  const isFolder = Boolean((f as any).isFolder) || mime === "folder";
+
+  if (isFolder) return "Folder";
+  if (captureType === "URL_TEXT") return "Web capture";
+  if (captureType === "URL_PDF") return "Printed snapshot";
+  return "Upload";
+};
+
+const getIntegrityInfo = (
+  f: FileItem,
+): {
+  tone: "green" | "blue" | "slate";
+  label: string;
+  meta: string;
+} => {
+  const sha256 = (f as any).sha256;
+  const contentHash = (f as any).contentHash;
+
+  if (sha256) {
+    return {
+      tone: "green",
+      label: "Verified hash",
+      meta: `${String(sha256).slice(0, 12)}…`,
+    };
+  }
+
+  if (contentHash) {
+    return {
+      tone: "blue",
+      label: "Content hash",
+      meta: `${String(contentHash).slice(0, 12)}…`,
+    };
+  }
+
+  return {
+    tone: "slate",
+    label: "Hash pending",
+    meta: "No immutable hash yet",
+  };
+};
+
+const getRevisionInfo = (f: FileItem): { label: string; meta: string } => {
+  const rev = (f as any).documentRevision;
+  const pipeline = (f as any).captureEvent?.pipelineConfig;
+
+  if (rev?.ordinal) {
+    return {
+      label: `R${rev.ordinal}`,
+      meta: pipeline?.name
+        ? `${pipeline.name} v${pipeline.version}`
+        : "Tracked revision",
+    };
+  }
+
+  return {
+    label: "Base file",
+    meta: getCaptureLabel(f),
+  };
+};
+
+const getTypeLabel = (f: FileItem): string => {
+  const mime = String((f as any).mimeType || "").toLowerCase();
+  if (!mime) return "Unknown";
+  if (mime === "folder") return "Folder";
+  return mime.split("/").pop() || mime;
+};
+
+const getTagList = (f: FileItem): string[] =>
+  Array.isArray((f as any).tags) ? ((f as any).tags as string[]) : [];
+
 const renderTypeIcon = (f: FileItem) => {
   const name = fileDisplayName(f).toLowerCase();
   const mime = ((f as any).mimeType || (f as any).type || "").toLowerCase();
@@ -85,7 +225,6 @@ const renderTypeIcon = (f: FileItem) => {
   return <FileIcon />;
 };
 
-/** Props aligned with FileManagerPage (ID-based selection & actions). */
 type Props = {
   files: FileItem[];
 
@@ -652,26 +791,13 @@ export default function Details_ListView({
 
   /** ---- rendering helpers ---- */
   const renderHeader = () => {
-    const labelFor = (key: ColumnKey) => {
-      switch (key) {
-        case "name":
-          return "Name";
-        case "size":
-          return "Size";
-        case "date":
-          return "Date modified";
-        case "type":
-          return "Type";
-        default:
-          return key;
-      }
-    };
-
     const iconFor = (key: ColumnKey) => {
-      if (effectiveSortKey !== key)
+      if (effectiveSortKey !== key) {
         return (
           <ChevronsUpDown className="fm-sort-icon fm-sort-icon--neutral" />
         );
+      }
+
       return effectiveSortDir === "asc" ? (
         <ChevronUp className="fm-sort-icon" />
       ) : (
@@ -681,27 +807,44 @@ export default function Details_ListView({
 
     return (
       <div className="fm-table-header fm-row-grid" role="row">
-        {ALL_COLS.map((key) => {
-          const isRight = key === "size";
-          const isSorted = effectiveSortKey === key;
-          const ariaSort = isSorted
-            ? effectiveSortDir === "asc"
-              ? "ascending"
-              : "descending"
-            : "none";
+        {DETAIL_COLUMNS.map((col) => {
+          const isSorted = col.sortKey
+            ? effectiveSortKey === col.sortKey
+            : false;
+          const ariaSort = col.sortKey
+            ? isSorted
+              ? effectiveSortDir === "asc"
+                ? "ascending"
+                : "descending"
+              : "none"
+            : undefined;
+
+          if (!col.sortKey) {
+            return (
+              <div
+                key={col.id}
+                role="columnheader"
+                className={`fm-th is-static ${
+                  col.align === "right" ? "is-right" : ""
+                }`}
+              >
+                <span className="fm-th-label">{col.label}</span>
+              </div>
+            );
+          }
 
           return (
             <button
-              key={key}
+              key={col.id}
               type="button"
               role="columnheader"
               aria-sort={ariaSort as any}
-              className={`fm-th ${isRight ? "is-right" : ""}`}
-              onClick={() => setSort(key)}
+              className={`fm-th ${col.align === "right" ? "is-right" : ""}`}
+              onClick={() => setSort(col.sortKey!)}
             >
-              <span className="fm-th-label">{labelFor(key)}</span>
+              <span className="fm-th-label">{col.label}</span>
               <span className="fm-th-sort" aria-hidden="true">
-                {iconFor(key)}
+                {iconFor(col.sortKey)}
               </span>
             </button>
           );
@@ -714,13 +857,25 @@ export default function Details_ListView({
     sorted.map((f) => {
       const id = String((f as any).id ?? fileDisplayName(f));
       const isSel = selectedIds.has(id);
-      const size = (f as any).size;
+
+      const rawSize = (f as any).size;
       const sizeLabel =
-        size != null && size !== ""
-          ? formatBytes(typeof size === "string" ? parseFloat(size) : size)
-          : "";
-      const dateLabel = getDateLabel(f);
-      const typeLabel = ((f as any).mimeType || "").split("/").pop() || "";
+        rawSize != null && rawSize !== ""
+          ? formatBytes(
+              typeof rawSize === "string" ? parseFloat(rawSize) : rawSize,
+            )
+          : "—";
+
+      const sourceHost = getSourceHost(f);
+      const actorLabel = getActorLabel(f);
+      const capturedLabel = getShortDateLabel(f);
+      const captureLabel = getCaptureLabel(f);
+      const integrity = getIntegrityInfo(f);
+      const revision = getRevisionInfo(f);
+      const typeLabel = getTypeLabel(f);
+      const tagList = getTagList(f);
+      const sourceUrl =
+        (f as any).sourceUrl || (f as any).captureEvent?.sourceUrl;
 
       return (
         <div
@@ -742,39 +897,94 @@ export default function Details_ListView({
           }}
           className="fm-row fm-row--details fm-row-grid"
         >
-          {/* Name */}
-          <div className="fm-td fm-td--name">
-            {showCheckCol && (
-              <input
-                type="checkbox"
-                className="fm-check"
-                checked={isSel}
-                onChange={(e) => handleRowClick(f, e as any)}
-                onClick={(e) => e.stopPropagation()}
-                aria-label={isSel ? "Deselect item" : "Select item"}
-              />
+          <div className="fm-td fm-td--evidence">
+            <div className="fm-evidence-main">
+              {showCheckCol && (
+                <input
+                  type="checkbox"
+                  className="fm-check"
+                  checked={isSel}
+                  onChange={(e) => handleRowClick(f, e as any)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={isSel ? "Deselect item" : "Select item"}
+                />
+              )}
+
+              <span className="fm-file-icon" aria-hidden="true">
+                {renderTypeIcon(f)}
+              </span>
+
+              <div className="fm-cell-stack min-w-0">
+                <span className="fm-file-name" title={fileDisplayName(f)}>
+                  {fileDisplayName(f)}
+                </span>
+                <span className="fm-cell-subtle">
+                  {typeLabel} · {sizeLabel}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="fm-td fm-td--source">
+            <div className="fm-cell-stack">
+              <span className="fm-source-name" title={sourceHost}>
+                {sourceHost}
+              </span>
+              <span className="fm-cell-subtle" title={sourceUrl || actorLabel}>
+                {sourceUrl ? sourceUrl : actorLabel}
+              </span>
+            </div>
+          </div>
+
+          <div className="fm-td fm-td--captured">
+            <div className="fm-cell-stack">
+              <span className="fm-cell-strong">{capturedLabel}</span>
+              <div className="fm-inline-pills">
+                <span className="fm-mini-pill">{captureLabel}</span>
+                <span className="fm-mini-pill fm-mini-pill--ghost">
+                  {(f as any).visibility || "private"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="fm-td fm-td--integrity">
+            <div className="fm-cell-stack">
+              <span
+                className={`fm-state-pill fm-state-pill--${integrity.tone}`}
+              >
+                {integrity.label}
+              </span>
+              <span className="fm-cell-subtle fm-cell-mono">
+                {integrity.meta}
+              </span>
+            </div>
+          </div>
+
+          <div className="fm-td fm-td--revision">
+            <div className="fm-cell-stack">
+              <span className="fm-cell-strong">{revision.label}</span>
+              <span className="fm-cell-subtle">{revision.meta}</span>
+            </div>
+          </div>
+
+          <div className="fm-td fm-td--tags">
+            {tagList.length ? (
+              <div className="fm-inline-pills">
+                {tagList.slice(0, 2).map((tag) => (
+                  <span key={tag} className="fm-mini-pill">
+                    {tag}
+                  </span>
+                ))}
+                {tagList.length > 2 && (
+                  <span className="fm-mini-pill fm-mini-pill--ghost">
+                    +{tagList.length - 2}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <span className="fm-cell-subtle">No tags</span>
             )}
-            <span className="fm-file-icon" aria-hidden="true">
-              {renderTypeIcon(f)}
-            </span>
-            <span className="fm-file-name" title={fileDisplayName(f)}>
-              {fileDisplayName(f)}
-            </span>
-          </div>
-
-          {/* Date modified */}
-          <div className="fm-td fm-td--date" title={dateLabel}>
-            {dateLabel}
-          </div>
-
-          {/* Type */}
-          <div className="fm-td fm-td--type" title={typeLabel}>
-            {typeLabel}
-          </div>
-
-          {/* Size */}
-          <div className="fm-td fm-td--size is-right" title={sizeLabel}>
-            {sizeLabel}
           </div>
         </div>
       );
@@ -784,19 +994,6 @@ export default function Details_ListView({
     sorted.map((f) => {
       const id = String((f as any).id ?? fileDisplayName(f));
       const isSel = selectedIds.has(id);
-
-      const mime = String(
-        (f as any).mimeType || (f as any).type || "",
-      ).toLowerCase();
-      const isFolder = Boolean((f as any).isFolder) || mime === "folder";
-
-      const rawSize = (f as any).size;
-      const sizeLabel =
-        rawSize != null && rawSize !== ""
-          ? formatBytes(
-              typeof rawSize === "string" ? parseFloat(rawSize) : rawSize,
-            )
-          : "";
 
       const dateLabel = getDateLabel(f);
 
@@ -843,29 +1040,19 @@ export default function Details_ListView({
                 {fileDisplayName(f)}
               </div>
               <div className="fm-list-subtle fm-list-subline">
-                {isFolder ? "Folder" : mime ? mime.split("/").pop() : "File"}
+                {getSourceHost(f)} · {getCaptureLabel(f)}
               </div>
             </div>
           </div>
 
-          {/* Middle meta (Explorer-like: right aligned pills on desktop) */}
           <div className="fm-row-meta" aria-hidden="true">
-            {sizeLabel && !isFolder && (
-              <span className="fm-tag">{sizeLabel}</span>
+            <span className="fm-tag">{getIntegrityInfo(f).label}</span>
+
+            {((f as any).documentRevision?.ordinal ?? null) && (
+              <span className="fm-tag">
+                R{(f as any).documentRevision.ordinal}
+              </span>
             )}
-            {(f as any).captureType &&
-              String((f as any).captureType).startsWith("URL_") && (
-                <span
-                  className="fm-tag"
-                  title={
-                    (f as any).sourceUrl
-                      ? `Source: ${(f as any).sourceUrl}`
-                      : "URL Snapshot"
-                  }
-                >
-                  Snapshot
-                </span>
-              )}
 
             {dateLabel && <span className="fm-tag">{dateLabel}</span>}
           </div>
@@ -919,7 +1106,7 @@ export default function Details_ListView({
       {viewMode === "details" && (
         <div
           data-view="details"
-          className="fm-table-wrap"
+          className="fm-table-wrap fm-table-wrap--archive"
           data-density={density}
         >
           {renderHeader()}

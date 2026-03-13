@@ -178,7 +178,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
 
   const quickAccess = useMemo(() => {
     const HOME = {
-      label: "Home",
+      label: "All evidence",
       icon: <Star className="w-4 h-4" />,
       go: goHome,
       active: viewMode === "drive" && !currentFolderId,
@@ -248,7 +248,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
         {/* Quick access */}
         <SectionShell>
           <SectionHeader
-            title="Quick access"
+            title="Archive views"
             collapsed={collapsed.quick}
             onToggle={() => toggle("quick")}
           />
@@ -271,7 +271,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
         {/* Libraries */}
         <SectionShell>
           <SectionHeader
-            title="Libraries"
+            title="Collections"
             collapsed={collapsed.libraries}
             onToggle={() => toggle("libraries")}
             right={

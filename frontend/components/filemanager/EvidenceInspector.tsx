@@ -104,8 +104,51 @@ export default function EvidenceInspector({ file }: Props) {
       </div>
 
       {!file ? (
-        <div className="px-4 py-5 text-sm text-[hsl(var(--muted-foreground))]">
-          Select a single file to see provenance, capture metadata, and tags.
+        <div className="ei-empty">
+          <div className="ei-empty-hero">
+            <div className="ei-empty-eyebrow">Provenance drawer</div>
+            <h3 className="ei-empty-title">
+              Select one file to inspect trust, source, and revision history
+            </h3>
+            <p className="ei-empty-copy">
+              This panel should explain where a file came from, whether it
+              changed, what was captured, and whether it is ready for notebook
+              use.
+            </p>
+          </div>
+
+          <div className="ei-empty-grid">
+            <div className="ei-empty-card">
+              <div className="ei-empty-card__label">What appears here</div>
+              <ul className="ei-empty-list">
+                <li>Source URL and capture method</li>
+                <li>SHA-256 / content hash state</li>
+                <li>Document revision timeline</li>
+                <li>AI tags and structured metadata</li>
+              </ul>
+            </div>
+
+            <div className="ei-empty-card">
+              <div className="ei-empty-card__label">Integrity legend</div>
+              <div className="ei-empty-badges">
+                <span className="ei-badge ei-badge--green">Verified hash</span>
+                <span className="ei-badge ei-badge--blue">Snapshot</span>
+                <span className="ei-badge ei-badge--violet">Revisioned</span>
+              </div>
+            </div>
+
+            <div className="ei-empty-card">
+              <div className="ei-empty-card__label">Helpful shortcuts</div>
+              <div className="ei-empty-shortcuts">
+                <span>
+                  <kbd>Ctrl</kbd> + <kbd>K</kbd> Command palette
+                </span>
+                <span>
+                  <kbd>?</kbd> Hotkeys
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="px-4 py-4">
@@ -137,6 +180,62 @@ export default function EvidenceInspector({ file }: Props) {
               </div>
             )}
           </div>
+
+          <div className="ei-summary-grid">
+            <div className="ei-summary-card">
+              <span className="ei-summary-card__label">Integrity</span>
+              <strong className="ei-summary-card__value">
+                {file.sha256
+                  ? "SHA-256 verified"
+                  : file.contentHash
+                    ? "Content hash recorded"
+                    : "Hash pending"}
+              </strong>
+              <small className="ei-summary-card__meta">
+                {file.sha256
+                  ? `${file.sha256.slice(0, 12)}…`
+                  : "No immutable hash recorded yet"}
+              </small>
+            </div>
+
+            <div className="ei-summary-card">
+              <span className="ei-summary-card__label">Revision</span>
+              <strong className="ei-summary-card__value">
+                {file.documentRevision?.ordinal
+                  ? `R${file.documentRevision.ordinal}`
+                  : "Base file"}
+              </strong>
+              <small className="ei-summary-card__meta">
+                {revisions.length > 0
+                  ? `${revisions.length} revisions loaded`
+                  : "No revision history yet"}
+              </small>
+            </div>
+
+            <div className="ei-summary-card">
+              <span className="ei-summary-card__label">Capture</span>
+              <strong className="ei-summary-card__value">
+                {file.captureType ?? "UPLOAD"}
+              </strong>
+              <small className="ei-summary-card__meta">
+                {file.captureMeta?.method ?? "Direct upload"}
+              </small>
+            </div>
+
+            <div className="ei-summary-card">
+              <span className="ei-summary-card__label">Actor</span>
+              <strong className="ei-summary-card__value">
+                {file.captureEvent?.actorName ??
+                  file.uploader?.name ??
+                  "Unknown"}
+              </strong>
+              <small className="ei-summary-card__meta">
+                {file.sourceUrl ? "Linked source available" : "No source URL"}
+              </small>
+            </div>
+          </div>
+
+          <div className="h-3" />
 
           <div className="rounded-2xl border border-[hsl(var(--border))] bg-white px-3">
             <div className="px-1 pt-3 pb-1 text-[11px] font-semibold text-slate-900">

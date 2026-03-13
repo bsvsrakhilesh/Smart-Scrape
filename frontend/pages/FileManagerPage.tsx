@@ -88,6 +88,26 @@ type Layout = "large" | "icons" | "details" | "list";
 type SortKey = "name" | "date" | "type" | "size";
 type SortDir = "asc" | "desc";
 
+type ArchiveCaptureKind = "all" | "upload" | "web";
+type ArchiveIntegrityKind = "all" | "verified" | "hashed" | "pending";
+type ArchiveRevisionKind = "all" | "revisioned" | "base";
+
+type ArchiveFilterState = {
+  captureKind: ArchiveCaptureKind;
+  visibility: "all" | "public" | "private";
+  integrity: ArchiveIntegrityKind;
+  revision: ArchiveRevisionKind;
+  sourceDomain: string;
+};
+
+const DEFAULT_ARCHIVE_FILTERS: ArchiveFilterState = {
+  captureKind: "all",
+  visibility: "all",
+  integrity: "all",
+  revision: "all",
+  sourceDomain: "",
+};
+
 /** Small themed buttons with motion */
 const ToolbarButton: React.FC<
   React.ComponentProps<typeof motion.button> & {
@@ -168,9 +188,6 @@ export default function FileManagerPage() {
   );
   useEffect(() => setLS("fm:inspectorOpen", inspectorOpen), [inspectorOpen]);
 
-  // Search text from the header input.
-  // Important: the listing is paginated, so we must send search to the server
-  // (otherwise users will think items "disappeared" when they exist on other pages).
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -184,6 +201,25 @@ export default function FileManagerPage() {
     }, 250);
     return () => window.clearTimeout(t);
   }, [search]);
+
+  const [archiveFilters, setArchiveFilters] = useState<ArchiveFilterState>(
+    DEFAULT_ARCHIVE_FILTERS,
+  );
+
+  const activeArchiveFilterCount = useMemo(
+    () =>
+      Number(archiveFilters.captureKind !== "all") +
+      Number(archiveFilters.visibility !== "all") +
+      Number(archiveFilters.integrity !== "all") +
+      Number(archiveFilters.revision !== "all") +
+      Number(archiveFilters.sourceDomain.trim().length > 0),
+    [archiveFilters],
+  );
+
+  const clearArchiveFilters = useCallback(() => {
+    setArchiveFilters(DEFAULT_ARCHIVE_FILTERS);
+    setPage(1);
+  }, []);
 
   // ---------- Command palette ----------
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -710,12 +746,34 @@ export default function FileManagerPage() {
           ? "fileName"
           : sortKey === "type"
             ? "mimeType"
-            : sortKey; // size stays "size"
+            : sortKey;
 
     params.set("sortKey", backendSortKey);
     params.set("sortOrder", sortDir);
 
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
+
+    if (!inZip && !inTrash) {
+      if (archiveFilters.captureKind !== "all") {
+        params.set("captureKind", archiveFilters.captureKind);
+      }
+
+      if (archiveFilters.visibility !== "all") {
+        params.set("visibility", archiveFilters.visibility);
+      }
+
+      if (archiveFilters.integrity !== "all") {
+        params.set("integrity", archiveFilters.integrity);
+      }
+
+      if (archiveFilters.revision !== "all") {
+        params.set("revision", archiveFilters.revision);
+      }
+
+      if (archiveFilters.sourceDomain.trim()) {
+        params.set("sourceDomain", archiveFilters.sourceDomain.trim());
+      }
+    }
 
     (async () => {
       try {
@@ -798,9 +856,6 @@ export default function FileManagerPage() {
           return;
         }
 
-        // ----------------------------
-        // NORMAL MODE: existing logic
-        // ----------------------------
         const data = inTrash
           ? await listTrashFiles(Object.fromEntries(params.entries()))
           : await queryFiles(Object.fromEntries(params.entries()));
@@ -896,6 +951,7 @@ export default function FileManagerPage() {
     sortKey,
     sortDir,
     searchQuery,
+    archiveFilters,
     refreshToken,
     virtualZip,
   ]);
@@ -2187,8 +2243,6 @@ export default function FileManagerPage() {
       // finish UI + show summary toast
       setAutoTagUI((p) => ({ ...p, running: false, currentLabel: "" }));
 
-      // Use the latest computed state from setAutoTagUI above:
-      // (we can't synchronously read updated state, so compute from targets + cancel flag)
       if (autoTagCancelRef.current) {
         notify("Auto-tag cancelled", "info");
       } else {
@@ -2319,6 +2373,32 @@ export default function FileManagerPage() {
     URL.revokeObjectURL(a.href);
   }, []);
 
+  const archiveTrustChips = useMemo(
+    () => [
+      {
+        label: "Revisions",
+        value: selectedSingle?.documentRevision?.ordinal
+          ? `R${selectedSingle.documentRevision.ordinal}`
+          : "Enabled",
+        tone: "blue",
+      },
+      {
+        label: "Provenance",
+        value: selectedSingle?.captureEvent?.id ? "Recorded" : "Ready",
+        tone: "emerald",
+      },
+      {
+        label: "AI tags",
+        value:
+          selectedSingle?.tags && selectedSingle.tags.length > 0
+            ? `${selectedSingle.tags.length} tags`
+            : "Available",
+        tone: "violet",
+      },
+    ],
+    [selectedSingle],
+  );
+
   return (
     <PageTransition>
       <motion.div
@@ -2329,39 +2409,52 @@ export default function FileManagerPage() {
       >
         {/* header */}
         <motion.header
-          className="fm-exec-header max-w-7xl mx-auto px-1 md:px-0 mb-4 md:mb-6"
+          className="fm-archive-header max-w-7xl mx-auto px-1 md:px-0 mb-4 md:mb-5"
           initial={{ y: 0, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.05, duration: 0.45, ease: "easeOut" }}
         >
-          <div className="fm-exec-top">
-            <div className="fm-exec-copy">
-              <p className="fm-exec-kicker">Evidence workspace</p>
-              <h1 className="fm-exec-title">File Manager</h1>
-              <p className="fm-exec-subtitle">
-                Professional workspace for reports, PDFs, captured evidence,
-                revisions, and tagged research assets.
+          <div className="fm-archive-header__row">
+            <div className="fm-archive-header__copy">
+              <p className="fm-archive-header__eyebrow">CAQM workspace</p>
+
+              <div className="fm-archive-header__headline">
+                <h1 className="fm-archive-header__title">Evidence Archive</h1>
+                {searchQuery ? (
+                  <span className="fm-archive-header__query">
+                    Query: “{searchQuery}”
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="fm-archive-header__subtitle">
+                High-trust archive for reports, PDFs, captured web evidence,
+                revisions, and notebook-ready research assets.
               </p>
+
+              <div className="fm-archive-chip-row">
+                {archiveTrustChips.map((chip) => (
+                  <span
+                    key={chip.label}
+                    className="fm-archive-chip"
+                    data-tone={chip.tone}
+                  >
+                    <strong>{chip.label}</strong>
+                    <span>{chip.value}</span>
+                  </span>
+                ))}
+              </div>
             </div>
 
-            <div className="fm-exec-actions">
+            <div className="fm-archive-header__actions">
               {viewMode === "drive" && !virtualZip && (
-                <>
-                  <ToolbarButton
-                    variant="outline"
-                    onClick={handleNewFolder}
-                    className="min-w-[132px] h-12 rounded-full justify-center px-6 border border-[rgba(148,163,184,0.24)] bg-white/90 shadow-sm hover:bg-white"
-                  >
-                    New folder
-                  </ToolbarButton>
-                  <ToolbarButton
-                    variant="primary"
-                    onClick={() => setShowUpload(true)}
-                    className="min-w-[164px] h-12 rounded-full justify-center px-6"
-                  >
-                    Upload files
-                  </ToolbarButton>
-                </>
+                <ToolbarButton
+                  variant="primary"
+                  onClick={() => setShowUpload(true)}
+                  className="min-w-[168px] h-11 rounded-full justify-center px-6"
+                >
+                  Upload evidence
+                </ToolbarButton>
               )}
 
               <button
@@ -2396,46 +2489,64 @@ export default function FileManagerPage() {
             </div>
           </div>
 
-          <div className="fm-exec-stats">
-            <div className="fm-exec-stat">
-              <span className="fm-exec-stat-label">Mode</span>
-              <strong className="fm-exec-stat-value">{activeModeLabel}</strong>
+          <div className="fm-archive-stats">
+            <div className="fm-archive-stat-card">
+              <span className="fm-archive-stat-card__label">Mode</span>
+              <strong className="fm-archive-stat-card__value">
+                {activeModeLabel}
+              </strong>
+              <small className="fm-archive-stat-card__meta">
+                Archive-first workspace
+              </small>
             </div>
 
-            <div className="fm-exec-stat">
-              <span className="fm-exec-stat-label">Location</span>
-              <strong className="fm-exec-stat-value">
+            <div className="fm-archive-stat-card">
+              <span className="fm-archive-stat-card__label">Location</span>
+              <strong className="fm-archive-stat-card__value">
                 {activeLocationLabel}
               </strong>
+              <small className="fm-archive-stat-card__meta">
+                Current evidence scope
+              </small>
             </div>
 
-            <div className="fm-exec-stat">
-              <span className="fm-exec-stat-label">Visible items</span>
-              <strong className="fm-exec-stat-value">
+            <div className="fm-archive-stat-card">
+              <span className="fm-archive-stat-card__label">Visible items</span>
+              <strong className="fm-archive-stat-card__value">
                 {visibleFiles.length}
               </strong>
+              <small className="fm-archive-stat-card__meta">
+                Filtered result set
+              </small>
             </div>
 
-            <div className="fm-exec-stat">
-              <span className="fm-exec-stat-label">Storage used</span>
-              <strong className="fm-exec-stat-value">
+            <div className="fm-archive-stat-card">
+              <span className="fm-archive-stat-card__label">Storage used</span>
+              <strong className="fm-archive-stat-card__value">
                 {formatBytes(storageUsedBytes)}
               </strong>
-              <small className="fm-exec-stat-sub">{storagePercent}% used</small>
+              <small className="fm-archive-stat-card__meta">
+                {storagePercent}% of capacity
+              </small>
             </div>
 
-            <div className="fm-exec-stat">
-              <span className="fm-exec-stat-label">Sorting</span>
-              <strong className="fm-exec-stat-value">{sortSummaryLabel}</strong>
+            <div className="fm-archive-stat-card">
+              <span className="fm-archive-stat-card__label">Sorting</span>
+              <strong className="fm-archive-stat-card__value">
+                {sortSummaryLabel}
+              </strong>
+              <small className="fm-archive-stat-card__meta">
+                Server-backed ordering
+              </small>
             </div>
 
             {selected.length > 0 && (
-              <div className="fm-exec-stat fm-exec-stat--accent">
-                <span className="fm-exec-stat-label">Selected</span>
-                <strong className="fm-exec-stat-value">
+              <div className="fm-archive-stat-card fm-archive-stat-card--selected">
+                <span className="fm-archive-stat-card__label">Selected</span>
+                <strong className="fm-archive-stat-card__value">
                   {selected.length}
                 </strong>
-                <small className="fm-exec-stat-sub">
+                <small className="fm-archive-stat-card__meta">
                   {formatBytes(selectedBytes)}
                 </small>
               </div>
@@ -2560,6 +2671,133 @@ export default function FileManagerPage() {
                   />
                 </div>
               </div>
+
+              {!virtualZip && viewMode !== "trash" && (
+                <div className="fm-filter-strip">
+                  <div className="fm-filter-strip__head">
+
+                    <div className="fm-filter-strip__meta">
+                      <span
+                        className="fm-filter-count"
+                        data-active={
+                          activeArchiveFilterCount > 0 ? "true" : "false"
+                        }
+                      >
+                        {activeArchiveFilterCount} active
+                      </span>
+
+                      {activeArchiveFilterCount > 0 && (
+                        <button
+                          type="button"
+                          className="fm-filter-clear"
+                          onClick={clearArchiveFilters}
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="fm-filter-strip__controls">
+                    <label className="fm-filter-field">
+                      <span>Capture</span>
+                      <select
+                        className="fm-filter-select"
+                        value={archiveFilters.captureKind}
+                        onChange={(e) => {
+                          setArchiveFilters((prev) => ({
+                            ...prev,
+                            captureKind: e.target.value as ArchiveCaptureKind,
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <option value="all">All captures</option>
+                        <option value="upload">Direct upload</option>
+                        <option value="web">Web capture</option>
+                      </select>
+                    </label>
+
+                    <label className="fm-filter-field">
+                      <span>Visibility</span>
+                      <select
+                        className="fm-filter-select"
+                        value={archiveFilters.visibility}
+                        onChange={(e) => {
+                          setArchiveFilters((prev) => ({
+                            ...prev,
+                            visibility: e.target.value as
+                              | "all"
+                              | "public"
+                              | "private",
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <option value="all">All visibility</option>
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </label>
+
+                    <label className="fm-filter-field">
+                      <span>Integrity</span>
+                      <select
+                        className="fm-filter-select"
+                        value={archiveFilters.integrity}
+                        onChange={(e) => {
+                          setArchiveFilters((prev) => ({
+                            ...prev,
+                            integrity: e.target.value as ArchiveIntegrityKind,
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <option value="all">All integrity states</option>
+                        <option value="verified">Verified hash</option>
+                        <option value="hashed">Any hash present</option>
+                        <option value="pending">Hash pending</option>
+                      </select>
+                    </label>
+
+                    <label className="fm-filter-field">
+                      <span>Revision</span>
+                      <select
+                        className="fm-filter-select"
+                        value={archiveFilters.revision}
+                        onChange={(e) => {
+                          setArchiveFilters((prev) => ({
+                            ...prev,
+                            revision: e.target.value as ArchiveRevisionKind,
+                          }));
+                          setPage(1);
+                        }}
+                      >
+                        <option value="all">All files</option>
+                        <option value="revisioned">Revisioned only</option>
+                        <option value="base">Base files only</option>
+                      </select>
+                    </label>
+
+                    <label className="fm-filter-field">
+                      <span>Source domain</span>
+                      <input
+                        className="fm-filter-input"
+                        type="search"
+                        placeholder="caqm.nic.in or nytimes.com"
+                        value={archiveFilters.sourceDomain}
+                        onChange={(e) => {
+                          setArchiveFilters((prev) => ({
+                            ...prev,
+                            sourceDomain: e.target.value,
+                          }));
+                          setPage(1);
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
 
               {/* Workspace */}
               <div

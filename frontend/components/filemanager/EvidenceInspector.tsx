@@ -60,6 +60,68 @@ function useRevisionInNotebook(storedFileId: string) {
   window.location.href = "/notebook";
 }
 
+function shortHash(value?: string | null) {
+  if (!value) return "—";
+  const s = String(value);
+  return s.length <= 18 ? s : `${s.slice(0, 12)}…${s.slice(-4)}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
+function getSourceHost(file: FileItem) {
+  const raw = file.sourceUrl ?? file.captureEvent?.sourceUrl ?? "";
+  if (!raw) {
+    return file.captureType && String(file.captureType).startsWith("URL_")
+      ? "Captured web"
+      : "Direct upload";
+  }
+
+  try {
+    return new URL(raw).hostname.replace(/^www\./, "");
+  } catch {
+    return (
+      String(raw)
+        .replace(/^https?:\/\//, "")
+        .split("/")[0] || "Unknown source"
+    );
+  }
+}
+
+function getIntegritySummary(file: FileItem): {
+  tone: "green" | "blue" | "slate";
+  label: string;
+  meta: string;
+} {
+  if (file.sha256) {
+    return {
+      tone: "green",
+      label: "Verified hash",
+      meta: shortHash(file.sha256),
+    };
+  }
+
+  if (file.contentHash) {
+    return {
+      tone: "blue",
+      label: "Content hash",
+      meta: shortHash(file.contentHash),
+    };
+  }
+
+  return {
+    tone: "slate",
+    label: "Hash pending",
+    meta: "No immutable hash recorded",
+  };
+}
+
 export default function EvidenceInspector({ file }: Props) {
   const sourceUrl = file?.sourceUrl ?? null;
 
@@ -93,6 +155,83 @@ export default function EvidenceInspector({ file }: Props) {
       }
     })();
   }, [file?.id, file?.mimeType]);
+
+  const sourceHost = file ? getSourceHost(file) : "Unknown source";
+  const integrity = file ? getIntegritySummary(file) : null;
+
+  const pipelineLabel = file?.captureEvent?.pipelineConfig
+    ? `${file.captureEvent.pipelineConfig.name} v${file.captureEvent.pipelineConfig.version}`
+    : "No pipeline recorded";
+
+  const actorLabel =
+    file?.captureEvent?.actorName ?? file?.uploader?.name ?? "Unknown actor";
+
+  const authorsLabel =
+    file?.sourceAuthors && file.sourceAuthors.length
+      ? file.sourceAuthors.join(", ")
+      : "—";
+
+  const timelineItems = React.useMemo(() => {
+    if (!file)
+      return [] as Array<{
+        id: string;
+        title: string;
+        time?: string | null;
+        detail: string;
+        tone: "blue" | "green" | "violet" | "slate";
+      }>;
+
+    const items: Array<{
+      id: string;
+      title: string;
+      time?: string | null;
+      detail: string;
+      tone: "blue" | "green" | "violet" | "slate";
+    }> = [
+      {
+        id: "archive-record",
+        title: "Archived record available",
+        time: file.uploadDate,
+        detail: `${file.mimeType} • ${formatBytes(file.size)} • ${file.visibility}`,
+        tone: "blue",
+      },
+    ];
+
+    if (file.documentRevision) {
+      items.push({
+        id: "revision",
+        title: `Revision R${file.documentRevision.ordinal}`,
+        time: file.documentRevision.createdAt,
+        detail:
+          revisions.length > 0
+            ? `${revisions.length} canonical revisions loaded`
+            : "Revision metadata recorded",
+        tone: "violet",
+      });
+    }
+
+    if (file.captureEvent) {
+      items.push({
+        id: "capture-event",
+        title: "Capture event recorded",
+        time: file.captureEvent.createdAt,
+        detail: `${actorLabel} • ${file.captureMeta?.method ?? file.captureType ?? "Unknown method"}`,
+        tone: "green",
+      });
+    }
+
+    if (file.sourcePublishedAt) {
+      items.push({
+        id: "source-published",
+        title: "Source publication detected",
+        time: file.sourcePublishedAt,
+        detail: authorsLabel,
+        tone: "slate",
+      });
+    }
+
+    return items;
+  }, [file, revisions.length, actorLabel, authorsLabel]);
 
   return (
     <aside className="rounded-2xl border border-[hsl(var(--border))] bg-white/80 shadow-sm backdrop-blur">
@@ -152,166 +291,246 @@ export default function EvidenceInspector({ file }: Props) {
         </div>
       ) : (
         <div className="px-4 py-4">
-          <div className="flex items-center gap-2 pb-3">
-            {sourceUrl ? (
-              <>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-[12px] font-medium shadow-sm hover:bg-slate-50"
-                  onClick={() => window.open(sourceUrl, "_blank", "noopener")}
-                  title="Open source URL"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open source
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-[12px] font-medium shadow-sm hover:bg-slate-50"
-                  onClick={() => copyToClipboard(sourceUrl)}
-                  title="Copy source URL"
-                >
-                  <Copy className="w-4 h-4" />
-                  Copy URL
-                </button>
-              </>
-            ) : (
-              <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                No source URL.
+          <div className="ei-shell">
+            <div className="ei-hero">
+              <div className="ei-hero__eyebrow">Selected evidence</div>
+              <h3 className="ei-hero__title">{file.title}</h3>
+              <p className="ei-hero__subtitle">
+                {sourceHost} • {file.captureType ?? "UPLOAD"} • {file.mimeType}
+              </p>
+
+              <div className="ei-pill-row">
+                {integrity ? (
+                  <span className={`ei-pill ei-pill--${integrity.tone}`}>
+                    {integrity.label}
+                  </span>
+                ) : null}
+
+                <span className="ei-pill ei-pill--ghost">
+                  {file.documentRevision?.ordinal
+                    ? `Revision R${file.documentRevision.ordinal}`
+                    : "Base file"}
+                </span>
+
+                <span className="ei-pill ei-pill--ghost">
+                  {file.visibility}
+                </span>
+
+                {revisions.length > 0 && (
+                  <span className="ei-pill ei-pill--ghost">
+                    {revisions.length} revisions
+                  </span>
+                )}
               </div>
-            )}
-          </div>
-
-          <div className="ei-summary-grid">
-            <div className="ei-summary-card">
-              <span className="ei-summary-card__label">Integrity</span>
-              <strong className="ei-summary-card__value">
-                {file.sha256
-                  ? "SHA-256 verified"
-                  : file.contentHash
-                    ? "Content hash recorded"
-                    : "Hash pending"}
-              </strong>
-              <small className="ei-summary-card__meta">
-                {file.sha256
-                  ? `${file.sha256.slice(0, 12)}…`
-                  : "No immutable hash recorded yet"}
-              </small>
             </div>
 
-            <div className="ei-summary-card">
-              <span className="ei-summary-card__label">Revision</span>
-              <strong className="ei-summary-card__value">
-                {file.documentRevision?.ordinal
-                  ? `R${file.documentRevision.ordinal}`
-                  : "Base file"}
-              </strong>
-              <small className="ei-summary-card__meta">
-                {revisions.length > 0
-                  ? `${revisions.length} revisions loaded`
-                  : "No revision history yet"}
-              </small>
+            <div className="ei-toolbar">
+              <button
+                type="button"
+                className="ei-toolbar__btn"
+                onClick={() =>
+                  window.open(apiUrl(`/api/files/${file.id}/preview`), "_blank")
+                }
+                title="Open current file preview"
+              >
+                Open preview
+              </button>
+
+              {sourceUrl ? (
+                <>
+                  <button
+                    type="button"
+                    className="ei-toolbar__btn"
+                    onClick={() => window.open(sourceUrl, "_blank", "noopener")}
+                    title="Open source URL"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open source
+                  </button>
+
+                  <button
+                    type="button"
+                    className="ei-toolbar__btn"
+                    onClick={() => copyToClipboard(sourceUrl)}
+                    title="Copy source URL"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy URL
+                  </button>
+                </>
+              ) : null}
+
+              <button
+                type="button"
+                className="ei-toolbar__btn ei-toolbar__btn--primary"
+                onClick={() => useRevisionInNotebook(file.id)}
+                title="Use this evidence in Notebook"
+              >
+                Use in notebook
+              </button>
             </div>
 
-            <div className="ei-summary-card">
-              <span className="ei-summary-card__label">Capture</span>
-              <strong className="ei-summary-card__value">
-                {file.captureType ?? "UPLOAD"}
-              </strong>
-              <small className="ei-summary-card__meta">
-                {file.captureMeta?.method ?? "Direct upload"}
-              </small>
+            <div className="ei-summary-grid">
+              <div className="ei-summary-card">
+                <span className="ei-summary-card__label">Integrity</span>
+                <strong className="ei-summary-card__value">
+                  {integrity?.label ?? "—"}
+                </strong>
+                <small className="ei-summary-card__meta">
+                  {integrity?.meta ?? "—"}
+                </small>
+              </div>
+
+              <div className="ei-summary-card">
+                <span className="ei-summary-card__label">Captured by</span>
+                <strong className="ei-summary-card__value">{actorLabel}</strong>
+                <small className="ei-summary-card__meta">
+                  {formatDateTime(
+                    file.captureEvent?.createdAt ?? file.uploadDate,
+                  )}
+                </small>
+              </div>
+
+              <div className="ei-summary-card">
+                <span className="ei-summary-card__label">Pipeline</span>
+                <strong className="ei-summary-card__value">
+                  {pipelineLabel}
+                </strong>
+                <small className="ei-summary-card__meta">
+                  {file.captureEvent?.pipelineConfig?.configHash
+                    ? shortHash(file.captureEvent.pipelineConfig.configHash)
+                    : "No config hash"}
+                </small>
+              </div>
+
+              <div className="ei-summary-card">
+                <span className="ei-summary-card__label">Published</span>
+                <strong className="ei-summary-card__value">
+                  {file.sourcePublishedAt
+                    ? formatDateTime(file.sourcePublishedAt)
+                    : "Unknown"}
+                </strong>
+                <small className="ei-summary-card__meta">{sourceHost}</small>
+              </div>
             </div>
 
-            <div className="ei-summary-card">
-              <span className="ei-summary-card__label">Actor</span>
-              <strong className="ei-summary-card__value">
-                {file.captureEvent?.actorName ??
-                  file.uploader?.name ??
-                  "Unknown"}
-              </strong>
-              <small className="ei-summary-card__meta">
-                {file.sourceUrl ? "Linked source available" : "No source URL"}
-              </small>
+            <div className="ei-card">
+              <div className="ei-card__head">
+                <div className="ei-card__title">Chain of custody</div>
+                <div className="ei-card__meta">Timeline-first provenance</div>
+              </div>
+
+              <div className="ei-timeline">
+                {timelineItems.map((item) => (
+                  <div key={item.id} className="ei-timeline__item">
+                    <div
+                      className={`ei-timeline__dot ei-timeline__dot--${item.tone}`}
+                    />
+                    <div className="ei-timeline__body">
+                      <div className="ei-timeline__titleRow">
+                        <div className="ei-timeline__title">{item.title}</div>
+                        <div className="ei-timeline__time">
+                          {formatDateTime(item.time)}
+                        </div>
+                      </div>
+                      <div className="ei-timeline__detail">{item.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="h-3" />
-
-          <div className="rounded-2xl border border-[hsl(var(--border))] bg-white px-3">
-            <div className="px-1 pt-3 pb-1 text-[11px] font-semibold text-slate-900">
-              Basics
-            </div>
-            <div className="divide-y divide-[hsl(var(--border))]">
-              <Row label="Name" value={file.title} />
-              <Row label="Type" value={file.mimeType} />
-              <Row label="Size" value={formatBytes(file.size)} />
-              <Row
-                label="Uploaded"
-                value={new Date(file.uploadDate).toLocaleString()}
-              />
-              <Row label="Visibility" value={file.visibility} />
-              <Row label="Tags" value={file.tags?.join(", ") || "—"} />
-            </div>
-          </div>
-
-          <div className="h-3" />
-
-          <StructuredTags
-            structured={
-              (file as any)?.tagsMetaRaw?.tagger?.structured ??
-              (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
-              null
-            }
-          />
-
-          <div className="h-3" />
-
-          <div className="rounded-2xl border border-[hsl(var(--border))] bg-white px-3">
-            <div className="px-1 pt-3 pb-1 text-[11px] font-semibold text-slate-900">
-              Provenance
-            </div>
-            <div className="divide-y divide-[hsl(var(--border))]">
-              <Row label="Capture type" value={file.captureType ?? "—"} />
-              <Row label="Source URL" value={file.sourceUrl ?? "—"} />
-              <Row
-                label="URL ID"
-                value={file.urlId != null ? String(file.urlId) : "—"}
-              />
-              <Row label="SHA-256" value={file.sha256 ?? "—"} mono />
-              <Row label="Content hash" value={file.contentHash ?? "—"} mono />
-              <Row label="Tagger version" value={file.taggerVersion ?? "—"} />
-              <Row
-                label="Capture method"
-                value={file.captureMeta?.method ?? "—"}
-              />
-              <Row
-                label="Captured URL"
-                value={file.captureMeta?.capturedUrl ?? "—"}
-              />
-            </div>
-          </div>
-          <div className="h-3" />
-
-          {revLoading ? (
-            <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-              Loading revision history…
-            </div>
-          ) : revError ? (
-            <div className="text-[12px] text-red-600">{revError}</div>
-          ) : (
-            <RevisionHistoryPanel
-              revisions={revisions}
-              onOpen={(storedFileId) =>
-                window.open(
-                  apiUrl(`/api/files/${storedFileId}/preview`),
-                  "_blank",
-                )
-              }
-              onUseInNotebook={(storedFileId) =>
-                useRevisionInNotebook(storedFileId)
+            <StructuredTags
+              structured={
+                (file as any)?.tagsMetaRaw?.tagger?.structured ??
+                (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
+                null
               }
             />
-          )}
+
+            <div className="ei-card">
+              <div className="ei-card__head">
+                <div className="ei-card__title">Source intelligence</div>
+                <div className="ei-card__meta">
+                  Origin and publication context
+                </div>
+              </div>
+
+              <div className="divide-y divide-[hsl(var(--border))]">
+                <Row label="Domain" value={sourceHost} />
+                <Row
+                  label="Source URL"
+                  value={file.sourceUrl ?? file.captureEvent?.sourceUrl ?? "—"}
+                />
+                <Row
+                  label="Published"
+                  value={formatDateTime(file.sourcePublishedAt)}
+                />
+                <Row label="Authors" value={authorsLabel} />
+                <Row
+                  label="URL ID"
+                  value={file.urlId != null ? String(file.urlId) : "—"}
+                />
+              </div>
+            </div>
+
+            <div className="ei-card">
+              <div className="ei-card__head">
+                <div className="ei-card__title">Raw provenance</div>
+                <div className="ei-card__meta">
+                  Traceability and audit fields
+                </div>
+              </div>
+
+              <div className="divide-y divide-[hsl(var(--border))]">
+                <Row label="File ID" value={file.id} mono />
+                <Row label="SHA-256" value={file.sha256 ?? "—"} mono />
+                <Row
+                  label="Content hash"
+                  value={file.contentHash ?? "—"}
+                  mono
+                />
+                <Row label="Capture type" value={file.captureType ?? "—"} />
+                <Row
+                  label="Capture method"
+                  value={file.captureMeta?.method ?? "—"}
+                />
+                <Row
+                  label="Captured URL"
+                  value={file.captureMeta?.capturedUrl ?? "—"}
+                />
+                <Row label="Tagger version" value={file.taggerVersion ?? "—"} />
+                <Row label="Actor" value={actorLabel} />
+                <Row
+                  label="Request ID"
+                  value={file.captureEvent?.requestId ?? "—"}
+                  mono
+                />
+                <Row label="Pipeline" value={pipelineLabel} />
+              </div>
+            </div>
+
+            {revLoading ? (
+              <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                Loading revision history…
+              </div>
+            ) : revError ? (
+              <div className="text-[12px] text-red-600">{revError}</div>
+            ) : (
+              <RevisionHistoryPanel
+                revisions={revisions}
+                onOpen={(storedFileId) =>
+                  window.open(
+                    apiUrl(`/api/files/${storedFileId}/preview`),
+                    "_blank",
+                  )
+                }
+                onUseInNotebook={(storedFileId) =>
+                  useRevisionInNotebook(storedFileId)
+                }
+              />
+            )}
+          </div>
         </div>
       )}
     </aside>

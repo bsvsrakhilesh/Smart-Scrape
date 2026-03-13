@@ -16,6 +16,7 @@ import * as ipaddr from "ipaddr.js";
 import robotsParser from "robots-parser";
 import { log, requestMeta } from "../utils/logger";
 import { setReadableContentOnPage, hardenLivePage } from "../utils/reader";
+import { probeUrlKind } from "../services/urlProbe.service";
 
 function isPrivateIp(ip: string) {
   const a = ipaddr.parse(ip);
@@ -542,128 +543,63 @@ export async function crawlTextHandler(
     }
     log.info("crawlTextHandler_begin", { ...requestMeta(req), url });
 
-    // ---- PDF-aware text capture (works for URLs that directly serve PDFs or SCI wrappers) ----
+    // ---- Guardrail: Text extraction is disabled for PDF URLs ----
     try {
-      const direct = resolveWrappedPdfToDirect(__u);
-      const candidates = [...(direct && direct !== url ? [direct] : []), url];
+      // Best-effort probe: HEAD first, falls back to small Range GET + magic bytes
+      const probe = await probeUrlKind(__u.toString());
 
-      for (const candidate of candidates) {
-        let cu: URL;
-        try {
-          cu = new URL(candidate);
-        } catch {
-          continue;
-        }
-
-        const likelyPdf = looksLikePdfUrl(cu);
-
-        const sniff = await fetchWithTimeout(candidate, 15_000, {
-          Range: "bytes=0-4095",
-          Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
-          "User-Agent": BROWSER_UA,
-          "Accept-Language": "en-US,en;q=0.9",
-          Referer: `${cu.origin}/`,
+      if (probe.kind === "pdf") {
+        return res.status(400).json({
+          code: "PDF_URL_TEXT_DISABLED",
+          message:
+            "Text capture is disabled for PDF URLs. Use the PDF capture endpoint (/api/crawl/pdf).",
+          url,
+          probe,
         });
-
-        const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
-        const sniffBuf = Buffer.from(await sniff.arrayBuffer());
-
-        const isPdfUrl =
-          likelyPdf ||
-          sniffCt.includes("application/pdf") ||
-          isPdfMagic(sniffBuf);
-
-        if (!isPdfUrl) continue;
-
-        const full = await fetchWithTimeout(candidate, 90_000, {
-          Accept: "application/pdf,*/*",
-          "User-Agent": BROWSER_UA,
-          "Accept-Language": "en-US,en;q=0.9",
-          Referer: `${cu.origin}/`,
-        });
-        if (!full.ok) continue;
-
-        const pdfBytes = Buffer.from(await full.arrayBuffer());
-        if (!isPdfMagic(pdfBytes)) continue;
-
-        const cd = full.headers.get("content-disposition");
-        const pdfName = bestPdfFileName(cu, cd);
-        const titleFromPdf = pdfName.replace(/\.pdf$/i, "");
-
-        const parsed = await pdfParse(pdfBytes);
-        const textContentPdf = (parsed.text || "")
-          .replace(/\r\n/g, "\n")
-          .trim();
-
-        const headerPdf = [
-          `Title: ${titleFromPdf}`,
-          `URL: ${url}`,
-          `Source PDF: ${pdfName}`,
-          `Captured: ${new Date().toISOString()}`,
-          "".padEnd(80, "—"),
-          "",
-        ].join("\n");
-
-        const bufferPdf = Buffer.from(
-          headerPdf + textContentPdf + "\n",
-          "utf8",
-        );
-
-        const finalNamePdf = sanitizeName(
-          (fileName as string) || `${titleFromPdf || "document"}.txt`,
-        );
-        const descPdf = `Text extracted from PDF URL ${url}`;
-
-        const fileRecPdf = await persistFile(
-          bufferPdf,
-          finalNamePdf,
-          descPdf,
-          folderId || null,
-          {
-            captureType: "URL_TEXT",
-            sourceUrl: url,
-            urlId: typeof urlId === "number" ? urlId : null,
-          },
-        );
-
-        // Copy tags from the source URL if provided
-        if (urlId !== undefined && urlId !== null) {
-          const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
-          if (!Number.isNaN(idNum)) {
-            try {
-              const src = await prisma.url.findUnique({
-                where: { id: idNum as number },
-                select: { tags: true },
-              });
-              if (src?.tags?.length) {
-                const merged = mergeTags(fileRecPdf.tags, src.tags);
-                await prisma.storedFile.update({
-                  where: { id: fileRecPdf.id },
-                  data: { tags: merged },
-                });
-              }
-            } catch {}
-          }
-        }
-
-        scheduleAiTagForFile(String(fileRecPdf.id));
-
-        const latestPdf = await prisma.storedFile.findUnique({
-          where: { id: fileRecPdf.id },
-        });
-        log.info("crawl_text_done_pdf", {
-          ...requestMeta(req),
-          fileId: fileRecPdf.id,
-        });
-        return res.status(201).json(latestPdf ?? fileRecPdf);
       }
     } catch (e) {
-      // Not fatal: fall back to HTML Readability pipeline below
-      log.info("crawl_text_pdf_fallback_to_html", {
+      // If probe fails, we don't want false blocks; fall back to HTML pipeline
+      log.info("crawl_text_probe_failed_fallback_to_html", {
         ...requestMeta(req),
         url,
         error: String((e as any)?.message || e),
       });
+    }
+
+    // Optional safety net: if a PDF wrapper resolves to a direct PDF link, also block text.
+    // (Keeps behavior aligned with frontend even when probe is inconclusive.)
+    try {
+      const direct = resolveWrappedPdfToDirect(__u);
+      const candidate = direct && direct !== url ? direct : url;
+      const cu = new URL(candidate);
+
+      const sniff = await fetchWithTimeout(candidate, 15_000, {
+        Range: "bytes=0-4095",
+        Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
+        "User-Agent": BROWSER_UA,
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: `${cu.origin}/`,
+      });
+
+      const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
+      const sniffBuf = Buffer.from(await sniff.arrayBuffer());
+
+      const isPdf =
+        looksLikePdfUrl(cu) ||
+        sniffCt.includes("application/pdf") ||
+        isPdfMagic(sniffBuf);
+
+      if (isPdf) {
+        return res.status(400).json({
+          code: "PDF_URL_TEXT_DISABLED",
+          message:
+            "Text capture is disabled for PDF URLs. Use the PDF capture endpoint (/api/crawl/pdf).",
+          url,
+          directPdfUrl: candidate,
+        });
+      }
+    } catch {
+      // ignore and proceed
     }
 
     // 1) Fetch HTML (fallback to headless browser)

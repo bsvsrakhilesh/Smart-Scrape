@@ -13,6 +13,20 @@ interface SavedUrlCardProps {
   onCapture?: (url: SavedUrl, mode: "text" | "pdf") => void;
 }
 
+// Heuristic: treat as PDF if URL path ends with .pdf OR query contains ".pdf"
+function isPdfUrlLike(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    const path = (u.pathname || "").toLowerCase();
+    const q = (u.search || "").toLowerCase();
+    return path.endsWith(".pdf") || q.includes(".pdf");
+  } catch {
+    // fallback: very light heuristic
+    const s = (raw || "").toLowerCase();
+    return s.includes(".pdf");
+  }
+}
+
 /** Theme-friendly color for any tag (semantic rules + deterministic fallback). */
 function chipClassForTag(tagRaw: string): string {
   const tag = (tagRaw || "").toLowerCase().trim();
@@ -112,9 +126,11 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
   onOpenDetail,
   onCapture,
 }) => {
+  const isPdf = isPdfUrlLike(url.url);
+
   // Shared button shape: rectangular with rounded corners + consistent height
   const rectBtn =
-    "rounded-lg h-10 w-full flex items-center justify-center text-sm font-medium";
+    "rounded-lg h-10 w-full min-w-0 flex items-center justify-center text-sm font-medium";
 
   const textBtn =
     "btn-ghost " +
@@ -269,18 +285,31 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
         {onCapture ? (
           <>
             <button
-              onClick={() => onCapture(url, "text")}
-              className={`${textBtn} w-full ${rectBtn}`}
-              title="Capture as clean .txt"
+              onClick={() => {
+                if (isPdf) return;
+                onCapture(url, "text");
+              }}
+              disabled={isPdf}
+              aria-disabled={isPdf}
+              className={[
+                `${textBtn} w-full ${rectBtn}`,
+                isPdf ? "opacity-50 cursor-not-allowed" : "",
+              ].join(" ")}
+              title={
+                isPdf
+                  ? "Text capture disabled for PDF links"
+                  : "Capture as clean .txt"
+              }
             >
               Text
             </button>
+
             <button
               onClick={() => onCapture(url, "pdf")}
               className={`${pdfBtn} w-full ${rectBtn}`}
-              title="Capture as PDF snapshot"
+              title={isPdf ? "Download original PDF" : "Capture as PDF snapshot"}
             >
-              PDF
+              {isPdf ? "PDF" : "PDF"}
             </button>
           </>
         ) : (

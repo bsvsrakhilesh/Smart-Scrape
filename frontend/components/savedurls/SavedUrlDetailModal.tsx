@@ -30,6 +30,18 @@ interface SavedUrlDetailModalProps {
   onUrlHydrate?: (fresh: any) => void;
 }
 
+function isPdfUrlLike(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    const path = (u.pathname || "").toLowerCase();
+    const q = (u.search || "").toLowerCase();
+    return path.endsWith(".pdf") || q.includes(".pdf");
+  } catch {
+    const s = (raw || "").toLowerCase();
+    return s.includes(".pdf");
+  }
+}
+
 const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   url,
   isOpen,
@@ -93,6 +105,12 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
   const [recaptureMode, setRecaptureMode] = useState<"text" | "pdf">("text");
   const [recaptureLoading, setRecaptureLoading] = useState(false);
+
+  const isPdf = isPdfUrlLike(url.url);
+
+  useEffect(() => {
+    if (isPdf) setRecaptureMode("pdf");
+  }, [url.url]);
 
   // Reusable reloaders (so we can refresh after re-capture)
   const refreshSnapshots = async () => {
@@ -460,9 +478,11 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   onChange={(e) =>
                     setRecaptureMode(e.target.value as "text" | "pdf")
                   }
-                  disabled={recaptureLoading}
+                  disabled={recaptureLoading || isPdf}
                 >
-                  <option value="text">Text</option>
+                  <option value="text" disabled={isPdf}>
+                    Text
+                  </option>
                   <option value="pdf">PDF</option>
                 </select>
               </div>

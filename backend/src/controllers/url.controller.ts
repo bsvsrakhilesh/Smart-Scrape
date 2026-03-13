@@ -23,6 +23,7 @@ import {
 } from "../services/document.service";
 import prisma from "../config/database";
 import { recordCaptureEvent } from "../services/provenance.service";
+import { probeUrlKind } from "../services/urlProbe.service";
 
 /* ----------------------- helpers ----------------------- */
 
@@ -528,6 +529,78 @@ export async function refreshUrlMetadataHandler(
         ? updatedUrl.publishedAt.toISOString()
         : null,
       authors: updatedUrl.authors ?? [],
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/* ----------------------- URL probe (PDF vs HTML) ----------------------- */
+
+export async function probeUrlHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const url = String((req.query as any)?.url || "").trim();
+    if (!url) {
+      return res.status(400).json({
+        code: "MISSING_URL",
+        message: "Query param 'url' is required.",
+      });
+    }
+
+    const probe = await probeUrlKind(url);
+    return res.json({
+      ...probe,
+      probedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function probeUrlByIdHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const id = ensureNumericId(req);
+    const row = await prisma.url.findUnique({
+      where: { id },
+      select: { id: true, url: true, tagsMeta: true },
+    });
+
+    if (!row) {
+      return res.status(404).json({
+        code: "NOT_FOUND",
+        message: "URL not found",
+      });
+    }
+
+    const probe = await probeUrlKind(row.url);
+
+    const nowIso = new Date().toISOString();
+    const nextTagsMeta = {
+      ...(typeof row.tagsMeta === "object" && row.tagsMeta ? row.tagsMeta : {}),
+      urlProbe: {
+        ...probe,
+        probedAt: nowIso,
+      },
+    };
+
+    await prisma.url.update({
+      where: { id },
+      data: { tagsMeta: nextTagsMeta as any },
+    });
+
+    return res.json({
+      id,
+      url: row.url,
+      ...probe,
+      probedAt: nowIso,
     });
   } catch (err) {
     next(err);

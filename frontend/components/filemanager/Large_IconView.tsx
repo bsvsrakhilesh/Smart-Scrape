@@ -141,12 +141,14 @@ type Props = {
   selectedIds?: Set<string>;
   onSelectionChange?: (ids: string[]) => void;
 
-  /** actions (parent can wire to lib/api.ts) */
+  /** actions */
   onCopy?: (ids: string[]) => void;
   onCut?: (ids: string[]) => void;
   onPaste?: () => void;
   onDelete?: (f: FileItem) => void;
   onDeleteMany?: (ids: string[]) => void;
+  onRestore?: (f: FileItem) => void;
+  onRestoreMany?: (ids: string[]) => void;
   onRename?: (id: string, nextName: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void;
@@ -195,6 +197,8 @@ export default function Large_IconView({
   onPaste,
   onDelete,
   onDeleteMany,
+  onRestore,
+  onRestoreMany,
   onRename,
   onPreview,
   onDownload,
@@ -435,20 +439,55 @@ export default function Large_IconView({
           label: "Download",
           onSelect: () => onDownload?.(file),
         },
-        {
-          type: "item",
-          id: "delete",
-          label: many ? `Delete ${targetIds.length} items` : "Delete",
-          shortcut: "Del",
-          disabled: !onDelete && !onDeleteMany,
-          onSelect: () => {
-            if (many && onDeleteMany) {
-              onDeleteMany(targetIds);
-            } else if (onDelete) {
-              onDelete(file);
-            }
-          },
-        },
+        ...(onRestore || onRestoreMany
+          ? [
+              {
+                type: "item" as const,
+                id: "restore",
+                label: many ? `Restore ${targetIds.length} items` : "Restore",
+                onSelect: () => {
+                  if (many && onRestoreMany) {
+                    onRestoreMany(targetIds);
+                  } else if (onRestore) {
+                    onRestore(file);
+                  }
+                },
+              },
+              {
+                type: "item" as const,
+                id: "delete",
+                label: many
+                  ? `Delete ${targetIds.length} items permanently`
+                  : "Delete permanently",
+                shortcut: "Del",
+                danger: true,
+                disabled: !onDelete && !onDeleteMany,
+                onSelect: () => {
+                  if (many && onDeleteMany) {
+                    onDeleteMany(targetIds);
+                  } else if (onDelete) {
+                    onDelete(file);
+                  }
+                },
+              },
+            ]
+          : [
+              {
+                type: "item" as const,
+                id: "delete",
+                label: many ? `Delete ${targetIds.length} items` : "Delete",
+                shortcut: "Del",
+                danger: true,
+                disabled: !onDelete && !onDeleteMany,
+                onSelect: () => {
+                  if (many && onDeleteMany) {
+                    onDeleteMany(targetIds);
+                  } else if (onDelete) {
+                    onDelete(file);
+                  }
+                },
+              },
+            ]),
         {
           type: "item",
           id: "properties",

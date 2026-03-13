@@ -984,13 +984,19 @@ export async function crawlPdfHandler(
                 respUrlL.includes("pdf") ||
                 respUrlL.includes("download");
 
-              const rt = (resp.request?.() as any)?.resourceType?.() || "";
+              const rt = String(
+                (resp.request?.() as any)?.resourceType?.() || "",
+              ).toLowerCase();
               const rtPdfish =
                 rt === "xhr" ||
                 rt === "fetch" ||
                 rt === "document" ||
-                rt === "iframe";
+                rt === "iframe" ||
+                rt === "other" ||
+                rt === "media";
 
+              // If headers already say it's a PDF, trust that immediately.
+              // Only use URL + resource type as a fallback heuristic.
               const maybePdf = ctPdfish || cdPdfish || (urlPdfish && rtPdfish);
               if (!maybePdf) return;
 
@@ -1008,11 +1014,21 @@ export async function crawlPdfHandler(
             }
           });
 
-          setTimeout(() => finish(null), 45_000);
+          setTimeout(() => {
+            log.info("crawl_pdf_intercept_timeout", {
+              ...requestMeta(req),
+              url,
+            });
+            finish(null);
+          }, 45_000);
         });
 
         const { reader = true } = req.body || {};
-        if (reader) {
+
+        const forceLiveForPdfLikeUrl = looksLikePdfUrl(__u);
+        const useReader = forceLiveForPdfLikeUrl ? false : reader;
+
+        if (useReader) {
           try {
             await setReadableContentOnPage(page, url);
           } catch {
@@ -1098,6 +1114,12 @@ export async function crawlPdfHandler(
         }
 
         const hit = await pdfHit;
+        if (!hit) {
+          log.info("crawl_pdf_intercept_no_pdf_response", {
+            ...requestMeta(req),
+            url,
+          });
+        }
         if (hit?.bytes?.length) {
           const derivedName =
             bestPdfFileName(new URL(hit.pdfUrl), hit.cd) ||

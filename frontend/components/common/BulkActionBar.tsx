@@ -4,6 +4,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   selected: T[];
 
   onDelete: (ids: string[]) => void;
+  onRestore?: (ids: string[]) => void;
   onAddTag: (ids: string[], tag: string) => void;
   onFavorite: (ids: string[]) => void;
   onExport: (selected: T[]) => void;
@@ -12,11 +13,14 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   onPaste?: () => void;
   canPaste?: boolean;
   onMoveTo?: (ids: string[]) => void;
+  deleteLabel?: string;
+  restoreLabel?: string;
 }
 
 function BulkActionBar<T extends Selectable>({
   selected,
   onDelete,
+  onRestore,
   onAddTag,
   onFavorite,
   onExport,
@@ -25,6 +29,8 @@ function BulkActionBar<T extends Selectable>({
   onPaste,
   canPaste,
   onMoveTo,
+  deleteLabel = "Delete",
+  restoreLabel = "Restore",
 }: BulkActionBarProps<T>) {
   if (!selected.length) return null;
 
@@ -111,11 +117,22 @@ function BulkActionBar<T extends Selectable>({
         Export
       </button>
 
+      {onRestore && (
+        <button
+          onClick={() => onRestore(selectedIds)}
+          className={`${baseBtn} text-emerald-700 hover:bg-emerald-50 active:bg-emerald-100`}
+          title="Restore selected items from Trash"
+        >
+          {restoreLabel}
+        </button>
+      )}
+
       <button
         onClick={() => onDelete(selectedIds)}
         className={`${baseBtn} text-red-600 hover:bg-red-100 active:bg-red-200`}
+        title={deleteLabel}
       >
-        Delete
+        {deleteLabel}
       </button>
     </div>
   );

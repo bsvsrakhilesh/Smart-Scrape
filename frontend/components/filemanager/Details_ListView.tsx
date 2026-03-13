@@ -99,6 +99,8 @@ type Props = {
   onPaste?: () => void;
   onDelete?: (f: FileItem) => void;
   onDeleteMany?: (ids: string[]) => void;
+  onRestore?: (f: FileItem) => void;
+  onRestoreMany?: (ids: string[]) => void;
 
   onOpen?: (f: FileItem) => void;
   onRename?: (id: string, nextName: string) => void;
@@ -145,6 +147,8 @@ export default function Details_ListView({
   onPaste,
   onDelete,
   onDeleteMany,
+  onRestore,
+  onRestoreMany,
   onOpen,
   onRename,
   onPreview,
@@ -495,30 +499,75 @@ export default function Details_ListView({
           },
         },
         { type: "separator" },
-        {
-          type: "item",
-          id: "delete",
-          label: many ? `Delete ${targetIds.length} items` : "Delete",
-          danger: true,
-          shortcut: "Del",
-          onSelect: async () => {
-            const ok = await confirm({
-              title: "Move to Trash?",
-              description: many
-                ? `Move ${targetIds.length} items to Trash?`
-                : `Move "${fileDisplayName(file)}" to Trash?`,
-            });
-            if (!ok) return;
+        ...(onRestore || onRestoreMany
+          ? [
+              {
+                type: "item" as const,
+                id: "restore",
+                label: many ? `Restore ${targetIds.length} items` : "Restore",
+                onSelect: () => {
+                  if (many && onRestoreMany) {
+                    onRestoreMany(targetIds);
+                    return;
+                  }
+                  if (!many && onRestore) {
+                    onRestore(file);
+                  }
+                },
+              },
+              {
+                type: "item" as const,
+                id: "delete",
+                label: many
+                  ? `Delete ${targetIds.length} items permanently`
+                  : "Delete permanently",
+                danger: true,
+                shortcut: "Del",
+                onSelect: async () => {
+                  const ok = await confirm({
+                    title: "Delete permanently?",
+                    description: many
+                      ? `Permanently delete ${targetIds.length} items? This cannot be undone.`
+                      : `Permanently delete "${fileDisplayName(file)}"? This cannot be undone.`,
+                  });
+                  if (!ok) return;
 
-            if (many && onDeleteMany) {
-              onDeleteMany(targetIds);
-              return;
-            }
-            if (!many && onDelete) {
-              onDelete(file);
-            }
-          },
-        },
+                  if (many && onDeleteMany) {
+                    onDeleteMany(targetIds);
+                    return;
+                  }
+                  if (!many && onDelete) {
+                    onDelete(file);
+                  }
+                },
+              },
+            ]
+          : [
+              {
+                type: "item" as const,
+                id: "delete",
+                label: many ? `Delete ${targetIds.length} items` : "Delete",
+                danger: true,
+                shortcut: "Del",
+                onSelect: async () => {
+                  const ok = await confirm({
+                    title: "Move to Trash?",
+                    description: many
+                      ? `Move ${targetIds.length} items to Trash?`
+                      : `Move "${fileDisplayName(file)}" to Trash?`,
+                  });
+                  if (!ok) return;
+
+                  if (many && onDeleteMany) {
+                    onDeleteMany(targetIds);
+                    return;
+                  }
+                  if (!many && onDelete) {
+                    onDelete(file);
+                  }
+                },
+              },
+            ]),
       );
 
       if (onShowProperties) {

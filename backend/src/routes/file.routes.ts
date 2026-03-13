@@ -2018,22 +2018,30 @@ r.post("/folders/:id/move", async (req, res) => {
 });
 
 // DELETE /api/files/:id
+// Permanent delete is only allowed for files already in Trash.
 r.delete("/files/:id", async (req, res, next) => {
   try {
     const id = req.params.id;
     const existing = await prisma.storedFile.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "Not found" });
 
+    if (!existing.deletedAt) {
+      return res.status(409).json({
+        code: "FILE_NOT_IN_TRASH",
+        message: "Move the file to Trash before deleting it permanently.",
+      });
+    }
+
     try {
       if (fs.existsSync(existing.storagePath)) {
         fs.unlinkSync(existing.storagePath);
       }
-    } catch (e) {
+    } catch {
       // ignore unlink errors; proceed to delete DB row
     }
 
     await prisma.storedFile.delete({ where: { id } });
-    res.status(204).send();
+    return res.status(204).send();
   } catch (err) {
     next(err);
   }
@@ -2209,6 +2217,7 @@ r.put("/files/:id/move", async (req, res, next) => {
 });
 
 // DELETE /api/folders/:id - recursively delete folder + subtree (folders + files)
+// Permanent delete is only allowed for folders already in Trash.
 r.delete("/folders/:id", async (req, res, next) => {
   try {
     if (!prismaSupportsFolders()) {
@@ -2225,6 +2234,13 @@ r.delete("/folders/:id", async (req, res, next) => {
 
     const existing = await prisma.folder.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "Not found" });
+
+    if (!existing.deletedAt) {
+      return res.status(409).json({
+        code: "FOLDER_NOT_IN_TRASH",
+        message: "Move the folder to Trash before deleting it permanently.",
+      });
+    }
 
     // Collect all descendant folders (BFS)
     const allFolderIds: string[] = [];

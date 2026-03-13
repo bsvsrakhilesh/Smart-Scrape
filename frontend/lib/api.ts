@@ -710,6 +710,12 @@ export async function restoreFolderFromTrash(id: string) {
 export async function restoreFileFromTrash(id: string) {
   return api.patch(`/api/files/${id}/restore`);
 }
+export async function deleteFolderPermanently(id: string) {
+  return api.delete(`/api/folders/${id}`);
+}
+export async function deleteFilePermanently(id: string) {
+  return api.delete(`/api/files/${id}`);
+}
 
 // ---------- File copy/move (per-file) ----------
 export async function duplicateFile(

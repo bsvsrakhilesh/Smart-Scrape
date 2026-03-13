@@ -24,6 +24,8 @@ import {
   moveFileToTrash,
   restoreFileFromTrash,
   restoreFolderFromTrash,
+  deleteFilePermanently,
+  deleteFolderPermanently,
   listTrashFiles,
   toggleFileFavorite,
   toFileItem,
@@ -303,6 +305,11 @@ export default function FileManagerPage() {
   const TRASH_UNDO_MS = 10_000;
 
   const [trashConfirm, setTrashConfirm] = useState<null | {
+    ids: string[];
+    names: string[];
+  }>(null);
+
+  const [permanentDeleteConfirm, setPermanentDeleteConfirm] = useState<null | {
     ids: string[];
     names: string[];
   }>(null);
@@ -934,11 +941,8 @@ export default function FileManagerPage() {
     }
   }, []);
 
-  const openTrashConfirm = useCallback(
+  const buildConfirmNames = useCallback(
     (ids: string[]) => {
-      if (!ids.length) return;
-
-      // build display names from current visible list
       const names = ids
         .map((id) => allFiles.find((f) => String(f.id) === String(id))?.title)
         .filter(Boolean) as string[];
@@ -948,12 +952,31 @@ export default function FileManagerPage() {
         return "File";
       };
 
-      setTrashConfirm({
-        ids,
-        names: names.length ? names : ids.map(fallbackName),
-      });
+      return names.length ? names : ids.map(fallbackName);
     },
     [allFiles],
+  );
+
+  const openTrashConfirm = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      setTrashConfirm({
+        ids,
+        names: buildConfirmNames(ids),
+      });
+    },
+    [buildConfirmNames],
+  );
+
+  const openPermanentDeleteConfirm = useCallback(
+    (ids: string[]) => {
+      if (!ids.length) return;
+      setPermanentDeleteConfirm({
+        ids,
+        names: buildConfirmNames(ids),
+      });
+    },
+    [buildConfirmNames],
   );
 
   const performMoveToTrash = useCallback(
@@ -1034,7 +1057,7 @@ export default function FileManagerPage() {
   }, [undoTrash]);
 
   const handleDelete = async (file: FileItem) => {
-    // safety: never trash inside virtual zip view
+    // drive mode delete = move to trash
     if (virtualZip) {
       notify("Archive browsing is read-only.", "info");
       return;
@@ -1063,6 +1086,14 @@ export default function FileManagerPage() {
     } catch (e: any) {
       notify(e?.message || "Restore failed", "error");
     }
+  };
+
+  const handlePermanentDelete = async (item: FileItem) => {
+    if (virtualZip) {
+      notify("Archive browsing is read-only.", "info");
+      return;
+    }
+    openPermanentDeleteConfirm([String(item.id)]);
   };
 
   const handleNewFolder = async () => {
@@ -1988,6 +2019,18 @@ export default function FileManagerPage() {
     [allFiles, notify, refreshAll],
   );
 
+  const onPermanentDeleteSelected = useCallback(
+    async (ids: string[]) => {
+      if (!ids.length) return;
+      if (virtualZip) {
+        notify("Archive browsing is read-only.", "info");
+        return;
+      }
+      openPermanentDeleteConfirm(ids);
+    },
+    [notify, openPermanentDeleteConfirm, virtualZip],
+  );
+
   // ---------- NEW: Bulk actions ----------
   const byIds = useCallback(
     (ids: string[]) => {
@@ -2506,9 +2549,16 @@ export default function FileManagerPage() {
                       selected={selected}
                       onDelete={
                         viewMode === "trash"
-                          ? onRestoreSelected
+                          ? onPermanentDeleteSelected
                           : onDeleteSelected
                       }
+                      onRestore={
+                        viewMode === "trash" ? onRestoreSelected : undefined
+                      }
+                      deleteLabel={
+                        viewMode === "trash" ? "Delete permanently" : "Delete"
+                      }
+                      restoreLabel="Restore"
                       onAddTag={onAddTagSelected}
                       onFavorite={onFavoriteSelected}
                       onExport={onExportSelected}
@@ -2699,7 +2749,6 @@ export default function FileManagerPage() {
                                   return;
                                 }
 
-                                // Normal folder/file behavior
                                 const isFolder =
                                   String(id).startsWith("folder:");
                                 if (isFolder) {
@@ -2742,15 +2791,23 @@ export default function FileManagerPage() {
                                 virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? handleRestore
+                                    ? handlePermanentDelete
                                     : handleDelete
                               }
                               onDeleteMany={
                                 virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? onRestoreSelected
+                                    ? onPermanentDeleteSelected
                                     : onDeleteSelected
+                              }
+                              onRestore={
+                                viewMode === "trash" ? handleRestore : undefined
+                              }
+                              onRestoreMany={
+                                viewMode === "trash"
+                                  ? onRestoreSelected
+                                  : undefined
                               }
                               onPaste={
                                 virtualZip || viewMode !== "drive"
@@ -2879,14 +2936,23 @@ export default function FileManagerPage() {
                                 onDelete: virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? handleRestore
+                                    ? handlePermanentDelete
                                     : handleDelete,
 
                                 onDeleteMany: virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? onRestoreSelected
+                                    ? onPermanentDeleteSelected
                                     : onDeleteSelected,
+
+                                onRestore:
+                                  viewMode === "trash"
+                                    ? handleRestore
+                                    : undefined,
+                                onRestoreMany:
+                                  viewMode === "trash"
+                                    ? onRestoreSelected
+                                    : undefined,
 
                                 clipboard,
 
@@ -3187,6 +3253,89 @@ export default function FileManagerPage() {
         </div>
       </Modal>
 
+      {/* Confirm: Permanent Delete */}
+      <Modal
+        open={!!permanentDeleteConfirm}
+        onClose={() => setPermanentDeleteConfirm(null)}
+        title="Delete permanently?"
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-red-700 dark:text-red-300">
+            This will permanently delete the selected item(s). This action
+            cannot be undone.
+          </div>
+
+          {permanentDeleteConfirm?.names?.length ? (
+            <div className="flex flex-wrap gap-2 max-h-40 overflow-auto">
+              {permanentDeleteConfirm.names.slice(0, 8).map((n) => (
+                <span
+                  key={n}
+                  className="px-2 py-1 rounded-full bg-red-50 dark:bg-red-900/20 text-xs"
+                >
+                  {n}
+                </span>
+              ))}
+              {permanentDeleteConfirm.names.length > 8 && (
+                <span className="text-xs text-neutral-500">
+                  +{permanentDeleteConfirm.names.length - 8} more
+                </span>
+              )}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-2">
+            <ToolbarButton
+              variant="ghost"
+              onClick={() => setPermanentDeleteConfirm(null)}
+            >
+              Cancel
+            </ToolbarButton>
+            <ToolbarButton
+              variant="primary"
+              className="bg-red-600 hover:bg-red-700 border-red-600"
+              onClick={async () => {
+                const ids = permanentDeleteConfirm?.ids ?? [];
+                const itemsToDelete = allFiles.filter((f) =>
+                  ids.includes(f.id),
+                );
+                const backup = allFiles;
+
+                setPermanentDeleteConfirm(null);
+                setAllFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
+                setSelected([]);
+
+                try {
+                  await Promise.all(
+                    itemsToDelete.map(async (f) => {
+                      const isFolder =
+                        (f as any).mimeType === "folder" ||
+                        String(f.id).startsWith("folder:");
+
+                      if (isFolder) {
+                        const rawId = String(f.id).startsWith("folder:")
+                          ? String(f.id).slice("folder:".length)
+                          : String(f.id);
+                        await deleteFolderPermanently(rawId);
+                      } else {
+                        await deleteFilePermanently(String(f.id));
+                      }
+                    }),
+                  );
+
+                  notify("Deleted permanently", "success");
+                  refreshAll();
+                } catch (e: any) {
+                  setAllFiles(backup);
+                  notify(e?.message || "Permanent delete failed", "error");
+                }
+              }}
+            >
+              Delete permanently
+            </ToolbarButton>
+          </div>
+        </div>
+      </Modal>
+
       {/* Undo bar */}
       {undoTrash && Date.now() <= undoTrash.expiresAt && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[130]">
@@ -3221,7 +3370,7 @@ export default function FileManagerPage() {
               <div>
                 <kbd className="kbd">Delete</kbd>
               </div>
-              <div>Move to trash</div>
+              <div>Move to Trash / permanently delete in Trash</div>
               <div>
                 <kbd className="kbd">Ctrl + C / V / X</kbd>
               </div>

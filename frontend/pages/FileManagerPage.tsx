@@ -24,8 +24,6 @@ import {
   moveFileToTrash,
   restoreFileFromTrash,
   restoreFolderFromTrash,
-  deleteFilePermanently,
-  deleteFolderPermanently,
   listTrashFiles,
   toggleFileFavorite,
   toFileItem,
@@ -309,11 +307,6 @@ export default function FileManagerPage() {
     names: string[];
   }>(null);
 
-  const [permanentDeleteConfirm, setPermanentDeleteConfirm] = useState<null | {
-    ids: string[];
-    names: string[];
-  }>(null);
-
   const [undoTrash, setUndoTrash] = useState<null | {
     ids: string[];
     label: string;
@@ -383,6 +376,37 @@ export default function FileManagerPage() {
 
   // derived files based on header search
   const visibleFiles = allFiles;
+
+  const activeLocationLabel = useMemo(() => {
+    if (viewMode === "trash") return "Trash";
+    if (viewMode === "favorites") return "Favorites";
+    if (virtualZip) return virtualZip.label;
+    return breadcrumb[breadcrumb.length - 1]?.name || "Home";
+  }, [viewMode, virtualZip, breadcrumb]);
+
+  const activeModeLabel = useMemo(() => {
+    if (viewMode === "trash") return "Trash";
+    if (viewMode === "favorites") return "Favorites";
+    return virtualZip ? "Archive browser" : "Drive";
+  }, [viewMode, virtualZip]);
+
+  const sortSummaryLabel = useMemo(() => {
+    const labels: Record<SortKey, string> = {
+      date: "Date",
+      name: "Name",
+      type: "Type",
+      size: "Size",
+    };
+    return `${labels[sortKey]} • ${sortDir === "asc" ? "Ascending" : "Descending"}`;
+  }, [sortKey, sortDir]);
+
+  const storagePercent = useMemo(() => {
+    const capacity = 1024 ** 4;
+    return Math.min(
+      100,
+      Math.round(((storageUsedBytes ?? 0) / capacity || 0) * 100),
+    );
+  }, [storageUsedBytes]);
 
   // Selection + clipboard for cut/copy/paste
   const [selected, setSelected] = useState<FileItem[]>([]);
@@ -941,8 +965,11 @@ export default function FileManagerPage() {
     }
   }, []);
 
-  const buildConfirmNames = useCallback(
+  const openTrashConfirm = useCallback(
     (ids: string[]) => {
+      if (!ids.length) return;
+
+      // build display names from current visible list
       const names = ids
         .map((id) => allFiles.find((f) => String(f.id) === String(id))?.title)
         .filter(Boolean) as string[];
@@ -952,31 +979,12 @@ export default function FileManagerPage() {
         return "File";
       };
 
-      return names.length ? names : ids.map(fallbackName);
-    },
-    [allFiles],
-  );
-
-  const openTrashConfirm = useCallback(
-    (ids: string[]) => {
-      if (!ids.length) return;
       setTrashConfirm({
         ids,
-        names: buildConfirmNames(ids),
+        names: names.length ? names : ids.map(fallbackName),
       });
     },
-    [buildConfirmNames],
-  );
-
-  const openPermanentDeleteConfirm = useCallback(
-    (ids: string[]) => {
-      if (!ids.length) return;
-      setPermanentDeleteConfirm({
-        ids,
-        names: buildConfirmNames(ids),
-      });
-    },
-    [buildConfirmNames],
+    [allFiles],
   );
 
   const performMoveToTrash = useCallback(
@@ -1057,7 +1065,7 @@ export default function FileManagerPage() {
   }, [undoTrash]);
 
   const handleDelete = async (file: FileItem) => {
-    // drive mode delete = move to trash
+    // safety: never trash inside virtual zip view
     if (virtualZip) {
       notify("Archive browsing is read-only.", "info");
       return;
@@ -1086,14 +1094,6 @@ export default function FileManagerPage() {
     } catch (e: any) {
       notify(e?.message || "Restore failed", "error");
     }
-  };
-
-  const handlePermanentDelete = async (item: FileItem) => {
-    if (virtualZip) {
-      notify("Archive browsing is read-only.", "info");
-      return;
-    }
-    openPermanentDeleteConfirm([String(item.id)]);
   };
 
   const handleNewFolder = async () => {
@@ -2019,18 +2019,6 @@ export default function FileManagerPage() {
     [allFiles, notify, refreshAll],
   );
 
-  const onPermanentDeleteSelected = useCallback(
-    async (ids: string[]) => {
-      if (!ids.length) return;
-      if (virtualZip) {
-        notify("Archive browsing is read-only.", "info");
-        return;
-      }
-      openPermanentDeleteConfirm(ids);
-    },
-    [notify, openPermanentDeleteConfirm, virtualZip],
-  );
-
   // ---------- NEW: Bulk actions ----------
   const byIds = useCallback(
     (ids: string[]) => {
@@ -2339,66 +2327,117 @@ export default function FileManagerPage() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        {/* Header */}
+        {/* header */}
         <motion.header
-          className="page-header max-w-7xl mx-auto px-1 md:px-0 mb-4 md:mb-6"
+          className="fm-exec-header max-w-7xl mx-auto px-1 md:px-0 mb-4 md:mb-6"
           initial={{ y: 0, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.05, duration: 0.45, ease: "easeOut" }}
         >
-          <div className="page-header-main">
-            <p className="page-header-kicker">Workspace</p>
-            <h1 className="page-header-title">File Explorer</h1>
-            <p className="page-header-subtitle">
-              Upload, organise, and search all your project files in one focused
-              workspace.
-            </p>
+          <div className="fm-exec-top">
+            <div className="fm-exec-copy">
+              <p className="fm-exec-kicker">Evidence workspace</p>
+              <h1 className="fm-exec-title">File Manager</h1>
+              <p className="fm-exec-subtitle">
+                Professional workspace for reports, PDFs, captured evidence,
+                revisions, and tagged research assets.
+              </p>
+            </div>
+
+            <div className="fm-exec-actions">
+              {viewMode === "drive" && !virtualZip && (
+                <>
+                  <ToolbarButton
+                    variant="outline"
+                    onClick={handleNewFolder}
+                    className="min-w-[132px] h-12 rounded-full justify-center px-6 border border-[rgba(148,163,184,0.24)] bg-white/90 shadow-sm hover:bg-white"
+                  >
+                    New folder
+                  </ToolbarButton>
+                  <ToolbarButton
+                    variant="primary"
+                    onClick={() => setShowUpload(true)}
+                    className="min-w-[164px] h-12 rounded-full justify-center px-6"
+                  >
+                    Upload files
+                  </ToolbarButton>
+                </>
+              )}
+
+              <button
+                type="button"
+                className="fm-exec-toggle"
+                onClick={() => setFocusMode((v) => !v)}
+                title={focusMode ? "Exit Focus Mode" : "Enter Focus Mode"}
+                aria-pressed={focusMode}
+              >
+                {focusMode ? (
+                  <PanelLeftOpen className="w-4 h-4" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+                <span>{focusMode ? "Focus on" : "Focus off"}</span>
+              </button>
+
+              <button
+                type="button"
+                className="fm-exec-toggle"
+                onClick={() => setInspectorOpen((v) => !v)}
+                title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
+                aria-pressed={inspectorOpen}
+              >
+                {inspectorOpen ? (
+                  <PanelRightClose className="w-4 h-4" />
+                ) : (
+                  <PanelRightOpen className="w-4 h-4" />
+                )}
+                <span>{inspectorOpen ? "Inspector on" : "Inspector off"}</span>
+              </button>
+            </div>
           </div>
 
-          <div className="page-header-meta">
-            <button
-              type="button"
-              className="page-header-pill page-header-pill--button"
-              onClick={() => setFocusMode((v) => !v)}
-              title={focusMode ? "Exit Focus Mode" : "Enter Focus Mode"}
-            >
-              {focusMode ? (
-                <PanelLeftOpen className="w-4 h-4" />
-              ) : (
-                <PanelLeftClose className="w-4 h-4" />
-              )}
-              <span className="page-header-pill-label">Focus</span>
-              <span className="page-header-pill-value">
-                {focusMode ? "On" : "Off"}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="page-header-pill page-header-pill--button"
-              onClick={() => setInspectorOpen((v) => !v)}
-              title={inspectorOpen ? "Hide Inspector" : "Show Inspector"}
-            >
-              {inspectorOpen ? (
-                <PanelRightClose className="w-4 h-4" />
-              ) : (
-                <PanelRightOpen className="w-4 h-4" />
-              )}
-              <span className="page-header-pill-label">Inspector</span>
-              <span className="page-header-pill-value">
-                {inspectorOpen ? "On" : "Off"}
-              </span>
-            </button>
-
-            <div className="page-header-pill">
-              <span className="page-header-pill-label">Files</span>
-              <span className="page-header-pill-value">{allFiles.length}</span>
+          <div className="fm-exec-stats">
+            <div className="fm-exec-stat">
+              <span className="fm-exec-stat-label">Mode</span>
+              <strong className="fm-exec-stat-value">{activeModeLabel}</strong>
             </div>
+
+            <div className="fm-exec-stat">
+              <span className="fm-exec-stat-label">Location</span>
+              <strong className="fm-exec-stat-value">
+                {activeLocationLabel}
+              </strong>
+            </div>
+
+            <div className="fm-exec-stat">
+              <span className="fm-exec-stat-label">Visible items</span>
+              <strong className="fm-exec-stat-value">
+                {visibleFiles.length}
+              </strong>
+            </div>
+
+            <div className="fm-exec-stat">
+              <span className="fm-exec-stat-label">Storage used</span>
+              <strong className="fm-exec-stat-value">
+                {formatBytes(storageUsedBytes)}
+              </strong>
+              <small className="fm-exec-stat-sub">{storagePercent}% used</small>
+            </div>
+
+            <div className="fm-exec-stat">
+              <span className="fm-exec-stat-label">Sorting</span>
+              <strong className="fm-exec-stat-value">{sortSummaryLabel}</strong>
+            </div>
+
             {selected.length > 0 && (
-              <div className="page-header-pill page-header-pill--accent">
-                <span className="page-header-pill-label">Selected</span>
-                <span className="page-header-pill-value">
+              <div className="fm-exec-stat fm-exec-stat--accent">
+                <span className="fm-exec-stat-label">Selected</span>
+                <strong className="fm-exec-stat-value">
                   {selected.length}
-                </span>
+                </strong>
+                <small className="fm-exec-stat-sub">
+                  {formatBytes(selectedBytes)}
+                </small>
               </div>
             )}
           </div>
@@ -2549,16 +2588,9 @@ export default function FileManagerPage() {
                       selected={selected}
                       onDelete={
                         viewMode === "trash"
-                          ? onPermanentDeleteSelected
+                          ? onRestoreSelected
                           : onDeleteSelected
                       }
-                      onRestore={
-                        viewMode === "trash" ? onRestoreSelected : undefined
-                      }
-                      deleteLabel={
-                        viewMode === "trash" ? "Delete permanently" : "Delete"
-                      }
-                      restoreLabel="Restore"
                       onAddTag={onAddTagSelected}
                       onFavorite={onFavoriteSelected}
                       onExport={onExportSelected}
@@ -2590,31 +2622,34 @@ export default function FileManagerPage() {
                       }}
                     >
                       <div className="fm-panel-header">
-                        <div className="flex h-11 sm:h-12 items-center justify-between gap-2 px-3 sm:px-4">
-                          {/* Left: context + optional search state */}
-                          <div className="flex min-w-0 flex-col gap-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center rounded-full bg-slate-900/[0.02] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-                                {currentFolderId ? "Current folder" : "Home"}
-                              </span>
-                              {search && (
-                                <span className="hidden sm:inline-flex text-[11px] text-[hsl(var(--muted-foreground))]">
-                                  Filtered by{" "}
-                                  <span className="ml-1 font-medium">
-                                    "{search}"
-                                  </span>
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[11px] text-[hsl(var(--muted-foreground))] sm:hidden">
-                              {visibleFiles.length} items
+                        <div className="fm-panel-headbar">
+                          <div className="fm-panel-headcopy">
+                            <span className="fm-panel-eyebrow">
+                              {activeModeLabel}
                             </span>
+                            <h2 className="fm-panel-heading">
+                              {activeLocationLabel}
+                            </h2>
+                            {search ? (
+                              <p className="fm-panel-caption">
+                                Filtering results for “{search}”
+                              </p>
+                            ) : (
+                              <p className="fm-panel-caption">
+                                Browse and manage files in this workspace
+                              </p>
+                            )}
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <span className="hidden sm:inline-flex items-center rounded-full border border-[hsl(var(--border))] bg-white/70 px-3 py-1 text-[11px] font-medium text-[hsl(var(--muted-foreground))] shadow-sm">
+                          <div className="fm-panel-headmeta">
+                            <span className="fm-panel-meta-pill">
                               {visibleFiles.length} items
                             </span>
+                            {selected.length > 0 && (
+                              <span className="fm-panel-meta-pill fm-panel-meta-pill--accent">
+                                {selected.length} selected
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2641,11 +2676,47 @@ export default function FileManagerPage() {
                           }}
                           onMouseDown={() => setEmptyBgMenu(null)}
                         >
-                          <h3>This folder is feeling a little empty</h3>
-                          <p>
-                            Create a new folder, upload files, or drag & drop
-                            from your desktop.
-                          </p>
+                          <div className="fm-empty-shell">
+                            <div className="fm-empty-card">
+                              <div
+                                className="fm-empty-art"
+                                aria-hidden="true"
+                              />
+                              <div className="fm-empty-eyebrow">
+                                Workspace ready
+                              </div>
+                              <h3 className="fm-empty-title">
+                                This workspace is empty
+                              </h3>
+                              <p className="fm-empty-sub">
+                                Upload the first set of files, create folders,
+                                or drag and drop documents directly into this
+                                view to start building your evidence workspace.
+                              </p>
+
+                              {viewMode === "drive" && !virtualZip && (
+                                <div className="fm-empty-actions">
+                                  <ToolbarButton
+                                    variant="outline"
+                                    onClick={handleNewFolder}
+                                  >
+                                    New folder
+                                  </ToolbarButton>
+                                  <ToolbarButton
+                                    variant="primary"
+                                    onClick={() => setShowUpload(true)}
+                                  >
+                                    Upload files
+                                  </ToolbarButton>
+                                </div>
+                              )}
+
+                              <p className="fm-empty-hint">
+                                Use folders, favorites, and tags to keep
+                                CAQM-ready evidence collections organised.
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       )}
                       {emptyBgMenu && (
@@ -2749,6 +2820,7 @@ export default function FileManagerPage() {
                                   return;
                                 }
 
+                                // Normal folder/file behavior
                                 const isFolder =
                                   String(id).startsWith("folder:");
                                 if (isFolder) {
@@ -2791,23 +2863,15 @@ export default function FileManagerPage() {
                                 virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? handlePermanentDelete
+                                    ? handleRestore
                                     : handleDelete
                               }
                               onDeleteMany={
                                 virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? onPermanentDeleteSelected
+                                    ? onRestoreSelected
                                     : onDeleteSelected
-                              }
-                              onRestore={
-                                viewMode === "trash" ? handleRestore : undefined
-                              }
-                              onRestoreMany={
-                                viewMode === "trash"
-                                  ? onRestoreSelected
-                                  : undefined
                               }
                               onPaste={
                                 virtualZip || viewMode !== "drive"
@@ -2936,23 +3000,14 @@ export default function FileManagerPage() {
                                 onDelete: virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? handlePermanentDelete
+                                    ? handleRestore
                                     : handleDelete,
 
                                 onDeleteMany: virtualZip
                                   ? undefined
                                   : viewMode === "trash"
-                                    ? onPermanentDeleteSelected
-                                    : onDeleteSelected,
-
-                                onRestore:
-                                  viewMode === "trash"
-                                    ? handleRestore
-                                    : undefined,
-                                onRestoreMany:
-                                  viewMode === "trash"
                                     ? onRestoreSelected
-                                    : undefined,
+                                    : onDeleteSelected,
 
                                 clipboard,
 
@@ -3253,89 +3308,6 @@ export default function FileManagerPage() {
         </div>
       </Modal>
 
-      {/* Confirm: Permanent Delete */}
-      <Modal
-        open={!!permanentDeleteConfirm}
-        onClose={() => setPermanentDeleteConfirm(null)}
-        title="Delete permanently?"
-      >
-        <div className="space-y-4">
-          <div className="text-sm text-red-700 dark:text-red-300">
-            This will permanently delete the selected item(s). This action
-            cannot be undone.
-          </div>
-
-          {permanentDeleteConfirm?.names?.length ? (
-            <div className="flex flex-wrap gap-2 max-h-40 overflow-auto">
-              {permanentDeleteConfirm.names.slice(0, 8).map((n) => (
-                <span
-                  key={n}
-                  className="px-2 py-1 rounded-full bg-red-50 dark:bg-red-900/20 text-xs"
-                >
-                  {n}
-                </span>
-              ))}
-              {permanentDeleteConfirm.names.length > 8 && (
-                <span className="text-xs text-neutral-500">
-                  +{permanentDeleteConfirm.names.length - 8} more
-                </span>
-              )}
-            </div>
-          ) : null}
-
-          <div className="flex justify-end gap-2">
-            <ToolbarButton
-              variant="ghost"
-              onClick={() => setPermanentDeleteConfirm(null)}
-            >
-              Cancel
-            </ToolbarButton>
-            <ToolbarButton
-              variant="primary"
-              className="bg-red-600 hover:bg-red-700 border-red-600"
-              onClick={async () => {
-                const ids = permanentDeleteConfirm?.ids ?? [];
-                const itemsToDelete = allFiles.filter((f) =>
-                  ids.includes(f.id),
-                );
-                const backup = allFiles;
-
-                setPermanentDeleteConfirm(null);
-                setAllFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
-                setSelected([]);
-
-                try {
-                  await Promise.all(
-                    itemsToDelete.map(async (f) => {
-                      const isFolder =
-                        (f as any).mimeType === "folder" ||
-                        String(f.id).startsWith("folder:");
-
-                      if (isFolder) {
-                        const rawId = String(f.id).startsWith("folder:")
-                          ? String(f.id).slice("folder:".length)
-                          : String(f.id);
-                        await deleteFolderPermanently(rawId);
-                      } else {
-                        await deleteFilePermanently(String(f.id));
-                      }
-                    }),
-                  );
-
-                  notify("Deleted permanently", "success");
-                  refreshAll();
-                } catch (e: any) {
-                  setAllFiles(backup);
-                  notify(e?.message || "Permanent delete failed", "error");
-                }
-              }}
-            >
-              Delete permanently
-            </ToolbarButton>
-          </div>
-        </div>
-      </Modal>
-
       {/* Undo bar */}
       {undoTrash && Date.now() <= undoTrash.expiresAt && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[130]">
@@ -3370,7 +3342,7 @@ export default function FileManagerPage() {
               <div>
                 <kbd className="kbd">Delete</kbd>
               </div>
-              <div>Move to Trash / permanently delete in Trash</div>
+              <div>Move to trash</div>
               <div>
                 <kbd className="kbd">Ctrl + C / V / X</kbd>
               </div>

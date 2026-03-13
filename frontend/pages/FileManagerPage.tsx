@@ -108,7 +108,91 @@ const DEFAULT_ARCHIVE_FILTERS: ArchiveFilterState = {
   sourceDomain: "",
 };
 
-/** Small themed buttons with motion */
+type ArchiveViewSnapshot = {
+  layout: Layout;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  density: "cozy" | "compact";
+  filters: ArchiveFilterState;
+};
+
+type SavedArchiveView = ArchiveViewSnapshot & {
+  id: string;
+  name: string;
+  builtIn?: boolean;
+};
+
+const archiveViewSignature = (view: ArchiveViewSnapshot) =>
+  JSON.stringify({
+    layout: view.layout,
+    sortKey: view.sortKey,
+    sortDir: view.sortDir,
+    density: view.density,
+    filters: view.filters,
+  });
+
+const BUILTIN_ARCHIVE_VIEWS: SavedArchiveView[] = [
+  {
+    id: "all-evidence",
+    name: "All evidence",
+    builtIn: true,
+    layout: "icons",
+    sortKey: "date",
+    sortDir: "desc",
+    density: "cozy",
+    filters: { ...DEFAULT_ARCHIVE_FILTERS },
+  },
+  {
+    id: "evidence-table",
+    name: "Evidence table",
+    builtIn: true,
+    layout: "details",
+    sortKey: "date",
+    sortDir: "desc",
+    density: "compact",
+    filters: { ...DEFAULT_ARCHIVE_FILTERS },
+  },
+  {
+    id: "verified-evidence",
+    name: "Verified evidence",
+    builtIn: true,
+    layout: "details",
+    sortKey: "date",
+    sortDir: "desc",
+    density: "compact",
+    filters: {
+      ...DEFAULT_ARCHIVE_FILTERS,
+      integrity: "verified",
+    },
+  },
+  {
+    id: "web-captures",
+    name: "Web captures",
+    builtIn: true,
+    layout: "details",
+    sortKey: "date",
+    sortDir: "desc",
+    density: "compact",
+    filters: {
+      ...DEFAULT_ARCHIVE_FILTERS,
+      captureKind: "web",
+    },
+  },
+  {
+    id: "revision-review",
+    name: "Revision review",
+    builtIn: true,
+    layout: "details",
+    sortKey: "date",
+    sortDir: "desc",
+    density: "compact",
+    filters: {
+      ...DEFAULT_ARCHIVE_FILTERS,
+      revision: "revisioned",
+    },
+  },
+];
+
 const ToolbarButton: React.FC<
   React.ComponentProps<typeof motion.button> & {
     variant?: "primary" | "outline" | "ghost";
@@ -220,6 +304,126 @@ export default function FileManagerPage() {
     setArchiveFilters(DEFAULT_ARCHIVE_FILTERS);
     setPage(1);
   }, []);
+
+  const [savedArchiveViews, setSavedArchiveViews] = useState<
+    SavedArchiveView[]
+  >(() => getLS<SavedArchiveView[]>("fm:savedArchiveViews", []));
+
+  useEffect(() => {
+    setLS("fm:savedArchiveViews", savedArchiveViews);
+  }, [savedArchiveViews]);
+
+  const [activeArchiveViewId, setActiveArchiveViewId] =
+    useState<string>("all-evidence");
+
+  const allArchiveViews = useMemo(
+    () => [...BUILTIN_ARCHIVE_VIEWS, ...savedArchiveViews],
+    [savedArchiveViews],
+  );
+
+  const activeArchiveView = useMemo<SavedArchiveView>(
+    () =>
+      allArchiveViews.find((view) => view.id === activeArchiveViewId) ??
+      BUILTIN_ARCHIVE_VIEWS[0],
+    [allArchiveViews, activeArchiveViewId],
+  );
+
+  const currentArchiveViewState = useMemo<ArchiveViewSnapshot>(
+    () => ({
+      layout,
+      sortKey,
+      sortDir,
+      density,
+      filters: archiveFilters,
+    }),
+    [layout, sortKey, sortDir, density, archiveFilters],
+  );
+
+  const activeArchiveViewIsDirty = useMemo(
+    () =>
+      archiveViewSignature(activeArchiveView) !==
+      archiveViewSignature(currentArchiveViewState),
+    [activeArchiveView, currentArchiveViewState],
+  );
+
+  const applyArchiveView = useCallback((view: SavedArchiveView) => {
+    setViewMode("drive");
+    setVirtualZip(null);
+    setLayout(view.layout);
+    setSortKey(view.sortKey);
+    setSortDir(view.sortDir);
+    setDensity(view.density);
+    setArchiveFilters({ ...view.filters });
+    setSearch("");
+    setSearchQuery("");
+    setPage(1);
+    setSelected([]);
+    setEmptyBgMenu(null);
+    setActiveArchiveViewId(view.id);
+  }, []);
+
+  const saveCurrentArchiveView = useCallback(() => {
+    const suggestedName =
+      activeArchiveView && !activeArchiveView.builtIn
+        ? activeArchiveView.name
+        : "";
+
+    const raw = window.prompt("Save current archive view as", suggestedName);
+    const name = raw?.trim();
+    if (!name) return;
+
+    const existing = savedArchiveViews.find(
+      (view) => view.name.toLowerCase() === name.toLowerCase(),
+    );
+
+    const nextView: SavedArchiveView = {
+      id: existing?.id ?? `saved-${Date.now()}`,
+      name,
+      layout,
+      sortKey,
+      sortDir,
+      density,
+      filters: { ...archiveFilters },
+    };
+
+    setSavedArchiveViews((prev) => {
+      if (existing) {
+        return prev.map((view) => (view.id === existing.id ? nextView : view));
+      }
+      return [nextView, ...prev].slice(0, 8);
+    });
+
+    setActiveArchiveViewId(nextView.id);
+    notify(`Saved view: ${name}`, "success");
+  }, [
+    activeArchiveView,
+    savedArchiveViews,
+    layout,
+    sortKey,
+    sortDir,
+    density,
+    archiveFilters,
+    notify,
+  ]);
+
+  const deleteActiveArchiveView = useCallback(() => {
+    if (!activeArchiveView || activeArchiveView.builtIn) return;
+
+    setSavedArchiveViews((prev) =>
+      prev.filter((view) => view.id !== activeArchiveView.id),
+    );
+    setActiveArchiveViewId("all-evidence");
+    notify(`Deleted view: ${activeArchiveView.name}`, "success");
+  }, [activeArchiveView, notify]);
+
+  const applySortShortcut = useCallback(
+    (nextKey: SortKey, nextDir: SortDir) => {
+      setSortKey(nextKey);
+      setSortDir(nextDir);
+      setPage(1);
+    },
+    [],
+  );
 
   // ---------- Command palette ----------
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -2670,134 +2874,270 @@ export default function FileManagerPage() {
                     onDensityChange={(d) => setDensity(d)}
                   />
                 </div>
-              </div>
-
-              {!virtualZip && viewMode !== "trash" && (
-                <div className="fm-filter-strip">
-                  <div className="fm-filter-strip__head">
-
-                    <div className="fm-filter-strip__meta">
-                      <span
-                        className="fm-filter-count"
-                        data-active={
-                          activeArchiveFilterCount > 0 ? "true" : "false"
-                        }
-                      >
-                        {activeArchiveFilterCount} active
-                      </span>
-
-                      {activeArchiveFilterCount > 0 && (
-                        <button
-                          type="button"
-                          className="fm-filter-clear"
-                          onClick={clearArchiveFilters}
+                {!virtualZip && viewMode !== "trash" && (
+                  <div className="fm-filter-strip">
+                    <div className="fm-filter-strip__head">
+                      <div className="fm-filter-strip__meta">
+                        <span
+                          className="fm-filter-count"
+                          data-active={
+                            activeArchiveFilterCount > 0 ? "true" : "false"
+                          }
                         >
-                          Clear filters
-                        </button>
-                      )}
+                          {activeArchiveFilterCount} active
+                        </span>
+
+                        {activeArchiveFilterCount > 0 && (
+                          <button
+                            type="button"
+                            className="fm-filter-clear"
+                            onClick={clearArchiveFilters}
+                          >
+                            Clear filters
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="fm-filter-strip__controls">
+                      <label className="fm-filter-field">
+                        <span>Capture</span>
+                        <select
+                          className="fm-filter-select"
+                          value={archiveFilters.captureKind}
+                          onChange={(e) => {
+                            setArchiveFilters((prev) => ({
+                              ...prev,
+                              captureKind: e.target.value as ArchiveCaptureKind,
+                            }));
+                            setPage(1);
+                          }}
+                        >
+                          <option value="all">All captures</option>
+                          <option value="upload">Direct upload</option>
+                          <option value="web">Web capture</option>
+                        </select>
+                      </label>
+
+                      <label className="fm-filter-field">
+                        <span>Visibility</span>
+                        <select
+                          className="fm-filter-select"
+                          value={archiveFilters.visibility}
+                          onChange={(e) => {
+                            setArchiveFilters((prev) => ({
+                              ...prev,
+                              visibility: e.target.value as
+                                | "all"
+                                | "public"
+                                | "private",
+                            }));
+                            setPage(1);
+                          }}
+                        >
+                          <option value="all">All visibility</option>
+                          <option value="public">Public</option>
+                          <option value="private">Private</option>
+                        </select>
+                      </label>
+
+                      <label className="fm-filter-field">
+                        <span>Integrity</span>
+                        <select
+                          className="fm-filter-select"
+                          value={archiveFilters.integrity}
+                          onChange={(e) => {
+                            setArchiveFilters((prev) => ({
+                              ...prev,
+                              integrity: e.target.value as ArchiveIntegrityKind,
+                            }));
+                            setPage(1);
+                          }}
+                        >
+                          <option value="all">All integrity states</option>
+                          <option value="verified">Verified hash</option>
+                          <option value="hashed">Any hash present</option>
+                          <option value="pending">Hash pending</option>
+                        </select>
+                      </label>
+
+                      <label className="fm-filter-field">
+                        <span>Revision</span>
+                        <select
+                          className="fm-filter-select"
+                          value={archiveFilters.revision}
+                          onChange={(e) => {
+                            setArchiveFilters((prev) => ({
+                              ...prev,
+                              revision: e.target.value as ArchiveRevisionKind,
+                            }));
+                            setPage(1);
+                          }}
+                        >
+                          <option value="all">All files</option>
+                          <option value="revisioned">Revisioned only</option>
+                          <option value="base">Base files only</option>
+                        </select>
+                      </label>
+
+                      <label className="fm-filter-field">
+                        <span>Source domain</span>
+                        <input
+                          className="fm-filter-input"
+                          type="search"
+                          placeholder="caqm.nic.in or nytimes.com"
+                          value={archiveFilters.sourceDomain}
+                          onChange={(e) => {
+                            setArchiveFilters((prev) => ({
+                              ...prev,
+                              sourceDomain: e.target.value,
+                            }));
+                            setPage(1);
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
+                )}
 
-                  <div className="fm-filter-strip__controls">
-                    <label className="fm-filter-field">
-                      <span>Capture</span>
-                      <select
-                        className="fm-filter-select"
-                        value={archiveFilters.captureKind}
-                        onChange={(e) => {
-                          setArchiveFilters((prev) => ({
-                            ...prev,
-                            captureKind: e.target.value as ArchiveCaptureKind,
-                          }));
-                          setPage(1);
-                        }}
-                      >
-                        <option value="all">All captures</option>
-                        <option value="upload">Direct upload</option>
-                        <option value="web">Web capture</option>
-                      </select>
-                    </label>
+                {!virtualZip && viewMode === "drive" && (
+                  <div className="fm-view-presets">
+                    <div className="fm-view-presets__head">
+                      <div>
+                        <div className="fm-view-presets__eyebrow">
+                          Analyst views
+                        </div>
+                        <div className="fm-view-presets__title">
+                          Switch between recurring CAQM workflows and save your
+                          own archive states for review, provenance checks, and
+                          evidence triage.
+                        </div>
+                      </div>
 
-                    <label className="fm-filter-field">
-                      <span>Visibility</span>
-                      <select
-                        className="fm-filter-select"
-                        value={archiveFilters.visibility}
-                        onChange={(e) => {
-                          setArchiveFilters((prev) => ({
-                            ...prev,
-                            visibility: e.target.value as
-                              | "all"
-                              | "public"
-                              | "private",
-                          }));
-                          setPage(1);
-                        }}
-                      >
-                        <option value="all">All visibility</option>
-                        <option value="public">Public</option>
-                        <option value="private">Private</option>
-                      </select>
-                    </label>
+                      <div className="fm-view-presets__actions">
+                        <span
+                          className="fm-view-presets__status"
+                          data-dirty={
+                            activeArchiveViewIsDirty ? "true" : "false"
+                          }
+                        >
+                          {activeArchiveViewIsDirty
+                            ? `Edited from ${activeArchiveView.name}`
+                            : `Active: ${activeArchiveView.name}`}
+                        </span>
 
-                    <label className="fm-filter-field">
-                      <span>Integrity</span>
-                      <select
-                        className="fm-filter-select"
-                        value={archiveFilters.integrity}
-                        onChange={(e) => {
-                          setArchiveFilters((prev) => ({
-                            ...prev,
-                            integrity: e.target.value as ArchiveIntegrityKind,
-                          }));
-                          setPage(1);
-                        }}
-                      >
-                        <option value="all">All integrity states</option>
-                        <option value="verified">Verified hash</option>
-                        <option value="hashed">Any hash present</option>
-                        <option value="pending">Hash pending</option>
-                      </select>
-                    </label>
+                        <button
+                          type="button"
+                          className="fm-view-presets__btn fm-view-presets__btn--primary"
+                          onClick={saveCurrentArchiveView}
+                        >
+                          Save current view
+                        </button>
 
-                    <label className="fm-filter-field">
-                      <span>Revision</span>
-                      <select
-                        className="fm-filter-select"
-                        value={archiveFilters.revision}
-                        onChange={(e) => {
-                          setArchiveFilters((prev) => ({
-                            ...prev,
-                            revision: e.target.value as ArchiveRevisionKind,
-                          }));
-                          setPage(1);
-                        }}
-                      >
-                        <option value="all">All files</option>
-                        <option value="revisioned">Revisioned only</option>
-                        <option value="base">Base files only</option>
-                      </select>
-                    </label>
+                        {!activeArchiveView.builtIn && (
+                          <button
+                            type="button"
+                            className="fm-view-presets__btn"
+                            onClick={deleteActiveArchiveView}
+                          >
+                            Delete saved view
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                    <label className="fm-filter-field">
-                      <span>Source domain</span>
-                      <input
-                        className="fm-filter-input"
-                        type="search"
-                        placeholder="caqm.nic.in or nytimes.com"
-                        value={archiveFilters.sourceDomain}
-                        onChange={(e) => {
-                          setArchiveFilters((prev) => ({
-                            ...prev,
-                            sourceDomain: e.target.value,
-                          }));
-                          setPage(1);
-                        }}
-                      />
-                    </label>
+                    <div className="fm-view-presets__row">
+                      {allArchiveViews.map((view) => {
+                        const isActive =
+                          activeArchiveViewId === view.id &&
+                          !activeArchiveViewIsDirty;
+                        const isEdited =
+                          activeArchiveViewId === view.id &&
+                          activeArchiveViewIsDirty;
+
+                        return (
+                          <button
+                            key={view.id}
+                            type="button"
+                            className="fm-view-preset"
+                            data-active={isActive ? "true" : "false"}
+                            data-edited={isEdited ? "true" : "false"}
+                            data-kind={view.builtIn ? "builtin" : "saved"}
+                            onClick={() => applyArchiveView(view)}
+                          >
+                            <span className="fm-view-preset__name">
+                              {view.name}
+                            </span>
+                            <span className="fm-view-preset__meta">
+                              {view.builtIn ? "Built-in" : "Saved"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="fm-sort-shortcuts">
+                      <div className="fm-view-presets__eyebrow">
+                        Quick sorting
+                      </div>
+
+                      <div className="fm-sort-shortcuts__row">
+                        <button
+                          type="button"
+                          className="fm-sort-shortcut"
+                          data-active={
+                            sortKey === "date" && sortDir === "desc"
+                              ? "true"
+                              : "false"
+                          }
+                          onClick={() => applySortShortcut("date", "desc")}
+                        >
+                          Newest first
+                        </button>
+
+                        <button
+                          type="button"
+                          className="fm-sort-shortcut"
+                          data-active={
+                            sortKey === "name" && sortDir === "asc"
+                              ? "true"
+                              : "false"
+                          }
+                          onClick={() => applySortShortcut("name", "asc")}
+                        >
+                          Name A–Z
+                        </button>
+
+                        <button
+                          type="button"
+                          className="fm-sort-shortcut"
+                          data-active={
+                            sortKey === "size" && sortDir === "desc"
+                              ? "true"
+                              : "false"
+                          }
+                          onClick={() => applySortShortcut("size", "desc")}
+                        >
+                          Largest first
+                        </button>
+
+                        <button
+                          type="button"
+                          className="fm-sort-shortcut"
+                          data-active={
+                            sortKey === "type" && sortDir === "asc"
+                              ? "true"
+                              : "false"
+                          }
+                          onClick={() => applySortShortcut("type", "asc")}
+                        >
+                          File type
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Workspace */}
               <div

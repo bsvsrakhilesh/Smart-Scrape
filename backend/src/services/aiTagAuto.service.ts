@@ -113,6 +113,7 @@ export async function runAiTagForFile(
       const phrases = Array.isArray(data?.phrases) ? data.phrases : [];
       const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
       const structured = data?.structured ?? null;
+      const extraction = data?.extraction ?? null;
 
       const latest = await prisma.storedFile.findUnique({
         where: { id: String(fileId) },
@@ -130,9 +131,10 @@ export async function runAiTagForFile(
           tagsMeta: {
             ...((latest?.tagsMeta as any) || {}),
             tagger: {
-              phrases,
-              unigrams,
-              structured,
+              phrases: phrases || [],
+              unigrams: unigrams || [],
+              structured: structured || null,
+              extraction: extraction || null,
               topk: TOPK,
               use_llm: USE_LLM,
               jobId,

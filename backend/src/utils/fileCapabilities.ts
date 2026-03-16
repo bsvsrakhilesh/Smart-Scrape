@@ -71,42 +71,32 @@ const EXT_CAPABILITIES: Record<string, Omit<FileCapability, "ext">> = {
   ".png": {
     canonicalMime: "image/png",
     uploadAllowed: true,
-    aiTagSupported: false,
+    aiTagSupported: true,
     validation: "magic",
-    aiUnsupportedReason:
-      "AI tagging is not yet enabled for uploaded PNG images. Image OCR will be added in the next step.",
   },
   ".jpg": {
     canonicalMime: "image/jpeg",
     uploadAllowed: true,
-    aiTagSupported: false,
+    aiTagSupported: true,
     validation: "magic",
-    aiUnsupportedReason:
-      "AI tagging is not yet enabled for uploaded JPG images. Image OCR will be added in the next step.",
   },
   ".jpeg": {
     canonicalMime: "image/jpeg",
     uploadAllowed: true,
-    aiTagSupported: false,
+    aiTagSupported: true,
     validation: "magic",
-    aiUnsupportedReason:
-      "AI tagging is not yet enabled for uploaded JPEG images. Image OCR will be added in the next step.",
   },
   ".webp": {
     canonicalMime: "image/webp",
     uploadAllowed: true,
-    aiTagSupported: false,
+    aiTagSupported: true,
     validation: "magic",
-    aiUnsupportedReason:
-      "AI tagging is not yet enabled for uploaded WEBP images. Image OCR will be added in the next step.",
   },
   ".gif": {
     canonicalMime: "image/gif",
     uploadAllowed: true,
-    aiTagSupported: false,
+    aiTagSupported: true,
     validation: "magic",
-    aiUnsupportedReason:
-      "AI tagging is not yet enabled for uploaded GIF images. Image OCR will be added in the next step.",
   },
   ".svg": {
     canonicalMime: "image/svg+xml",

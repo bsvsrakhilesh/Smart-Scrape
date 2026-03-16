@@ -24,13 +24,16 @@ export async function createJobFromUrl(url: string, topk = 10, useLLM = true) {
   return pickJobId(data);
 }
 
-export async function createJobFromFile(filePath: string, topk = 10, useLLM = true) {
-  // Prefer multipart upload (FastAPI supports UploadFile and is much more reliable than base64)
+export async function createJobFromFile(
+  filePath: string,
+  topk = 10,
+  useLLM = true,
+) {
   try {
     const form = new FormData();
     form.append("topk", String(topk));
     form.append("use_llm", useLLM ? "true" : "false");
-    form.append("file", fs.createReadStream(filePath)); // field name "file" is supported
+    form.append("file", fs.createReadStream(filePath));
 
     const { data } = await axios.post(`${TAGGER_URL}/jobs`, form, {
       headers: form.getHeaders(),
@@ -41,10 +44,10 @@ export async function createJobFromFile(filePath: string, topk = 10, useLLM = tr
 
     return pickJobId(data);
   } catch (e) {
-    // Fallback to base64 for rare environments where multipart may be blocked
     const b64 = fs.readFileSync(filePath).toString("base64");
     const form = new URLSearchParams();
     form.append("file_base64", b64);
+    form.append("file_name", filePath.split("/").pop() || "upload.bin");
     form.append("topk", String(topk));
     form.append("use_llm", useLLM ? "true" : "false");
 
@@ -60,12 +63,13 @@ export async function createJobFromFile(filePath: string, topk = 10, useLLM = tr
 }
 
 export async function getJob(jobId: string) {
-  const { data } = await axios.get(`${TAGGER_URL}/jobs/${jobId}`, { timeout: GET_JOB_TIMEOUT_MS });
+  const { data } = await axios.get(`${TAGGER_URL}/jobs/${jobId}`, {
+    timeout: GET_JOB_TIMEOUT_MS,
+  });
   return data as any;
 }
 
 export async function healthCheck() {
-  // Works with /health added on the Python side
   const { data } = await axios.get(`${TAGGER_URL}/health`, { timeout: 3000 });
   return data;
 }

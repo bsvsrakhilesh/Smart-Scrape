@@ -146,7 +146,15 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
       return res.json(data);
     }
 
-    const { tags, hash, tagger_version, phrases, unigrams, structured } = data;
+    const {
+      tags,
+      hash,
+      tagger_version,
+      phrases,
+      unigrams,
+      structured,
+      extraction,
+    } = data;
 
     const buildNextTagsMeta = (prev: any) => {
       const p = prev && typeof prev === "object" ? prev : {};
@@ -164,6 +172,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
           jobId,
           updatedAt: new Date().toISOString(),
           structured: structured || null,
+          extraction: extraction || null,
         },
       };
     };

@@ -112,11 +112,18 @@ services:
     environment:
       PORT: 7071
       REDIS_URL: redis://redis:6379/0
-      JOB_SOFT_LIMIT: 120
-      JOB_HARD_LIMIT: 180
+      JOB_SOFT_LIMIT: 240
+      JOB_HARD_LIMIT: 300
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
       TAGGER_CACHE_NS: tagger:v1
+      OCR_ENABLED: "true"
+      OCR_LANGS: "eng"
+      OCR_PDF_DPI: 200
+      OCR_MAX_PAGES: 20
+      OCR_PDF_MIN_CHARS: 120
+      OCR_IMAGE_MAX_SIDE: 2200
+      OCR_IMAGE_MIN_CHARS: 20
     env_file:
       - ./ai-tagger/.env
     ports:
@@ -133,11 +140,18 @@ services:
     container_name: smartscrape_ai_tagger_worker
     environment:
       REDIS_URL: redis://redis:6379/0
-      JOB_SOFT_LIMIT: 120
-      JOB_HARD_LIMIT: 180
+      JOB_SOFT_LIMIT: 240
+      JOB_HARD_LIMIT: 300
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
       TAGGER_CACHE_NS: tagger:v1
+      OCR_ENABLED: "true"
+      OCR_LANGS: "eng"
+      OCR_PDF_DPI: 200
+      OCR_MAX_PAGES: 20
+      OCR_PDF_MIN_CHARS: 120
+      OCR_IMAGE_MAX_SIDE: 2200
+      OCR_IMAGE_MIN_CHARS: 20
     env_file:
       - ./ai-tagger/.env
     depends_on:

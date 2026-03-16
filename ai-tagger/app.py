@@ -50,6 +50,7 @@ async def create_job(
     url: Optional[str] = Form(None),
     text: Optional[str] = Form(None),
     file_base64: Optional[str] = Form(None),
+    file_name: Optional[str] = Form(None),
     # best-effort direct capture when field is exactly "file"
     file: Optional[UploadFile] = File(None),
     # knobs
@@ -83,7 +84,13 @@ async def create_job(
     elif url:
         payload.update({"input_type": "url", "url": url})
     elif file_base64:
-        payload.update({"input_type": "file", "file_base64": file_base64, "file_name": None})
+        payload.update(
+            {
+                "input_type": "file",
+                "file_base64": file_base64,
+                "file_name": file_name,
+            }
+        )
     elif upload is not None:
         raw = await upload.read()
         if not raw:

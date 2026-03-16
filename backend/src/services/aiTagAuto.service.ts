@@ -1,4 +1,4 @@
-// backend/src/services/aiTagAuto.service.ts
+import { TaggingStatus } from "../generated/prisma/client";
 import prisma from "../config/database";
 import { createJobFromFile, getJob } from "./pyTaggerClient";
 
@@ -6,7 +6,7 @@ const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
 
 // Poll tuning
-const MAX_WAIT_MS = Number(process.env.TAGS_JOB_MAX_WAIT_MS || 4 * 60 * 1000); // 4 minutes
+const MAX_WAIT_MS = Number(process.env.TAGS_JOB_MAX_WAIT_MS || 4 * 60 * 1000); // 4 min
 const INITIAL_DELAY_MS = Number(process.env.TAGS_JOB_POLL_INITIAL_MS || 1000); // 1s
 const MAX_DELAY_MS = Number(process.env.TAGS_JOB_POLL_MAX_MS || 8000); // 8s
 
@@ -23,8 +23,7 @@ function mergeUnique(
 
 /**
  * Runs Python ai-tagger for an existing StoredFile row and persists results when done.
- * - Safe to call multiple times (merges tags)
- * - Skips if file already has ai-tagger output unless force=true
+ * Safe to call multiple times (merges tags).
  */
 export async function runAiTagForFile(
   fileId: string,
@@ -35,11 +34,12 @@ export async function runAiTagForFile(
   const rec = await prisma.storedFile.findUnique({
     where: { id: String(fileId) },
   });
+
   if (!rec) throw new Error(`StoredFile not found: ${fileId}`);
   if (!rec.storagePath)
     throw new Error(`StoredFile.storagePath missing: ${fileId}`);
 
-  // Avoid duplicate work unless explicitly forced
+  // Avoid duplicate work unless forced
   if (
     !force &&
     rec.taggerVersion &&
@@ -51,6 +51,15 @@ export async function runAiTagForFile(
 
   const { jobId } = await createJobFromFile(rec.storagePath, TOPK, USE_LLM);
 
+  await prisma.storedFile.update({
+    where: { id: String(fileId) },
+    data: {
+      taggingStatus: TaggingStatus.RUNNING,
+      taggingJobId: jobId,
+      taggingError: null,
+    },
+  });
+
   const startedAt = Date.now();
   let delay = INITIAL_DELAY_MS;
 
@@ -61,7 +70,19 @@ export async function runAiTagForFile(
       );
     }
 
-    const data = await getJob(jobId);
+    let data: any;
+    try {
+      data = await getJob(jobId);
+    } catch (e) {
+      console.warn(
+        "[aiTagAuto] getJob transient error",
+        { fileId, jobId, delay },
+        e,
+      );
+      await sleep(delay);
+      delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
+      continue;
+    }
 
     if (data?.state === "SUCCESS") {
       const tags = Array.isArray(data?.tags) ? data.tags : [];
@@ -69,7 +90,12 @@ export async function runAiTagForFile(
       const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
       const structured = data?.structured ?? null;
 
-      const merged = mergeUnique(rec.tags, tags);
+      const latest = await prisma.storedFile.findUnique({
+        where: { id: String(fileId) },
+        select: { tags: true, tagsMeta: true },
+      });
+
+      const merged = mergeUnique(latest?.tags, tags);
 
       await prisma.storedFile.update({
         where: { id: String(fileId) },
@@ -78,17 +104,24 @@ export async function runAiTagForFile(
           contentHash: data?.hash ?? null,
           taggerVersion: data?.tagger_version ?? null,
           tagsMeta: {
-            ...((rec.tagsMeta as any) || {}),
+            ...((latest?.tagsMeta as any) || {}),
             tagger: {
-              phrases: phrases || [],
-              unigrams: unigrams || [],
-              structured: structured || null,
+              phrases,
+              unigrams,
+              structured,
               topk: TOPK,
               use_llm: USE_LLM,
               jobId,
               updatedAt: new Date().toISOString(),
             },
+            aiTagger: {
+              phrases,
+              unigrams,
+            },
           } as any,
+          taggingStatus: TaggingStatus.SUCCESS,
+          taggingJobId: null,
+          taggingError: null,
         },
       });
 
@@ -96,30 +129,48 @@ export async function runAiTagForFile(
     }
 
     if (data?.state === "FAILURE") {
-      // Surface useful error info if present
       const err = data?.error || data?.message || "Unknown ai-tagger failure";
       throw new Error(
         `ai-tagger failed for fileId=${fileId} jobId=${jobId}: ${err}`,
       );
     }
 
-    // PENDING / STARTED / RETRY / etc.
     await sleep(delay);
     delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
   }
 }
 
-/**
- * Fire-and-forget wrapper (doesn't block request thread).
- */
+/** Fire-and-forget wrapper */
 export function scheduleAiTagForFile(
   fileId: string,
   opts?: { force?: boolean },
 ) {
   setImmediate(async () => {
     try {
+      await prisma.storedFile.update({
+        where: { id: String(fileId) },
+        data: {
+          taggingStatus: TaggingStatus.PENDING,
+          taggingJobId: null,
+          taggingError: null,
+        },
+      });
+
       await runAiTagForFile(fileId, opts);
-    } catch (e) {
+    } catch (e: any) {
+      const msg = String(e?.message || e || "Unknown error").slice(0, 500);
+
+      try {
+        await prisma.storedFile.update({
+          where: { id: String(fileId) },
+          data: {
+            taggingStatus: TaggingStatus.FAILED,
+            taggingJobId: null,
+            taggingError: msg,
+          },
+        });
+      } catch {}
+
       console.error("[aiTagAuto] scheduleAiTagForFile failed", { fileId }, e);
     }
   });

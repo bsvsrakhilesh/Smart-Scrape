@@ -23,6 +23,28 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const taggingStatus = file.taggingStatus ?? "NONE";
+
+  const taggingLabel =
+    taggingStatus === "SUCCESS"
+      ? "Ready"
+      : taggingStatus === "RUNNING"
+        ? "Running"
+        : taggingStatus === "PENDING"
+          ? "Queued"
+          : taggingStatus === "FAILED"
+            ? "Failed"
+            : "Not started";
+
+  const taggingTone =
+    taggingStatus === "SUCCESS"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : taggingStatus === "RUNNING" || taggingStatus === "PENDING"
+        ? "bg-blue-50 text-blue-700 border-blue-200"
+        : taggingStatus === "FAILED"
+          ? "bg-rose-50 text-rose-700 border-rose-200"
+          : "bg-slate-50 text-slate-700 border-slate-200";
+
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -219,6 +241,38 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
                   )}
                 </div>
               ))}
+            </div>
+
+            <div className="space-y-3 pt-4 border-t border-border">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">AI tagging</div>
+                  <div className="text-xs text-muted">
+                    Background extraction status for evidence labels
+                  </div>
+                </div>
+
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${taggingTone}`}
+                >
+                  {taggingLabel}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-[140px_1fr] gap-3 items-start">
+                <span className="text-muted">Status:</span>
+                <span className="text-foreground">{taggingLabel}</span>
+
+                <span className="text-muted">Job ID:</span>
+                <span className="text-foreground break-words font-mono text-xs">
+                  {file.taggingJobId || "—"}
+                </span>
+
+                <span className="text-muted">Last error:</span>
+                <span className="text-foreground break-words whitespace-pre-wrap">
+                  {file.taggingError || "—"}
+                </span>
+              </div>
             </div>
 
             {/* Smart tags */}

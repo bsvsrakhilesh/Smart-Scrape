@@ -202,6 +202,9 @@ export type BackendStoredFile = {
   tagsMeta?: any;
   contentHash?: string | null;
   taggerVersion?: string | null;
+  taggingStatus?: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+  taggingJobId?: string | null;
+  taggingError?: string | null;
   document?: any;
   documentRevision?: any;
   captureEvent?: any;
@@ -236,6 +239,9 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     captureMeta: (row as any)?.tagsMeta?.capture ?? null,
     contentHash: (row as any)?.contentHash ?? null,
     taggerVersion: (row as any)?.taggerVersion ?? null,
+    taggingStatus: (row as any)?.taggingStatus ?? "NONE",
+    taggingJobId: (row as any)?.taggingJobId ?? null,
+    taggingError: (row as any)?.taggingError ?? null,
     tagsMetaRaw: (row as any)?.tagsMeta ?? null,
 
     document: (row as any).document ?? null,
@@ -246,7 +252,6 @@ export function toFileItem(row: BackendStoredFile): FileItem {
 
 export function normalizeFileDetail(input: any): FileDetail {
   if (!input || typeof input !== "object") {
-    // best-effort minimal object (won't preview without id anyway)
     return {
       id: "",
       title: "Untitled",
@@ -259,12 +264,10 @@ export function normalizeFileDetail(input: any): FileDetail {
     };
   }
 
-  // Already in frontend shape (FileItem/FileDetail)
   if ("uploadDate" in input && "title" in input && "uploader" in input) {
     return input as FileDetail;
   }
 
-  // Looks like backend stored file row (BackendStoredFile-ish)
   if ("fileName" in input || "createdAt" in input || "uploaderName" in input) {
     const row = input as any;
 
@@ -291,10 +294,11 @@ export function normalizeFileDetail(input: any): FileDetail {
       tagsMeta: row.tagsMeta,
       contentHash: row.contentHash,
       taggerVersion: row.taggerVersion,
+      taggingStatus: row.taggingStatus,
+      taggingJobId: row.taggingJobId,
+      taggingError: row.taggingError,
     } as any);
 
-    // Merge: keep any extra backend fields (versions, etc), but enforce
-    // correct UI-facing keys from base mapping.
     return {
       ...(row as any),
       ...(base as any),

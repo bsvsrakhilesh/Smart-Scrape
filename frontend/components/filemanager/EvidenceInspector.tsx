@@ -122,6 +122,56 @@ function getIntegritySummary(file: FileItem): {
   };
 }
 
+function getTaggingSummary(file: FileItem): {
+  tone: "green" | "blue" | "slate";
+  label: string;
+  meta: string;
+} {
+  const status = file.taggingStatus ?? "NONE";
+
+  if (status === "SUCCESS") {
+    return {
+      tone: "green",
+      label: "AI tags ready",
+      meta: file.taggerVersion
+        ? `Tagger ${file.taggerVersion}`
+        : "Structured labels extracted",
+    };
+  }
+
+  if (status === "RUNNING") {
+    return {
+      tone: "blue",
+      label: "AI tagging running",
+      meta: file.taggingJobId
+        ? `Job ${shortHash(file.taggingJobId)}`
+        : "Extraction in progress",
+    };
+  }
+
+  if (status === "PENDING") {
+    return {
+      tone: "blue",
+      label: "AI tagging queued",
+      meta: "Waiting for worker pickup",
+    };
+  }
+
+  if (status === "FAILED") {
+    return {
+      tone: "slate",
+      label: "AI tagging failed",
+      meta: file.taggingError || "Retry from the preview modal",
+    };
+  }
+
+  return {
+    tone: "slate",
+    label: "AI tags not started",
+    meta: "No background tag job recorded",
+  };
+}
+
 export default function EvidenceInspector({ file }: Props) {
   const sourceUrl = file?.sourceUrl ?? null;
 
@@ -155,6 +205,8 @@ export default function EvidenceInspector({ file }: Props) {
       }
     })();
   }, [file?.id, file?.mimeType]);
+
+  const tagging = file ? getTaggingSummary(file) : null;
 
   const sourceHost = file ? getSourceHost(file) : "Unknown source";
   const integrity = file ? getIntegritySummary(file) : null;
@@ -305,17 +357,20 @@ export default function EvidenceInspector({ file }: Props) {
                     {integrity.label}
                   </span>
                 ) : null}
-
                 <span className="ei-pill ei-pill--ghost">
                   {file.documentRevision?.ordinal
                     ? `Revision R${file.documentRevision.ordinal}`
                     : "Base file"}
                 </span>
-
                 <span className="ei-pill ei-pill--ghost">
                   {file.visibility}
                 </span>
 
+                {tagging ? (
+                  <span className={`ei-pill ei-pill--${tagging.tone}`}>
+                    {tagging.label}
+                  </span>
+                ) : null}
                 {revisions.length > 0 && (
                   <span className="ei-pill ei-pill--ghost">
                     {revisions.length} revisions
@@ -323,7 +378,6 @@ export default function EvidenceInspector({ file }: Props) {
                 )}
               </div>
             </div>
-
             <div className="ei-toolbar">
               <button
                 type="button"
@@ -369,7 +423,6 @@ export default function EvidenceInspector({ file }: Props) {
                 Use in notebook
               </button>
             </div>
-
             <div className="ei-summary-grid">
               <div className="ei-summary-card">
                 <span className="ei-summary-card__label">Integrity</span>
@@ -414,6 +467,16 @@ export default function EvidenceInspector({ file }: Props) {
               </div>
             </div>
 
+            <div className="ei-summary-card">
+              <span className="ei-summary-card__label">AI tagging</span>
+              <strong className="ei-summary-card__value">
+                {tagging?.label ?? "—"}
+              </strong>
+              <small className="ei-summary-card__meta">
+                {tagging?.meta ?? "—"}
+              </small>
+            </div>
+
             <div className="ei-card">
               <div className="ei-card__head">
                 <div className="ei-card__title">Chain of custody</div>
@@ -439,7 +502,6 @@ export default function EvidenceInspector({ file }: Props) {
                 ))}
               </div>
             </div>
-
             <StructuredTags
               structured={
                 (file as any)?.tagsMetaRaw?.tagger?.structured ??
@@ -447,7 +509,6 @@ export default function EvidenceInspector({ file }: Props) {
                 null
               }
             />
-
             <div className="ei-card">
               <div className="ei-card__head">
                 <div className="ei-card__title">Source intelligence</div>
@@ -473,7 +534,6 @@ export default function EvidenceInspector({ file }: Props) {
                 />
               </div>
             </div>
-
             <div className="ei-card">
               <div className="ei-card__head">
                 <div className="ei-card__title">Raw provenance</div>
@@ -500,6 +560,16 @@ export default function EvidenceInspector({ file }: Props) {
                   value={file.captureMeta?.capturedUrl ?? "—"}
                 />
                 <Row label="Tagger version" value={file.taggerVersion ?? "—"} />
+                <Row
+                  label="Tagging status"
+                  value={file.taggingStatus ?? "NONE"}
+                />
+                <Row
+                  label="Tagging job"
+                  value={file.taggingJobId ?? "—"}
+                  mono
+                />
+                <Row label="Tagging error" value={file.taggingError ?? "—"} />
                 <Row label="Actor" value={actorLabel} />
                 <Row
                   label="Request ID"
@@ -509,7 +579,6 @@ export default function EvidenceInspector({ file }: Props) {
                 <Row label="Pipeline" value={pipelineLabel} />
               </div>
             </div>
-
             {revLoading ? (
               <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
                 Loading revision history…

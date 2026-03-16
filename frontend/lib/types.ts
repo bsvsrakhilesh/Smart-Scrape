@@ -55,6 +55,9 @@ export interface FileItem {
   } | null;
   contentHash?: string | null;
   taggerVersion?: string | null;
+  taggingStatus?: TaggingStatus;
+  taggingJobId?: string | null;
+  taggingError?: string | null;
   tagsMetaRaw?: any;
 
   document?: {

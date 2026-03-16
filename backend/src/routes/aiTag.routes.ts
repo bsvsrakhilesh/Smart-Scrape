@@ -31,6 +31,16 @@ r.post("/files/:id/auto-tags", async (req, res, next) => {
       return res.status(400).json({ message: "Missing storagePath" });
 
     const { jobId } = await createJobFromFile(rec.storagePath, TOPK, USE_LLM);
+
+    await prisma.storedFile.update({
+      where: { id },
+      data: {
+        taggingStatus: "RUNNING",
+        taggingJobId: jobId,
+        taggingError: null,
+      },
+    });
+
     return res.status(202).json({ jobId });
   } catch (e) {
     next(e);
@@ -81,6 +91,21 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
     const data = await getJob(jobId);
 
     if (data.state !== "SUCCESS") {
+      if (fileId && data.state === "FAILURE") {
+        const msg = String(
+          data?.error || data?.message || "Unknown ai-tagger failure",
+        ).slice(0, 500);
+
+        await prisma.storedFile.update({
+          where: { id: fileId },
+          data: {
+            taggingStatus: "FAILED",
+            taggingJobId: null,
+            taggingError: msg,
+          },
+        });
+      }
+
       if (urlId && data.state === "FAILURE") {
         const msg = String(
           data?.error || data?.message || "Unknown ai-tagger failure",
@@ -94,6 +119,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
           },
         });
       }
+
       return res.json(data);
     }
 
@@ -105,7 +131,7 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
         p.tagger && typeof p.tagger === "object" ? p.tagger : {};
 
       return {
-        ...p, 
+        ...p,
         tagger: {
           ...prevTagger,
           phrases: phrases || [],
@@ -133,6 +159,9 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
             contentHash: hash ?? null,
             taggerVersion: tagger_version ?? null,
             tagsMeta: buildNextTagsMeta(rec.tagsMeta),
+            taggingStatus: "SUCCESS",
+            taggingJobId: null,
+            taggingError: null,
           },
         });
       }

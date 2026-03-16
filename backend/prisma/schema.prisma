@@ -121,10 +121,15 @@ model StoredFile {
   taggerVersion String?
   tagsMeta      Json?
 
+  taggingStatus TaggingStatus @default(NONE)
+  taggingJobId  String?
+  taggingError  String?
+
   notebookSources NotebookSource[] @relation("FileNotebookSources")
 
   @@index([urlId])
   @@index([deletedAt])
+  @@index([taggingStatus])
 }
 
 model Folder {

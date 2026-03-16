@@ -528,7 +528,11 @@ r.post(
           storagePath: finalPath,
           sha256,
           contentHash: sha256,
+          taggingStatus: "PENDING",
+          taggingJobId: null,
+          taggingError: null,
         };
+
         const createData: any = {
           id: safeFingerprint,
           fileName: safeFileName,
@@ -537,6 +541,11 @@ r.post(
           uploaderId: updateData.uploaderId,
           uploaderName: updateData.uploaderName,
           storagePath: finalPath,
+          sha256,
+          contentHash: sha256,
+          taggingStatus: "PENDING",
+          taggingJobId: null,
+          taggingError: null,
         };
 
         if (prismaSupportsFolders()) {
@@ -787,7 +796,11 @@ r.post("/files/finalize", async (req, res, next) => {
       storagePath: finalPath,
       sha256,
       contentHash: sha256,
+      taggingStatus: "PENDING",
+      taggingJobId: null,
+      taggingError: null,
     };
+
     const createData: any = {
       id: fingerprint,
       fileName: safeFileName,
@@ -804,6 +817,9 @@ r.post("/files/finalize", async (req, res, next) => {
       storagePath: finalPath,
       sha256,
       contentHash: sha256,
+      taggingStatus: "PENDING",
+      taggingJobId: null,
+      taggingError: null,
     };
     if (prismaSupportsFolders()) {
       updateData.folderId =
@@ -1168,6 +1184,9 @@ r.get("/files/:id", async (req, res, next) => {
       contentHash: f.contentHash ?? null,
       taggerVersion: f.taggerVersion ?? null,
       tagsMeta: f.tagsMeta ?? null,
+      taggingStatus: (f as any).taggingStatus ?? "NONE",
+      taggingJobId: (f as any).taggingJobId ?? null,
+      taggingError: (f as any).taggingError ?? null,
 
       document: doc
         ? {

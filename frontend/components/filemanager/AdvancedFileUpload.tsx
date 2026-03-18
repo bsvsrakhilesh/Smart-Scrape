@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, DragEvent } from "react";
 import { FileItem } from "../../lib/types";
+import { toFileItem, type BackendStoredFile } from "../../lib/api";
 import { formatBytes } from "../../utils/fileHelpers";
 
 // Chunk size for resumable upload (1MB)
@@ -317,6 +318,8 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
         // If user cancelled right at the end, do not finalize
         if (progressRef.current[fingerprint]?.status === "cancelled") return;
 
+        let finalizedFile: FileItem | null = null;
+
         if (finalizeUrl) {
           const finalizeResp = await fetch(finalizeUrl, {
             method: "POST",
@@ -333,6 +336,11 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             const msg = await readErrorMessage(finalizeResp);
             throw new Error(msg);
           }
+
+          const finalized = (await finalizeResp.json()) as BackendStoredFile;
+          if (finalized?.id) {
+            finalizedFile = toFileItem(finalized);
+          }
         }
 
         const cleaned = loadStoredState();
@@ -347,7 +355,7 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           },
         }));
 
-        const optimistic: FileItem = {
+        const optimistic: FileItem = finalizedFile ?? {
           id: fingerprint,
           title: file.name,
           description: "",
@@ -362,6 +370,7 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           isFavorited: false,
           visibility: "private",
         };
+
         onUploaded(optimistic);
       } else {
         setFileProgressMap((prev) => ({

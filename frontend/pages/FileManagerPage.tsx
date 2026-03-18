@@ -793,6 +793,41 @@ export default function FileManagerPage() {
     [patchFileEverywhere],
   );
 
+  const upsertLatestFileEverywhere = useCallback(
+    (fresh: FileItem | FileDetail | null | undefined) => {
+      const id = String((fresh as any)?.id ?? "");
+      if (!fresh || !id) return;
+
+      setAllFiles((prev) => {
+        const exists = prev.some((x) => String((x as any).id) === id);
+        if (!exists) return [fresh as FileItem, ...prev];
+
+        return prev.map((x) =>
+          String((x as any).id) === id ? ({ ...x, ...fresh } as FileItem) : x,
+        );
+      });
+
+      setSelected((prev) =>
+        prev.map((x) =>
+          String((x as any).id) === id ? ({ ...x, ...fresh } as FileItem) : x,
+        ),
+      );
+
+      setPropertiesFile((prev) =>
+        prev && String((prev as any).id) === id
+          ? ({ ...prev, ...fresh } as FileDetail)
+          : prev,
+      );
+
+      setSelectedPreview((prev) =>
+        prev && String((prev as any).id) === id
+          ? ({ ...prev, ...fresh } as FileDetail)
+          : prev,
+      );
+    },
+    [],
+  );
+
   const handleRenameById = async (id: string, nextName: string) => {
     const file = allFiles.find((f) => f.id === id);
     if (file) await handleRename(file, nextName);
@@ -1430,19 +1465,84 @@ export default function FileManagerPage() {
     }
   };
 
-  // After upload, refresh the listing (removes search-filter insertion logic)
   const handleUploaded = useCallback(
     (nf: FileItem) => {
       notify(`Uploaded ${nf.title}`, "success");
-      // Instant UI bump (then we sync from server)
+
       if (typeof nf.size === "number") {
         setStorageUsedBytes((s) => s + nf.size);
       }
+
+      // Show the real backend row immediately so tagging can progress
+      // from PENDING/RUNNING to SUCCESS/FAILED in place.
+      upsertLatestFileEverywhere(nf);
+
+      // Keep counts / pagination / folder contents aligned with server truth.
       refreshAll();
-      setShowUpload(false);
+
+      // Do not auto-close here: AdvancedFileUpload can complete multiple files,
+      // and closing on the first completion is a bad batch-upload experience.
     },
-    [notify, refresh],
+    [notify, refreshAll, upsertLatestFileEverywhere],
   );
+
+  const liveTagPollRef = useRef<Set<string>>(new Set());
+
+  const refreshPendingTaggingFiles = useCallback(
+    async (fileIds: string[]) => {
+      const ids = Array.from(
+        new Set(fileIds.map((x) => String(x)).filter(Boolean)),
+      ).filter((id) => !liveTagPollRef.current.has(id));
+
+      if (!ids.length) return;
+
+      ids.forEach((id) => liveTagPollRef.current.add(id));
+
+      try {
+        const settled = await Promise.allSettled(
+          ids.map((id) => getFileById(id)),
+        );
+
+        settled.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          upsertLatestFileEverywhere(result.value);
+        });
+      } finally {
+        ids.forEach((id) => liveTagPollRef.current.delete(id));
+      }
+    },
+    [upsertLatestFileEverywhere],
+  );
+
+  useEffect(() => {
+    const pendingIds = allFiles
+      .filter((f) => {
+        const id = String((f as any)?.id ?? "");
+        const status = f.taggingStatus ?? "NONE";
+        return (
+          !isFolderId(id) && (status === "PENDING" || status === "RUNNING")
+        );
+      })
+      .map((f) => String(f.id));
+
+    if (!pendingIds.length) return;
+
+    let cancelled = false;
+
+    const run = () => {
+      if (!cancelled) {
+        void refreshPendingTaggingFiles(pendingIds.slice(0, 8));
+      }
+    };
+
+    run();
+    const timer = window.setInterval(run, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [allFiles, refreshPendingTaggingFiles]);
 
   const handleRename = async (file: FileItem, newName?: string) => {
     const name = (newName ?? prompt("Rename to", file.title)) || "";

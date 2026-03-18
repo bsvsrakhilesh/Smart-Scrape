@@ -738,6 +738,61 @@ export default function FileManagerPage() {
     const set = new Set(ids ?? []);
     setSelected(allFiles.filter((f) => set.has(f.id)));
   };
+
+  const patchFileEverywhere = useCallback(
+    (
+      fileId: string,
+      updater:
+        | (Partial<FileItem> & Partial<FileDetail>)
+        | ((
+            current: FileItem | FileDetail,
+          ) => Partial<FileItem> & Partial<FileDetail>),
+    ) => {
+      const id = String(fileId);
+      if (!id) return;
+
+      const apply = <T extends { id: string }>(current: T): T => {
+        const patch =
+          typeof updater === "function"
+            ? (
+                updater as (
+                  current: FileItem | FileDetail,
+                ) => Partial<FileItem> & Partial<FileDetail>
+              )(current as any)
+            : updater;
+
+        return { ...current, ...patch } as T;
+      };
+
+      setAllFiles((prev) =>
+        prev.map((x) => (String((x as any).id) === id ? apply(x as any) : x)),
+      );
+
+      setSelected((prev) =>
+        prev.map((x) => (String((x as any).id) === id ? apply(x as any) : x)),
+      );
+
+      setPropertiesFile((prev) =>
+        prev && String((prev as any).id) === id ? apply(prev as any) : prev,
+      );
+
+      setSelectedPreview((prev) =>
+        prev && String((prev as any).id) === id ? apply(prev as any) : prev,
+      );
+    },
+    [],
+  );
+
+  const applyLatestFileEverywhere = useCallback(
+    (fresh: FileItem | FileDetail | null | undefined) => {
+      const id = String((fresh as any)?.id ?? "");
+      if (!fresh || !id) return;
+
+      patchFileEverywhere(id, fresh as Partial<FileItem> & Partial<FileDetail>);
+    },
+    [patchFileEverywhere],
+  );
+
   const handleRenameById = async (id: string, nextName: string) => {
     const file = allFiles.find((f) => f.id === id);
     if (file) await handleRename(file, nextName);
@@ -2393,27 +2448,18 @@ export default function FileManagerPage() {
           try {
             const aiTags = await pollOne(f.id);
 
-            // optimistic merge in UI for instant feedback
-            setAllFiles((prev) =>
-              prev.map((x) => {
-                if (x.id !== f.id) return x;
-                const merged = Array.from(
-                  new Set([...(x.tags ?? []), ...aiTags]),
-                );
-                return { ...x, tags: merged };
-              }),
-            );
+            // optimistic merge everywhere for instant feedback
+            patchFileEverywhere(f.id, (current) => ({
+              tags: Array.from(new Set([...(current.tags ?? []), ...aiTags])),
+              taggingError: null,
+            }));
 
-            // replace optimistic tags with server truth (source of truth)
+            // replace optimistic state with full server truth
             try {
               const fresh = await getFileById(f.id);
-              setAllFiles((prev) =>
-                prev.map((x) =>
-                  x.id === f.id ? { ...x, tags: fresh.tags ?? [] } : x,
-                ),
-              );
+              applyLatestFileEverywhere(fresh);
             } catch {
-              // non-fatal — UI already updated optimistically
+              // non-fatal — optimistic tags are already visible
             }
 
             setAutoTagUI((p) => ({
@@ -2462,7 +2508,13 @@ export default function FileManagerPage() {
         });
       }
     },
-    [allFiles, notify, setAllFiles, requestCancelAutoTag],
+    [
+      allFiles,
+      notify,
+      requestCancelAutoTag,
+      patchFileEverywhere,
+      applyLatestFileEverywhere,
+    ],
   );
 
   const onAddTagSelected = useCallback(
@@ -3343,17 +3395,7 @@ export default function FileManagerPage() {
                         onRefreshMetadata={async (fileId) => {
                           await refreshFileMetadata(fileId);
                           const latest = await getFileById(fileId);
-                          setPropertiesFile(latest);
-                          setAllFiles((prev) =>
-                            prev.map((x) =>
-                              String((x as any).id) === fileId ? latest : x,
-                            ),
-                          );
-                          setSelected((prev) =>
-                            prev.map((x) =>
-                              String((x as any).id) === fileId ? latest : x,
-                            ),
-                          );
+                          applyLatestFileEverywhere(latest);
                         }}
                       />
 
@@ -3727,20 +3769,12 @@ export default function FileManagerPage() {
             onTagUpdate={(fileId, newTags) => {
               handleUpdateTags(fileId, newTags);
 
-              setSelectedPreview((prev) =>
-                prev && prev.id === fileId
-                  ? ({ ...prev, tags: newTags } as any)
-                  : prev,
-              );
+              patchFileEverywhere(String(fileId), { tags: newTags });
 
               (async () => {
                 try {
                   const fresh = await getFileById(String(fileId));
-                  setSelectedPreview((prev) =>
-                    prev && prev.id === fileId
-                      ? ({ ...prev, ...fresh } as any)
-                      : prev,
-                  );
+                  applyLatestFileEverywhere(fresh);
                 } catch {
                   // ignore; tags already updated
                 }

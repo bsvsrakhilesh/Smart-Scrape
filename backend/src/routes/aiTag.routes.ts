@@ -171,6 +171,8 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
           use_llm: USE_LLM,
           jobId,
           updatedAt: new Date().toISOString(),
+          normalizedTextSha256: hash ?? null,
+          normalizedTextHashAlgorithm: hash ? "sha256" : null,
           structured: structured || null,
           extraction: extraction || null,
         },
@@ -184,18 +186,26 @@ r.get("/tag-jobs/:jobId", async (req, res, next) => {
           new Set([...(rec.tags || []), ...(tags || [])]),
         );
 
-        await prisma.storedFile.update({
-          where: { id: fileId },
-          data: {
-            tags: { set: merged },
-            contentHash: hash ?? null,
-            taggerVersion: tagger_version ?? null,
-            tagsMeta: buildNextTagsMeta(rec.tagsMeta),
-            taggingStatus: "SUCCESS",
-            taggingJobId: null,
-            taggingError: null,
-          },
-        });
+        await prisma.$transaction([
+          prisma.storedFile.update({
+            where: { id: fileId },
+            data: {
+              tags: { set: merged },
+              contentHash: hash ?? null,
+              taggerVersion: tagger_version ?? null,
+              tagsMeta: buildNextTagsMeta(rec.tagsMeta),
+              taggingStatus: "SUCCESS",
+              taggingJobId: null,
+              taggingError: null,
+            },
+          }),
+          prisma.documentRevision.updateMany({
+            where: { storedFileId: fileId },
+            data: {
+              contentHash: hash ?? null,
+            },
+          }),
+        ]);
       }
     }
 

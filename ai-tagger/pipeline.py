@@ -482,7 +482,11 @@ def extract_and_tag_sync(
         grounding_units=grounding_units,
     )
 
-    h = hashlib.md5(content.encode("utf-8")).hexdigest()
+    # Canonical semantic hash for normalized extracted text.
+    # This must stay distinct from the immutable binary SHA-256
+    # recorded by the backend for the uploaded artifact itself.
+    h = hashlib.sha256(content.encode("utf-8")).hexdigest()
+
     return {
         "tags": tags,
         "phrases": phrases[:200],
@@ -497,6 +501,5 @@ def extract_and_tag_sync(
         "structured_llm_used": structured_llm_used,
         "structured_llm_model": structured_llm_model,
     }
-
 
 __all__ = ["extract_and_tag_sync"]

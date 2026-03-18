@@ -89,7 +89,7 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
     },
     { label: "URL ID", value: file.urlId != null ? String(file.urlId) : "—" },
     { label: "SHA-256", value: file.sha256 || "—" },
-    { label: "Content hash", value: file.contentHash || "—" },
+    { label: "Normalized content SHA-256", value: file.contentHash || "—" },
     { label: "Tagger version", value: file.taggerVersion || "—" },
     {
       label: "Capture method",

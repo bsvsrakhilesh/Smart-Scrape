@@ -66,7 +66,7 @@ export async function runAiTagForUrl(
     const created = await createJobFromUrl(rec.url, TOPK, USE_LLM);
     jobId = created.jobId;
   }
-  
+
   await prisma.url.update({
     where: { id: urlId },
     data: {
@@ -131,6 +131,8 @@ export async function runAiTagForUrl(
               use_llm: USE_LLM,
               jobId,
               updatedAt: new Date().toISOString(),
+              normalizedTextSha256: data?.hash ?? null,
+              normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
             },
 
             aiTagger: { phrases, unigrams },

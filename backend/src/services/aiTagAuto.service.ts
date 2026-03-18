@@ -122,34 +122,44 @@ export async function runAiTagForFile(
 
       const merged = mergeUnique(latest?.tags, tags);
 
-      await prisma.storedFile.update({
-        where: { id: String(fileId) },
-        data: {
-          tags: { set: merged },
-          contentHash: data?.hash ?? null,
-          taggerVersion: data?.tagger_version ?? null,
-          tagsMeta: {
-            ...((latest?.tagsMeta as any) || {}),
-            tagger: {
-              phrases: phrases || [],
-              unigrams: unigrams || [],
-              structured: structured || null,
-              extraction: extraction || null,
-              topk: TOPK,
-              use_llm: USE_LLM,
-              jobId,
-              updatedAt: new Date().toISOString(),
-            },
-            aiTagger: {
-              phrases,
-              unigrams,
-            },
-          } as any,
-          taggingStatus: TaggingStatus.SUCCESS,
-          taggingJobId: null,
-          taggingError: null,
-        },
-      });
+      await prisma.$transaction([
+        prisma.storedFile.update({
+          where: { id: String(fileId) },
+          data: {
+            tags: { set: merged },
+            contentHash: data?.hash ?? null,
+            taggerVersion: data?.tagger_version ?? null,
+            tagsMeta: {
+              ...((latest?.tagsMeta as any) || {}),
+              tagger: {
+                phrases: phrases || [],
+                unigrams: unigrams || [],
+                structured: structured || null,
+                extraction: extraction || null,
+                topk: TOPK,
+                use_llm: USE_LLM,
+                jobId,
+                updatedAt: new Date().toISOString(),
+                normalizedTextSha256: data?.hash ?? null,
+                normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
+              },
+              aiTagger: {
+                phrases,
+                unigrams,
+              },
+            } as any,
+            taggingStatus: TaggingStatus.SUCCESS,
+            taggingJobId: null,
+            taggingError: null,
+          },
+        }),
+        prisma.documentRevision.updateMany({
+          where: { storedFileId: String(fileId) },
+          data: {
+            contentHash: data?.hash ?? null,
+          },
+        }),
+      ]);
 
       return { skipped: false as const, jobId, tags: merged };
     }

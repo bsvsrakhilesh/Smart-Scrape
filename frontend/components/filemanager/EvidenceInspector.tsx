@@ -102,7 +102,7 @@ function getIntegritySummary(file: FileItem): {
   if (file.sha256) {
     return {
       tone: "green",
-      label: "Verified hash",
+      label: "Artifact SHA-256",
       meta: shortHash(file.sha256),
     };
   }
@@ -110,7 +110,7 @@ function getIntegritySummary(file: FileItem): {
   if (file.contentHash) {
     return {
       tone: "blue",
-      label: "Content hash",
+      label: "Normalized content SHA-256",
       meta: shortHash(file.contentHash),
     };
   }
@@ -118,7 +118,7 @@ function getIntegritySummary(file: FileItem): {
   return {
     tone: "slate",
     label: "Hash pending",
-    meta: "No immutable hash recorded",
+    meta: "No artifact or content hash recorded",
   };
 }
 
@@ -546,7 +546,7 @@ export default function EvidenceInspector({ file }: Props) {
                 <Row label="File ID" value={file.id} mono />
                 <Row label="SHA-256" value={file.sha256 ?? "—"} mono />
                 <Row
-                  label="Content hash"
+                  label="Normalized content SHA-256"
                   value={file.contentHash ?? "—"}
                   mono
                 />

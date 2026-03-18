@@ -2821,6 +2821,19 @@ body,
   text-align: center;
 }
 
+.ex-tile-status {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.ex-tile-status-pill {
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
 .ex-tile-name {
   font-size: 13px;
   line-height: 1.15;
@@ -4487,6 +4500,18 @@ body,
   background: rgba(248, 250, 252, 1);
   color: #475569;
   border-color: rgba(148, 163, 184, 0.2);
+}
+
+.fm-state-pill--amber {
+  background: rgba(255, 251, 235, 1);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+.fm-state-pill--red {
+  background: rgba(254, 242, 242, 1);
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 .fm-row--details .fm-td--tags {

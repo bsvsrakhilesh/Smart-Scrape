@@ -174,6 +174,57 @@ const getIntegrityInfo = (
   };
 };
 
+const getTaggingInfo = (
+  f: FileItem,
+): {
+  tone: "green" | "blue" | "amber" | "red" | "slate";
+  label: string;
+  meta: string;
+} | null => {
+  const mime = String((f as any).mimeType || "").toLowerCase();
+  const folder = Boolean((f as any).isFolder) || mime === "folder";
+  if (folder) return null;
+
+  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
+  const tags = Array.isArray((f as any).tags) ? (f as any).tags.length : 0;
+  const err = String((f as any).taggingError || "").trim();
+
+  switch (status) {
+    case "PENDING":
+      return {
+        tone: "amber",
+        label: "AI pending",
+        meta: "Queued for extraction",
+      };
+
+    case "RUNNING":
+      return {
+        tone: "blue",
+        label: "AI processing",
+        meta: "Extracting labels",
+      };
+
+    case "SUCCESS":
+      return {
+        tone: "green",
+        label: "AI ready",
+        meta: tags
+          ? `${tags} label${tags === 1 ? "" : "s"} extracted`
+          : "Metadata extracted",
+      };
+
+    case "FAILED":
+      return {
+        tone: "red",
+        label: "AI failed",
+        meta: err || "Extraction needs retry",
+      };
+
+    default:
+      return null;
+  }
+};
+
 const getRevisionInfo = (f: FileItem): { label: string; meta: string } => {
   const rev = (f as any).documentRevision;
   const pipeline = (f as any).captureEvent?.pipelineConfig;
@@ -874,6 +925,7 @@ export default function Details_ListView({
       const revision = getRevisionInfo(f);
       const typeLabel = getTypeLabel(f);
       const tagList = getTagList(f);
+      const tagging = getTaggingInfo(f);
       const sourceUrl =
         (f as any).sourceUrl || (f as any).captureEvent?.sourceUrl;
 
@@ -969,18 +1021,35 @@ export default function Details_ListView({
           </div>
 
           <div className="fm-td fm-td--tags">
-            {tagList.length ? (
+            {tagging || tagList.length ? (
               <div className="fm-inline-pills">
-                {tagList.slice(0, 2).map((tag) => (
-                  <span key={tag} className="fm-mini-pill">
-                    {tag}
-                  </span>
-                ))}
-                {tagList.length > 2 && (
-                  <span className="fm-mini-pill fm-mini-pill--ghost">
-                    +{tagList.length - 2}
+                {tagging && (
+                  <span
+                    className={`fm-state-pill fm-state-pill--${tagging.tone}`}
+                    title={tagging.meta}
+                  >
+                    {tagging.label}
                   </span>
                 )}
+
+                {tagList.length ? (
+                  <>
+                    {tagList.slice(0, 2).map((tag) => (
+                      <span key={tag} className="fm-mini-pill">
+                        {tag}
+                      </span>
+                    ))}
+                    {tagList.length > 2 && (
+                      <span className="fm-mini-pill fm-mini-pill--ghost">
+                        +{tagList.length - 2}
+                      </span>
+                    )}
+                  </>
+                ) : tagging?.tone === "green" ? (
+                  <span className="fm-mini-pill fm-mini-pill--ghost">
+                    No labels
+                  </span>
+                ) : null}
               </div>
             ) : (
               <span className="fm-cell-subtle">No tags</span>
@@ -996,6 +1065,7 @@ export default function Details_ListView({
       const isSel = selectedIds.has(id);
 
       const dateLabel = getDateLabel(f);
+      const tagging = getTaggingInfo(f);
 
       return (
         <div
@@ -1046,6 +1116,15 @@ export default function Details_ListView({
           </div>
 
           <div className="fm-row-meta" aria-hidden="true">
+            {tagging && (
+              <span
+                className={`fm-state-pill fm-state-pill--${tagging.tone}`}
+                title={tagging.meta}
+              >
+                {tagging.label}
+              </span>
+            )}
+
             <span className="fm-tag">{getIntegrityInfo(f).label}</span>
 
             {((f as any).documentRevision?.ordinal ?? null) && (

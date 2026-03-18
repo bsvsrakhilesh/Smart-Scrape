@@ -69,6 +69,55 @@ const getThumb = (f: FileItem): string | null => {
 const fileDisplayName = (f: FileItem) =>
   (f as any).title || (f as any).fileName || "";
 
+const getTaggingInfo = (
+  f: FileItem,
+): {
+  tone: "green" | "blue" | "amber" | "red" | "slate";
+  label: string;
+  meta: string;
+} | null => {
+  if (isFolder(f)) return null;
+
+  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
+  const tags = Array.isArray((f as any).tags) ? (f as any).tags.length : 0;
+  const err = String((f as any).taggingError || "").trim();
+
+  switch (status) {
+    case "PENDING":
+      return {
+        tone: "amber",
+        label: "AI pending",
+        meta: "Queued for extraction",
+      };
+
+    case "RUNNING":
+      return {
+        tone: "blue",
+        label: "AI processing",
+        meta: "Extracting labels",
+      };
+
+    case "SUCCESS":
+      return {
+        tone: "green",
+        label: "AI ready",
+        meta: tags
+          ? `${tags} label${tags === 1 ? "" : "s"} extracted`
+          : "Metadata extracted",
+      };
+
+    case "FAILED":
+      return {
+        tone: "red",
+        label: "AI failed",
+        meta: err || "Extraction needs retry",
+      };
+
+    default:
+      return null;
+  }
+};
+
 const renderIcon = (f: FileItem, size = 24) => {
   const t = ((f as any).mimeType || "").toLowerCase();
   const name = fileDisplayName(f).toLowerCase();
@@ -645,6 +694,7 @@ export default function Large_IconView({
           const folder = isFolder(f);
           const size = getSize(f);
           const title = getTitle(f);
+          const tagging = getTaggingInfo(f);
 
           const titleAttr = [
             title,
@@ -711,7 +761,19 @@ export default function Large_IconView({
               </div>
 
               <div className="ex-tile-meta">
+                {tagging && (
+                  <div className="ex-tile-status">
+                    <span
+                      className={`fm-state-pill fm-state-pill--${tagging.tone} ex-tile-status-pill`}
+                      title={tagging.meta}
+                    >
+                      {tagging.label}
+                    </span>
+                  </div>
+                )}
+
                 <div className="ex-tile-name">{title}</div>
+
                 {(f as any).captureType &&
                   String((f as any).captureType).startsWith("URL_") && (
                     <div
@@ -725,6 +787,7 @@ export default function Large_IconView({
                       Snapshot
                     </div>
                   )}
+
                 {!folder && size != null && (
                   <div className="ex-tile-sub">{formatBytes(size)}</div>
                 )}

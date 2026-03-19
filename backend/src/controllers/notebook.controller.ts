@@ -225,6 +225,8 @@ export async function postNotebookChatHandler(
         req.body?.answerMode === "briefing"
           ? req.body.answerMode
           : undefined,
+      requestId: (req as any).requestId ?? null,
+      createdBy: null,
     });
 
     res.json(out);

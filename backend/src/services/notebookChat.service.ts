@@ -14,6 +14,116 @@ export type ChatHistoryItem = {
 
 export type AnswerMode = "draft" | "evidence" | "briefing";
 
+const NOTEBOOK_CHAT_PROMPT_VERSION = "notebook-chat-v2";
+
+function asJson(value: unknown): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
+}
+
+type PersistedChatResult = {
+  mode: AnswerMode;
+  answer: string;
+  citations: any[];
+  evidence?: any[];
+  suggested: string[];
+};
+
+type ChatRunContext = {
+  notebookId: string;
+  requestId?: string | null;
+  createdBy?: string | null;
+  message: string;
+  history: ChatHistoryItem[];
+  answerMode: AnswerMode;
+  sourceIds?: string[];
+};
+
+async function createNotebookChatRun(ctx: ChatRunContext) {
+  return prisma.notebookChatRun.create({
+    data: {
+      notebookId: ctx.notebookId,
+      createdBy: ctx.createdBy ?? null,
+      requestId: ctx.requestId ?? null,
+      promptVersion: NOTEBOOK_CHAT_PROMPT_VERSION,
+      answerMode: ctx.answerMode,
+      model: env.OPENAI_ENABLED ? defaultModel() : null,
+      status: "STARTED",
+      userMessage: ctx.message,
+      history: asJson(ctx.history ?? []),
+      scopedSourceIds: ctx.sourceIds ?? [],
+    },
+    select: { id: true },
+  });
+}
+
+async function succeedNotebookChatRun(p: {
+  runId: string;
+  result: PersistedChatResult;
+  startedAtMs: number;
+  candidateChunkIds?: string[];
+  finalChunkIds?: string[];
+  sourceRevisionIds?: string[];
+  documentRevisionIds?: string[];
+  pipelineConfigIds?: string[];
+  openaiResponseId?: string | null;
+}) {
+  const latencyMs = Date.now() - p.startedAtMs;
+
+  await prisma.notebookChatRun.update({
+    where: { id: p.runId },
+    data: {
+      status: "SUCCEEDED",
+      latencyMs,
+      openaiResponseId: p.openaiResponseId ?? null,
+      answer: p.result.answer,
+      citations: asJson(p.result.citations ?? []),
+      evidence: asJson(p.result.evidence ?? []),
+      suggested: asJson(p.result.suggested ?? []),
+      retrievedChunkIds: p.candidateChunkIds ?? [],
+      finalChunkIds: p.finalChunkIds ?? [],
+      sourceRevisionIds: p.sourceRevisionIds ?? [],
+      documentRevisionIds: p.documentRevisionIds ?? [],
+      pipelineConfigIds: p.pipelineConfigIds ?? [],
+    },
+  });
+
+  return {
+    ...p.result,
+    runId: p.runId,
+    promptVersion: NOTEBOOK_CHAT_PROMPT_VERSION,
+    model: env.OPENAI_ENABLED ? defaultModel() : null,
+    latencyMs,
+  };
+}
+
+async function failNotebookChatRun(p: {
+  runId: string;
+  startedAtMs: number;
+  error: unknown;
+  candidateChunkIds?: string[];
+  finalChunkIds?: string[];
+  sourceRevisionIds?: string[];
+  documentRevisionIds?: string[];
+  pipelineConfigIds?: string[];
+}) {
+  await prisma.notebookChatRun.update({
+    where: { id: p.runId },
+    data: {
+      status: "FAILED",
+      latencyMs: Date.now() - p.startedAtMs,
+      error:
+        p.error instanceof Error
+          ? p.error.message
+          : String(p.error ?? "Unknown error"),
+      retrievedChunkIds: p.candidateChunkIds ?? [],
+      finalChunkIds: p.finalChunkIds ?? [],
+      sourceRevisionIds: p.sourceRevisionIds ?? [],
+      documentRevisionIds: p.documentRevisionIds ?? [],
+      pipelineConfigIds: p.pipelineConfigIds ?? [],
+    },
+  });
+}
+
 const CitationSchema = z.object({
   chunkId: z.string().min(1),
   quote: z.string().min(20).max(240),
@@ -317,14 +427,21 @@ async function rerankWithLLM(p: {
 
 async function loadChunksForContext(chunkIds: string[]) {
   if (!chunkIds.length) return [];
+
   const rows = await prisma.sourceChunk.findMany({
     where: { id: { in: chunkIds } },
     include: {
       source: { include: { url: true, file: true } },
+      revision: {
+        select: {
+          id: true,
+          documentRevisionId: true,
+          pipelineConfigId: true,
+        },
+      },
     },
   });
 
-  // Preserve the order of chunkIds
   const byId = new Map(rows.map((r) => [r.id, r]));
   return chunkIds.map((id) => byId.get(id)).filter(Boolean) as typeof rows;
 }
@@ -456,272 +573,351 @@ export async function runNotebookChat(p: {
   sourceIds?: string[];
   history?: ChatHistoryItem[];
   answerMode?: AnswerMode;
+  requestId?: string | null;
+  createdBy?: string | null;
 }) {
   const notebookId = p.notebookId;
   const message = (p.message ?? "").trim();
   const mode: AnswerMode = p.answerMode ?? "draft";
   const history = Array.isArray(p.history) ? p.history.slice(-12) : [];
   const filterSourceIds = p.sourceIds;
+  const startedAtMs = Date.now();
 
-  // Always compute some citations to keep UI usable even if OpenAI disabled
-  const candidateChunkIds = await retrieveRelevantChunkIdsHybrid({
+  const run = await createNotebookChatRun({
     notebookId,
-    query: message,
-    limit: 8,
+    requestId: p.requestId ?? null,
+    createdBy: p.createdBy ?? null,
+    message,
+    history,
+    answerMode: mode,
     sourceIds: filterSourceIds,
   });
 
-  // If OpenAI is not enabled, keep behavior close to Phase 1 stub (safe fallback)
-  if (!env.OPENAI_ENABLED) {
-    return {
-      answer: `**Draft answer (backend)**\n\nYou asked: _${message}_`,
-      citations: await buildFallbackCitations(candidateChunkIds, 2),
-      suggested: [],
-    };
-  }
+  let candidateChunkIds: string[] = [];
+  let finalChunkIds: string[] = [];
+  let sourceRevisionIds: string[] = [];
+  let documentRevisionIds: string[] = [];
+  let pipelineConfigIds: string[] = [];
 
-  if (candidateChunkIds.length === 0) {
-    // If user passed sourceIds and none are ready/indexed, give a clear message
-    const requested = Array.isArray(p.sourceIds) ? p.sourceIds : null;
-
-    // If sources were explicitly scoped and none are selected:
-    if (requested && requested.length === 0) {
-      return {
-        answer:
-          "No sources are selected. Include at least one **Ready** source to get cited answers.",
-        citations: [],
-        suggested: [
-          "Open Manage → include a source",
-          "Add a URL or File source",
-          "Ask: “Summarize the included sources with citations”",
-        ],
-      };
-    }
-
-    return {
-      answer:
-        "I couldn’t find any relevant passages in the **Ready** sources for your question. " +
-        "Try rephrasing with more specific keywords, or include more sources (and wait for indexing to reach **Ready**).",
-      citations: [],
-      suggested: [
-        "Rephrase using key terms that appear in the sources",
-        "Ask for a source summary first (with citations)",
-        "Include additional sources related to this question",
-      ],
-    };
-  }
-
-  const chunks = await loadChunksForContext(candidateChunkIds);
-  const context = formatContext(chunks);
-
-  // Optional LLM rerank step for reliability
-  const rerankCandidates = chunks.map((c) => {
-    const sourceLabel =
-      c.source?.kind === "URL"
-        ? `URL: ${c.source.url?.title ?? c.source.url?.url ?? "unknown"}`
-        : `FILE: ${c.source.file?.fileName ?? "unknown"}`;
-    return {
-      chunkId: c.id,
-      text: c.text ?? "",
-      sourceLabel,
-    };
-  });
-
-  let finalChunkIds = candidateChunkIds;
   try {
-    finalChunkIds = await rerankWithLLM({
+    candidateChunkIds = await retrieveRelevantChunkIdsHybrid({
+      notebookId,
       query: message,
-      candidates: rerankCandidates,
-      finalLimit: 8,
-      temperature: 0,
-    });
-  } catch {
-    // If rerank fails, proceed with hybrid order
-    finalChunkIds = candidateChunkIds;
-  }
-
-  const allowed = new Set(finalChunkIds);
-  const finalChunks = await loadChunksForContext(finalChunkIds);
-  const finalContext = formatContext(finalChunks);
-
-  const system = [
-    "You are a helpful assistant for a Notebook-like product.",
-    "Answer using ONLY the provided SOURCE_CHUNKS as evidence.",
-    "Conversation history (if present) is for context only; it is NOT evidence. Never cite it; cite only SOURCE_CHUNKS.",
-    "If the sources do not contain the answer, say you cannot verify it from the sources.",
-    "",
-    "MODE GUIDANCE:",
-    "- mode=draft: normal helpful answer.",
-    "- mode=evidence: return evidence blocks (atomic claims + citations); answer should be a short summary (3–8 lines).",
-    "- mode=briefing: write like a policy/ops briefing (executive summary, key findings, recommendations, uncertainties), still fully cited.",
-    "",
-    "OUTPUT FORMAT:",
-    "Return a JSON object that matches the required schema.",
-    "- mode MUST equal ANSWER_MODE (draft/evidence/briefing).",
-    "",
-    "CITATIONS RULES:",
-    "- Every non-trivial claim MUST have citations.",
-    "- citations MUST be an array of objects: { chunkId, quote }.",
-    "- quote MUST be copied EXACTLY from the cited chunk text (verbatim substring).",
-    "- quote length must be 20–240 characters.",
-    "- Only cite chunks from SOURCE_CHUNKS (IDs provided). Never invent IDs.",
-    "- If you cannot find a verbatim quote supporting a claim, say you cannot verify it from the sources.",
-    "- If mode=evidence, ALSO return evidence: an array of { claim, citations } where each claim has 1–6 citations.",
-    "- If mode!=evidence, omit evidence or return an empty array.",
-    "",
-    "SUGGESTED:",
-    "- Return 3–6 suggested follow-up questions as plain strings.",
-  ].join("\n");
-
-  const user = [
-    `ANSWER_MODE: ${mode}\n\nUSER_QUESTION:\n${message}`,
-    "",
-    "SOURCE_CHUNKS:",
-    finalContext,
-    "",
-    "Return a JSON object that matches the required schema.",
-  ].join("\n");
-
-  const input = [
-    { role: "system" as const, content: system },
-    ...history.map((h) => ({
-      role: h.role,
-      content: h.content,
-    })),
-    { role: "user" as const, content: user },
-  ];
-
-  const resp = await openaiClient().responses.parse({
-    model: defaultModel(),
-    input,
-    text: {
-      format: zodTextFormat(ChatAnswerSchema, "chat_answer"),
-    },
-  });
-
-  const out = resp.output_parsed;
-  if (!out) {
-    throw new Error(
-      "OpenAI did not return a valid structured response (output_parsed is null).",
-    );
-  }
-
-  const byChunkId = new Map(finalChunks.map((c: any) => [c.id, c]));
-
-  // Load page ranges for all involved sources (for quote->page mapping)
-  const chunkSourceIds = uniq(finalChunks.map((c: any) => c.sourceId));
-  let pageRangesBySource = new Map<string, PageRange[]>();
-
-  try {
-    const pages = await (prisma as any).sourcePage.findMany({
-      where: { sourceId: { in: chunkSourceIds } },
-      select: {
-        sourceId: true,
-        pageNumber: true,
-        globalStart: true,
-        globalEnd: true,
-      },
-      orderBy: [{ sourceId: "asc" }, { pageNumber: "asc" }],
+      limit: 8,
+      sourceIds: filterSourceIds,
     });
 
-    for (const p of pages) {
-      const arr = pageRangesBySource.get(p.sourceId) ?? [];
-      arr.push({
-        pageNumber: p.pageNumber,
-        globalStart: p.globalStart,
-        globalEnd: p.globalEnd,
+    if (!env.OPENAI_ENABLED) {
+      return await succeedNotebookChatRun({
+        runId: run.id,
+        startedAtMs,
+        candidateChunkIds,
+        finalChunkIds: candidateChunkIds,
+        result: {
+          mode,
+          answer: `**Draft answer (backend)**\n\nYou asked: _${message}_`,
+          citations: await buildFallbackCitations(candidateChunkIds, 2),
+          evidence: [],
+          suggested: [],
+        },
       });
-      pageRangesBySource.set(p.sourceId, arr);
     }
-  } catch {
-    // If SourcePage isn't available for some sources, we keep page fields null.
+
+    if (candidateChunkIds.length === 0) {
+      const requested = Array.isArray(p.sourceIds) ? p.sourceIds : null;
+
+      if (requested && requested.length === 0) {
+        return await succeedNotebookChatRun({
+          runId: run.id,
+          startedAtMs,
+          candidateChunkIds,
+          finalChunkIds: [],
+          result: {
+            mode,
+            answer:
+              "No sources are selected. Include at least one **Ready** source to get cited answers.",
+            citations: [],
+            evidence: [],
+            suggested: [
+              "Open Manage → include a source",
+              "Add a URL or File source",
+              "Ask: “Summarize the included sources with citations”",
+            ],
+          },
+        });
+      }
+
+      return await succeedNotebookChatRun({
+        runId: run.id,
+        startedAtMs,
+        candidateChunkIds,
+        finalChunkIds: [],
+        result: {
+          mode,
+          answer:
+            "I couldn’t find any relevant passages in the **Ready** sources for your question. " +
+            "Try rephrasing with more specific keywords, or include more sources (and wait for indexing to reach **Ready**).",
+          citations: [],
+          evidence: [],
+          suggested: [
+            "Rephrase using key terms that appear in the sources",
+            "Ask for a source summary first (with citations)",
+            "Include additional sources related to this question",
+          ],
+        },
+      });
+    }
+
+    const chunks = await loadChunksForContext(candidateChunkIds);
+
+    const rerankCandidates = chunks.map((c) => {
+      const sourceLabel =
+        c.source?.kind === "URL"
+          ? `URL: ${c.source.url?.title ?? c.source.url?.url ?? "unknown"}`
+          : `FILE: ${c.source.file?.fileName ?? "unknown"}`;
+
+      return {
+        chunkId: c.id,
+        text: c.text ?? "",
+        sourceLabel,
+      };
+    });
+
+    try {
+      finalChunkIds = await rerankWithLLM({
+        query: message,
+        candidates: rerankCandidates,
+        finalLimit: 8,
+        temperature: 0,
+      });
+    } catch {
+      finalChunkIds = candidateChunkIds;
+    }
+
+    const allowed = new Set(finalChunkIds);
+    const finalChunks = await loadChunksForContext(finalChunkIds);
+    const finalContext = formatContext(finalChunks);
+
+    sourceRevisionIds = uniq(
+      finalChunks.map((c: any) => c.revisionId).filter(Boolean),
+    ) as string[];
+
+    documentRevisionIds = uniq(
+      finalChunks
+        .map((c: any) => c.revision?.documentRevisionId)
+        .filter(Boolean),
+    ) as string[];
+
+    pipelineConfigIds = uniq(
+      finalChunks.map((c: any) => c.revision?.pipelineConfigId).filter(Boolean),
+    ) as string[];
+
+    const system = [
+      "You are a helpful assistant for a Notebook-like product.",
+      "Answer using ONLY the provided SOURCE_CHUNKS as evidence.",
+      "Conversation history (if present) is for context only; it is NOT evidence. Never cite it; cite only SOURCE_CHUNKS.",
+      "If the sources do not contain the answer, say you cannot verify it from the sources.",
+      "",
+      "MODE GUIDANCE:",
+      "- mode=draft: normal helpful answer.",
+      "- mode=evidence: return evidence blocks (atomic claims + citations); answer should be a short summary (3–8 lines).",
+      "- mode=briefing: write like a policy/ops briefing (executive summary, key findings, recommendations, uncertainties), still fully cited.",
+      "",
+      "OUTPUT FORMAT:",
+      "Return a JSON object that matches the required schema.",
+      "- mode MUST equal ANSWER_MODE (draft/evidence/briefing).",
+      "",
+      "CITATIONS RULES:",
+      "- Every non-trivial claim MUST have citations.",
+      "- citations MUST be an array of objects: { chunkId, quote }.",
+      "- quote MUST be copied EXACTLY from the cited chunk text (verbatim substring).",
+      "- quote length must be 20–240 characters.",
+      "- Only cite chunks from SOURCE_CHUNKS (IDs provided). Never invent IDs.",
+      "- If you cannot find a verbatim quote supporting a claim, say you cannot verify it from the sources.",
+      "- If mode=evidence, ALSO return evidence: an array of { claim, citations } where each claim has 1–6 citations.",
+      "- If mode!=evidence, omit evidence or return an empty array.",
+      "",
+      "SUGGESTED:",
+      "- Return 3–6 suggested follow-up questions as plain strings.",
+    ].join("\n");
+
+    const user = [
+      `ANSWER_MODE: ${mode}\n\nUSER_QUESTION:\n${message}`,
+      "",
+      "SOURCE_CHUNKS:",
+      finalContext,
+      "",
+      "Return a JSON object that matches the required schema.",
+    ].join("\n");
+
+    const input = [
+      { role: "system" as const, content: system },
+      ...history.map((h) => ({
+        role: h.role,
+        content: h.content,
+      })),
+      { role: "user" as const, content: user },
+    ];
+
+    const resp = await openaiClient().responses.parse({
+      model: defaultModel(),
+      input,
+      text: {
+        format: zodTextFormat(ChatAnswerSchema, "chat_answer"),
+      },
+    });
+
+    const openaiResponseId = (resp as any)?.id ?? null;
+    const out = resp.output_parsed;
+
+    if (!out) {
+      throw new Error(
+        "OpenAI did not return a valid structured response (output_parsed is null).",
+      );
+    }
+
+    const byChunkId = new Map(finalChunks.map((c: any) => [c.id, c]));
+    const chunkSourceIds = uniq(finalChunks.map((c: any) => c.sourceId));
+    const pageRangesBySource = new Map<string, PageRange[]>();
+
+    try {
+      const pages = await (prisma as any).sourcePage.findMany({
+        where: { sourceId: { in: chunkSourceIds } },
+        select: {
+          sourceId: true,
+          pageNumber: true,
+          globalStart: true,
+          globalEnd: true,
+        },
+        orderBy: [{ sourceId: "asc" }, { pageNumber: "asc" }],
+      });
+
+      for (const p of pages) {
+        const arr = pageRangesBySource.get(p.sourceId) ?? [];
+        arr.push({
+          pageNumber: p.pageNumber,
+          globalStart: p.globalStart,
+          globalEnd: p.globalEnd,
+        });
+        pageRangesBySource.set(p.sourceId, arr);
+      }
+    } catch {
+      // keep page fields null if page lookup fails
+    }
+
+    const validateCitations = (raw: any[], max = 10) => {
+      return (raw ?? [])
+        .filter((c: any) => allowed.has(c.chunkId))
+        .map((c: any) => {
+          const chunk: any = byChunkId.get(c.chunkId);
+          if (!chunk) return null;
+
+          const chunkText = chunk.text || "";
+          const match = findVerbatimQuote(chunkText, c.quote || "");
+          if (!match) return null;
+
+          const quote = match.quote;
+          const idx = match.idx;
+          if (quote.length < 20 || quote.length > 240) return null;
+
+          const hasGlobal = typeof chunk.globalStart === "number";
+          const quoteGlobalStart = hasGlobal ? chunk.globalStart + idx : null;
+          const quoteGlobalEnd =
+            hasGlobal && quoteGlobalStart != null
+              ? quoteGlobalStart + quote.length
+              : null;
+
+          const ranges = pageRangesBySource.get(chunk.sourceId) ?? [];
+          const s =
+            quoteGlobalStart != null
+              ? mapGlobalToPage(ranges, quoteGlobalStart, false)
+              : null;
+          const e =
+            quoteGlobalEnd != null
+              ? mapGlobalToPage(ranges, quoteGlobalEnd, true)
+              : null;
+
+          const kind = chunk.source?.kind ?? null;
+          const sourceId = chunk.sourceId ?? null;
+
+          const sourceLabel =
+            kind === "URL"
+              ? (chunk.source?.url?.title ?? chunk.source?.url?.url ?? "URL")
+              : (chunk.source?.file?.fileName ?? "FILE");
+
+          const sourceUrl =
+            kind === "URL" ? (chunk.source?.url?.url ?? null) : null;
+          const fileName =
+            kind === "FILE" ? (chunk.source?.file?.fileName ?? null) : null;
+
+          return {
+            chunkId: c.chunkId,
+            quote,
+
+            sourceId,
+            sourceKind: kind,
+            sourceLabel,
+            sourceUrl,
+            fileName,
+
+            sourceRevisionId: chunk.revisionId ?? null,
+            documentRevisionId: chunk.revision?.documentRevisionId ?? null,
+            pipelineConfigId: chunk.revision?.pipelineConfigId ?? null,
+
+            pageStart: s?.pageNumber ?? null,
+            pageEnd: e?.pageNumber ?? null,
+            charStart: s?.char ?? null,
+            charEnd: e?.char ?? null,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, max) as any[];
+    };
+
+    const validatedCitations = validateCitations(out.citations ?? [], 12);
+
+    const evidence =
+      (out.mode ?? mode) === "evidence"
+        ? (out.evidence ?? [])
+            .slice(0, 12)
+            .map((b: any) => {
+              const claim = String(b?.claim ?? "").trim();
+              if (!claim) return null;
+              const citations = validateCitations(b?.citations ?? [], 6);
+              if (!citations.length) return null;
+              return { claim, citations };
+            })
+            .filter(Boolean)
+        : [];
+
+    return await succeedNotebookChatRun({
+      runId: run.id,
+      startedAtMs,
+      candidateChunkIds,
+      finalChunkIds,
+      sourceRevisionIds,
+      documentRevisionIds,
+      pipelineConfigIds,
+      openaiResponseId,
+      result: {
+        mode: (out.mode ?? mode) as AnswerMode,
+        answer: out.answer,
+        citations: validatedCitations,
+        evidence,
+        suggested: out.suggested ?? [],
+      },
+    });
+  } catch (error) {
+    await failNotebookChatRun({
+      runId: run.id,
+      startedAtMs,
+      error,
+      candidateChunkIds,
+      finalChunkIds,
+      sourceRevisionIds,
+      documentRevisionIds,
+      pipelineConfigIds,
+    });
+    throw error;
   }
-
-  const validateCitations = (raw: any[], max = 10) => {
-    return (raw ?? [])
-      .filter((c: any) => allowed.has(c.chunkId))
-      .map((c: any) => {
-        const chunk: any = byChunkId.get(c.chunkId);
-        if (!chunk) return null;
-
-        const chunkText = chunk.text || "";
-        const match = findVerbatimQuote(chunkText, c.quote || "");
-        if (!match) return null;
-
-        const quote = match.quote;
-        const idx = match.idx;
-        if (quote.length < 20 || quote.length > 240) return null;
-
-        const hasGlobal = typeof chunk.globalStart === "number";
-        const quoteGlobalStart = hasGlobal ? chunk.globalStart + idx : null;
-        const quoteGlobalEnd = hasGlobal
-          ? quoteGlobalStart + quote.length
-          : null;
-
-        const ranges = pageRangesBySource.get(chunk.sourceId) ?? [];
-        const s =
-          quoteGlobalStart != null
-            ? mapGlobalToPage(ranges, quoteGlobalStart, false)
-            : null;
-        const e =
-          quoteGlobalEnd != null
-            ? mapGlobalToPage(ranges, quoteGlobalEnd, true)
-            : null;
-
-        const kind = chunk.source?.kind ?? null;
-        const sourceId = chunk.sourceId ?? null;
-
-        const sourceLabel =
-          kind === "URL"
-            ? (chunk.source?.url?.title ?? chunk.source?.url?.url ?? "URL")
-            : (chunk.source?.file?.fileName ?? "FILE");
-
-        const sourceUrl =
-          kind === "URL" ? (chunk.source?.url?.url ?? null) : null;
-        const fileName =
-          kind === "FILE" ? (chunk.source?.file?.fileName ?? null) : null;
-
-        return {
-          chunkId: c.chunkId,
-          quote,
-
-          sourceId,
-          sourceKind: kind,
-          sourceLabel,
-          sourceUrl,
-          fileName,
-
-          pageStart: s?.pageNumber ?? null,
-          pageEnd: e?.pageNumber ?? null,
-          charStart: s?.char ?? null,
-          charEnd: e?.char ?? null,
-        };
-      })
-      .filter(Boolean)
-      .slice(0, max) as any[];
-  };
-
-  const validatedCitations = validateCitations(out.citations ?? [], 12);
-
-  const evidence =
-    (out.mode ?? mode) === "evidence"
-      ? (out.evidence ?? [])
-          .slice(0, 12)
-          .map((b: any) => {
-            const claim = String(b?.claim ?? "").trim();
-            if (!claim) return null;
-            const citations = validateCitations(b?.citations ?? [], 6);
-            if (!citations.length) return null;
-            return { claim, citations };
-          })
-          .filter(Boolean)
-      : [];
-
-  return {
-    mode: (out.mode ?? mode) as any,
-    answer: out.answer,
-    citations: validatedCitations,
-    evidence,
-    suggested: out.suggested ?? [],
-  };
 }

@@ -31,6 +31,12 @@ enum DocumentKind {
   FILE
 }
 
+enum NotebookChatRunStatus {
+  STARTED
+  SUCCEEDED
+  FAILED
+}
+
 model Url {
   id            Int      @id @default(autoincrement())
   url           String   
@@ -154,6 +160,7 @@ model Notebook {
 
   sources NotebookSource[]
   notes   Note[]
+  chatRuns NotebookChatRun[]
 }
 
 model NotebookSource {
@@ -294,6 +301,46 @@ model Note {
   citations  Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+model NotebookChatRun {
+  id         String   @id @default(cuid())
+  notebook   Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  notebookId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy String?
+  requestId String?
+
+  promptVersion String
+  answerMode    String
+  model         String?
+  status        NotebookChatRunStatus @default(STARTED)
+
+  userMessage String
+  history     Json?
+
+  scopedSourceIds    String[] @default([])
+  retrievedChunkIds  String[] @default([])
+  finalChunkIds      String[] @default([])
+  sourceRevisionIds  String[] @default([])
+  documentRevisionIds String[] @default([])
+  pipelineConfigIds  String[] @default([])
+
+  openaiResponseId String?
+
+  answer    String?
+  citations Json?
+  evidence  Json?
+  suggested Json?
+
+  error     String?
+  latencyMs Int?
+
+  @@index([notebookId, createdAt])
+  @@index([status, createdAt])
 }
 
 model Document {

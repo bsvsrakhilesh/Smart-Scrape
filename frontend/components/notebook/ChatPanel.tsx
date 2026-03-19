@@ -5,6 +5,7 @@ import type {
   EvidenceBlock,
   Citation,
   NoteProvenanceBundle,
+  ChatHistoryRun,
 } from "../../lib/notebookClient";
 import { Loader2 } from "lucide-react";
 import CitationBadge from "./CitationBadge";
@@ -59,17 +60,15 @@ function renderMarkdown(md: string) {
     .replace(/\n/g, "<br/>");
 }
 
-function htmlToText(html: string) {
-  return String(html ?? "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .trimEnd();
+function renderErrorHtml(message: string) {
+  const safe = String(message ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return `<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+    <strong>Error:</strong> ${safe}
+  </div>`;
 }
 
 function clsx(...a: (string | false | null | undefined)[]) {
@@ -85,6 +84,60 @@ function fmtTime(ts: number) {
   } catch {
     return "";
   }
+}
+
+function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
+  const out: Msg[] = [];
+
+  for (const run of runs || []) {
+    const ts = Number(new Date(run.createdAt).getTime()) || Date.now();
+
+    out.push({
+      id: `${run.id}:user`,
+      ts,
+      role: "user",
+      text: run.userMessage,
+      html: run.userMessage,
+    });
+
+    if (run.status === "FAILED") {
+      const errText = `Error: ${String(run.error || "Chat failed. Please try again.")}`;
+      out.push({
+        id: `${run.id}:assistant`,
+        ts: ts + 1,
+        role: "assistant",
+        text: errText,
+        html: renderErrorHtml(
+          String(run.error || "Chat failed. Please try again."),
+        ),
+        mode: run.answerMode,
+        runId: run.id,
+        promptVersion: run.promptVersion ?? undefined,
+        model: run.model ?? null,
+        latencyMs: run.latencyMs ?? null,
+      });
+      continue;
+    }
+
+    const answerText = String(run.answer ?? "");
+    out.push({
+      id: `${run.id}:assistant`,
+      ts: ts + 1,
+      role: "assistant",
+      text: answerText,
+      html: renderMarkdown(answerText),
+      citations: run.citations ?? [],
+      suggested: run.suggested ?? [],
+      mode: run.answerMode,
+      evidence: run.evidence ?? [],
+      runId: run.id,
+      promptVersion: run.promptVersion ?? undefined,
+      model: run.model ?? null,
+      latencyMs: run.latencyMs ?? null,
+    });
+  }
+
+  return out;
 }
 
 export default function ChatPanel({
@@ -103,6 +156,7 @@ export default function ChatPanel({
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // Keep latest messages in a ref so we can build chat history without re-creating callbacks
   const messagesRef = useRef<Msg[]>([]);
@@ -125,78 +179,36 @@ export default function ChatPanel({
   const totalCount = totalSources ?? scopeCount;
   const blockedCount = notReadyIncludedCount ?? 0;
 
-  // Persist chat history per notebook (so refresh doesn't wipe the conversation)
-  const historyKey = notebookId ? `nb:chatHistory:${notebookId}` : null;
-
-  // Load saved history when notebook changes
+  // Load chat history from the backend for this notebook.
   useEffect(() => {
-    if (!historyKey) {
-      setMessages([]);
-      return;
-    }
-    try {
-      const raw = localStorage.getItem(historyKey);
-      if (!raw) {
+    let alive = true;
+
+    async function loadHistory() {
+      if (!notebookId) {
         setMessages([]);
+        setLoadingHistory(false);
         return;
       }
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const upgraded: Msg[] = parsed.map((m: any) => {
-          const html = String(m?.html ?? "");
-          const role: "user" | "assistant" =
-            m?.role === "assistant" ? "assistant" : "user";
 
-          const text =
-            typeof m?.text === "string" && m.text.trim()
-              ? String(m.text)
-              : htmlToText(html) || html;
-
-          return {
-            id: String(m?.id ?? uid()),
-            ts: Number(m?.ts ?? Date.now()),
-            role,
-            text,
-            html,
-            citations: m?.citations,
-            suggested: m?.suggested,
-            mode: m?.mode,
-            evidence: m?.evidence,
-            runId: m?.runId,
-            promptVersion: m?.promptVersion,
-            model: m?.model,
-            latencyMs: m?.latencyMs,
-          };
-        });
-
-        setMessages(upgraded);
-      } else {
-        setMessages([]);
-      }
-    } catch {
-      setMessages([]);
-    }
-  }, [historyKey]);
-
-  // Ensure we flush the latest messages before refresh/navigation.
-  useEffect(() => {
-    if (!historyKey) return;
-
-    const saveNow = () => {
       try {
-        localStorage.setItem(historyKey, JSON.stringify(messages.slice(-200)));
+        setLoadingHistory(true);
+        const runs = await api.getChatHistory(notebookId, 80);
+        if (!alive) return;
+        setMessages(historyRunsToMessages(runs));
       } catch {
-        // ignore
+        if (!alive) return;
+        setMessages([]);
+      } finally {
+        if (alive) setLoadingHistory(false);
       }
-    };
+    }
 
-    window.addEventListener("beforeunload", saveNow);
-    window.addEventListener("pagehide", saveNow);
+    loadHistory();
+
     return () => {
-      window.removeEventListener("beforeunload", saveNow);
-      window.removeEventListener("pagehide", saveNow);
+      alive = false;
     };
-  }, [historyKey, messages]);
+  }, [notebookId]);
 
   // ===== Answer mode (Draft / Evidence / Briefing) =====
   const modeKey = notebookId ? `nb:chatMode:${notebookId}` : null;
@@ -331,12 +343,6 @@ export default function ChatPanel({
       setMessages((m) => [...m, userMsg]);
       setPending(true);
 
-      const escHtml = (s: unknown) =>
-        String(s ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-
       try {
         const res = await api.chat(notebookId, question, {
           sourceIds,
@@ -412,17 +418,17 @@ export default function ChatPanel({
           });
         }
       } catch (e: any) {
-        const msg = escHtml(e?.message || "Chat failed. Please try again.");
+        const errMessage = String(
+          e?.message || "Chat failed. Please try again.",
+        );
         setMessages((m) => [
           ...m,
           {
             id: uid(),
             ts: Date.now(),
             role: "assistant",
-            text: `Error: ${String(e?.message || "Chat failed. Please try again.")}`,
-            html: `<div class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-          <strong> Error:</strong> ${msg}
-        </div>`,
+            text: `Error: ${errMessage}`,
+            html: renderErrorHtml(errMessage),
           },
         ]);
       } finally {
@@ -600,8 +606,17 @@ export default function ChatPanel({
             </button>
           )}
 
+          {loadingHistory && messages.length === 0 && (
+            <div className="h-full w-full grid place-items-center">
+              <div className="rounded-2xl border border-white/30 bg-white/70 backdrop-blur px-4 py-3 shadow-[0_16px_50px_rgba(15,23,42,0.12)] text-sm text-slate-600 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading notebook conversation…
+              </div>
+            </div>
+          )}
+
           {/* Empty state */}
-          {messages.length === 0 && (
+          {!loadingHistory && messages.length === 0 && (
             <div className="h-full w-full grid place-items-center">
               <div className="max-w-xl w-full">
                 <div className="rounded-3xl border border-white/30 bg-white/70 backdrop-blur shadow-[0_24px_80px_rgba(15,23,42,0.18)] p-6 md:p-7">

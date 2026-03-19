@@ -9,6 +9,7 @@ import {
   postNotebookSourceUrlHandler,
   postNotebookSourceFileHandler,
   deleteNotebookSourceHandler,
+  getNotebookChatHistoryHandler,
   postNotebookChatHandler,
   postNotebookNoteHandler,
   patchNotebookNoteHandler,
@@ -142,6 +143,19 @@ r.post(
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
   postNotebookSourceRebuildEmbeddingHandler,
+);
+
+r.get(
+  "/notebooks/:id/chat/history",
+  validate({
+    params: z.object({ id: z.string().min(1) }),
+    query: z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+      })
+      .optional(),
+  }),
+  getNotebookChatHistoryHandler,
 );
 
 r.post(

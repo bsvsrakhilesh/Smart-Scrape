@@ -20,7 +20,10 @@ import {
   runSourceOcr,
 } from "../services/notebook.service";
 
-import { runNotebookChat } from "../services/notebookChat.service";
+import {
+  runNotebookChat,
+  listNotebookChatRuns,
+} from "../services/notebookChat.service";
 
 export async function getNotebooksHandler(
   _req: Request,
@@ -199,6 +202,25 @@ export async function getNotebookSourceDiagnosticsHandler(
       Number.isFinite(maxChars) ? maxChars : 20000,
     );
     res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getNotebookChatHistoryHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const limit = req.query?.limit ? Number(req.query.limit) : 50;
+
+    const items = await listNotebookChatRuns({
+      notebookId: req.params.id,
+      limit: Number.isFinite(limit) ? limit : 50,
+    });
+
+    res.json(items);
   } catch (e) {
     next(e);
   }

@@ -174,6 +174,22 @@ export type ChatAnswer = {
   latencyMs?: number | null;
 };
 
+export type ChatHistoryRun = {
+  id: ID;
+  createdAt: string;
+  status: "SUCCEEDED" | "FAILED";
+  userMessage: string;
+  answerMode: AnswerMode;
+  answer: string | null;
+  citations: Citation[];
+  evidence?: EvidenceBlock[];
+  suggested: string[];
+  error?: string | null;
+  promptVersion?: string | null;
+  model?: string | null;
+  latencyMs?: number | null;
+};
+
 export type PagedResult<T> = {
   items: T[];
   total: number;
@@ -198,6 +214,8 @@ export interface NotebookClient {
   addUrlSource(notebookId: ID, urlId: ID): Promise<NBSource>;
   addFileSource(notebookId: ID, fileId: ID): Promise<NBSource>;
   deleteSource(notebookId: ID, sourceId: ID): Promise<void>;
+
+  getChatHistory(notebookId: ID, limit?: number): Promise<ChatHistoryRun[]>;
 
   chat(
     notebookId: ID,
@@ -368,6 +386,13 @@ export const notebookClient: NotebookClient = {
     return j<NBSource>(
       "POST",
       `/notebooks/${notebookId}/sources/${sourceId}/rebuild-embedding`,
+    );
+  },
+
+  getChatHistory(notebookId, limit = 50) {
+    return j<ChatHistoryRun[]>(
+      "GET",
+      `/notebooks/${notebookId}/chat/history?limit=${encodeURIComponent(String(limit))}`,
     );
   },
 

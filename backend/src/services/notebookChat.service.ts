@@ -20,6 +20,26 @@ function asJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
+function asArray<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+export type NotebookChatHistoryRun = {
+  id: string;
+  createdAt: string;
+  status: "SUCCEEDED" | "FAILED";
+  userMessage: string;
+  answerMode: AnswerMode;
+  answer: string | null;
+  citations: any[];
+  evidence: any[];
+  suggested: string[];
+  error: string | null;
+  promptVersion: string | null;
+  model: string | null;
+  latencyMs: number | null;
+};
+
 type PersistedChatResult = {
   mode: AnswerMode;
   answer: string;
@@ -122,6 +142,69 @@ async function failNotebookChatRun(p: {
       pipelineConfigIds: p.pipelineConfigIds ?? [],
     },
   });
+}
+
+export async function listNotebookChatRuns(p: {
+  notebookId: string;
+  limit?: number;
+}): Promise<NotebookChatHistoryRun[]> {
+  const limit = Math.max(1, Math.min(200, Math.trunc(p.limit ?? 50)));
+
+  const notebook = await prisma.notebook.findUnique({
+    where: { id: p.notebookId },
+    select: { id: true },
+  });
+
+  if (!notebook) {
+    const err: any = new Error("Notebook not found");
+    err.status = 404;
+    throw err;
+  }
+
+  const rows = await prisma.notebookChatRun.findMany({
+    where: {
+      notebookId: p.notebookId,
+      status: { in: ["SUCCEEDED", "FAILED"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      createdAt: true,
+      status: true,
+      userMessage: true,
+      answerMode: true,
+      answer: true,
+      citations: true,
+      evidence: true,
+      suggested: true,
+      error: true,
+      promptVersion: true,
+      model: true,
+      latencyMs: true,
+    },
+  });
+
+  return rows.reverse().map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt.toISOString(),
+    status: r.status as "SUCCEEDED" | "FAILED",
+    userMessage: r.userMessage,
+    answerMode:
+      r.answerMode === "evidence" || r.answerMode === "briefing"
+        ? r.answerMode
+        : "draft",
+    answer: r.answer ?? null,
+    citations: asArray(r.citations),
+    evidence: asArray(r.evidence),
+    suggested: asArray<string>(r.suggested).filter(
+      (x): x is string => typeof x === "string",
+    ),
+    error: r.error ?? null,
+    promptVersion: r.promptVersion ?? null,
+    model: r.model ?? null,
+    latencyMs: r.latencyMs ?? null,
+  }));
 }
 
 const CitationSchema = z.object({

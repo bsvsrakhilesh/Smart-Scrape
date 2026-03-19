@@ -113,7 +113,7 @@ export type NBNote = {
   notebookId: ID;
   title?: string | null;
   content: string;
-  citations?: any;
+  citations?: NoteProvenanceBundle | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -132,11 +132,33 @@ export type Citation = {
   sourceLabel?: string | null;
   sourceUrl?: string | null;
   fileName?: string | null;
+
+  sourceRevisionId?: string | null;
+  documentRevisionId?: string | null;
+  pipelineConfigId?: string | null;
 };
 
 export type EvidenceBlock = {
   claim: string;
   citations: Citation[];
+};
+
+export type NoteProvenanceArtifact = {
+  kind: "chat-answer";
+  runId?: string | null;
+  promptVersion?: string | null;
+  model?: string | null;
+  answerMode?: AnswerMode | null;
+  createdAt: string;
+  latencyMs?: number | null;
+  answer: string;
+  citations: Citation[];
+  evidence?: EvidenceBlock[];
+};
+
+export type NoteProvenanceBundle = {
+  version: "note-provenance-v1";
+  artifacts: NoteProvenanceArtifact[];
 };
 
 export type ChatAnswer = {
@@ -145,6 +167,11 @@ export type ChatAnswer = {
   citations: Citation[];
   evidence?: EvidenceBlock[];
   suggested: string[];
+
+  runId?: string;
+  promptVersion?: string;
+  model?: string | null;
+  latencyMs?: number | null;
 };
 
 export type PagedResult<T> = {
@@ -197,12 +224,20 @@ export interface NotebookClient {
 
   createNote(
     notebookId: ID,
-    p: { title?: string; content: string; citations?: any },
+    p: {
+      title?: string;
+      content: string;
+      citations?: NoteProvenanceBundle | null;
+    },
   ): Promise<NBNote>;
   updateNote(
     notebookId: ID,
     noteId: ID,
-    p: { title?: string; content?: string; citations?: any },
+    p: {
+      title?: string;
+      content?: string;
+      citations?: NoteProvenanceBundle | null;
+    },
   ): Promise<NBNote>;
   deleteNote(notebookId: ID, noteId: ID): Promise<void>;
 

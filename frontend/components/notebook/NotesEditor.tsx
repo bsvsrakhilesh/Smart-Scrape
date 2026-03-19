@@ -1,6 +1,45 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { notebookClient as api } from "../../lib/notebookClient";
+import {
+  notebookClient as api,
+  type NoteProvenanceBundle,
+} from "../../lib/notebookClient";
+
+function isNoteProvenanceBundle(value: unknown): value is NoteProvenanceBundle {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    (value as any).version === "note-provenance-v1" &&
+    Array.isArray((value as any).artifacts)
+  );
+}
+
+function mergeNoteProvenance(current: unknown, incoming: unknown): unknown {
+  if (!incoming) return current ?? null;
+  if (!current) return incoming;
+
+  const curr = isNoteProvenanceBundle(current) ? current : null;
+  const next = isNoteProvenanceBundle(incoming) ? incoming : null;
+
+  if (!curr || !next) return incoming;
+
+  const seen = new Set<string>();
+  const artifacts = [...curr.artifacts, ...next.artifacts].filter(
+    (artifact) => {
+      const key = `${artifact.runId ?? "no-run"}::${artifact.createdAt}::${artifact.answer.slice(0, 120)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    },
+  );
+
+  const merged: NoteProvenanceBundle = {
+    version: "note-provenance-v1",
+    artifacts,
+  };
+
+  return merged;
+}
 
 export default function NotesEditor({
   notebookId,
@@ -19,8 +58,10 @@ export default function NotesEditor({
 
   const editorRef = useRef<HTMLDivElement | null>(null);
 
-  // When set, we are editing an existing saved note (NotebookLM-style).
+  // When set, we are editing an existing saved note
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [citationsPayload, setCitationsPayload] =
+    useState<NoteProvenanceBundle | null>(null);
 
   const startNewNote = () => {
     setActiveNoteId(null);
@@ -30,6 +71,7 @@ export default function NotesEditor({
     setSaveError(null);
     setLastSavedAt(null);
     setLastDraftAt(null);
+    setCitationsPayload(null);
   };
 
   // Switching notebooks should exit edit-mode cleanly
@@ -39,6 +81,7 @@ export default function NotesEditor({
     setSaveError(null);
     setLastSavedAt(null);
     setLastDraftAt(null);
+    setCitationsPayload(null);
   }, [notebookId]);
 
   const saveM = useMutation({
@@ -49,9 +92,17 @@ export default function NotesEditor({
       setSaveError(null);
 
       if (vars.mode === "update") {
-        return api.updateNote(notebookId!, vars.noteId!, { title, content });
+        return api.updateNote(notebookId!, vars.noteId!, {
+          title,
+          content,
+          citations: (citationsPayload as NoteProvenanceBundle | null) ?? null,
+        });
       }
-      return api.createNote(notebookId!, { title, content });
+      return api.createNote(notebookId!, {
+        title,
+        content,
+        citations: (citationsPayload as NoteProvenanceBundle | null) ?? null,
+      });
     },
     onSuccess: (note, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:detail", notebookId] });
@@ -75,6 +126,7 @@ export default function NotesEditor({
       setTitle(note.title || "");
       setContent(note.content || "");
       setLastDraftAt(null);
+      setCitationsPayload(note.citations ?? null);
     },
     onError: (err: any) => {
       setSaveError(err?.message || "Save failed.");
@@ -126,18 +178,33 @@ export default function NotesEditor({
         return;
       }
 
-      // Studio / richer event: { title, content, mode }
       const titleFromEvent = String(d?.title || "").trim();
       const md = String(d?.content || "");
       const mode = d?.mode === "replace" ? "replace" : "append";
+      const incomingCitations = d?.citations ?? null;
 
       if (titleFromEvent) setTitle(titleFromEvent);
+
       setContent((prev) => {
         if (mode === "replace") return md;
         return prev ? prev + "\n\n" + md : md;
       });
+
+      if (mode === "replace") {
+        setCitationsPayload(incomingCitations);
+      } else if (incomingCitations) {
+        setCitationsPayload(
+          (prev: NoteProvenanceBundle | null) =>
+            mergeNoteProvenance(
+              prev,
+              incomingCitations,
+            ) as NoteProvenanceBundle | null,
+        );
+      }
+
       setDirty(true);
     }
+
     window.addEventListener("nb:add-note", onAdd as any);
     return () => window.removeEventListener("nb:add-note", onAdd as any);
   }, []);
@@ -155,6 +222,7 @@ export default function NotesEditor({
       setSaveError(null);
       setLastSavedAt(new Date(n.updatedAt));
       setLastDraftAt(null);
+      setCitationsPayload(n.citations ?? null);
 
       editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -227,20 +295,20 @@ export default function NotesEditor({
           {saveM.isPending
             ? "Saving…"
             : saveError
-            ? `Save failed: ${saveError}`
-            : lastSavedAt
-            ? `Saved ${lastSavedAt.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : dirty
-            ? lastDraftAt
-              ? `Draft saved ${lastDraftAt.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}`
-              : "Draft"
-            : "—"}
+              ? `Save failed: ${saveError}`
+              : lastSavedAt
+                ? `Saved ${lastSavedAt.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : dirty
+                  ? lastDraftAt
+                    ? `Draft saved ${lastDraftAt.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : "Draft"
+                  : "—"}
         </div>
       </div>
 
@@ -283,8 +351,8 @@ export default function NotesEditor({
           {saveM.isPending
             ? "Saving…"
             : activeNoteId
-            ? "Update note"
-            : "Save note"}
+              ? "Update note"
+              : "Save note"}
         </button>
       </div>
     </div>

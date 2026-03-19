@@ -4,6 +4,7 @@ import type {
   AnswerMode,
   EvidenceBlock,
   Citation,
+  NoteProvenanceBundle,
 } from "../../lib/notebookClient";
 import { Loader2 } from "lucide-react";
 import CitationBadge from "./CitationBadge";
@@ -33,6 +34,11 @@ type Msg = {
   mode?: AnswerMode;
   evidence?: EvidenceBlock[];
   citations?: Citation[];
+
+  runId?: string;
+  promptVersion?: string;
+  model?: string | null;
+  latencyMs?: number | null;
 };
 
 function uid() {
@@ -154,6 +160,12 @@ export default function ChatPanel({
             html,
             citations: m?.citations,
             suggested: m?.suggested,
+            mode: m?.mode,
+            evidence: m?.evidence,
+            runId: m?.runId,
+            promptVersion: m?.promptVersion,
+            model: m?.model,
+            latencyMs: m?.latencyMs,
           };
         });
 
@@ -263,10 +275,22 @@ export default function ChatPanel({
     setReaderOpen(true);
   };
 
-  const addToNotes = (md: string) => {
-    const clean = String(md ?? "").trim();
+  const addToNotes = (payload: {
+    content: string;
+    citations?: NoteProvenanceBundle | null;
+  }) => {
+    const clean = String(payload?.content ?? "").trim();
     if (!clean) return;
-    window.dispatchEvent(new CustomEvent("nb:add-note", { detail: clean }));
+
+    window.dispatchEvent(
+      new CustomEvent("nb:add-note", {
+        detail: {
+          content: clean,
+          mode: "append",
+          citations: payload?.citations ?? null,
+        },
+      }),
+    );
   };
 
   const buildHistory = (maxMsgs = 12) => {
@@ -332,6 +356,11 @@ export default function ChatPanel({
           suggested: res.suggested,
           mode: res.mode,
           evidence: res.evidence,
+
+          runId: res.runId,
+          promptVersion: res.promptVersion,
+          model: res.model ?? null,
+          latencyMs: res.latencyMs ?? null,
         };
 
         setMessages((m) => [...m, base]);
@@ -343,12 +372,31 @@ export default function ChatPanel({
                 title: saveToNotes.title,
                 content: res.answer,
                 mode: saveToNotes.mode,
+                citations: {
+                  version: "note-provenance-v1",
+                  artifacts: [
+                    {
+                      kind: "chat-answer",
+                      runId: res.runId ?? null,
+                      promptVersion: res.promptVersion ?? null,
+                      model: res.model ?? null,
+                      answerMode: res.mode ?? null,
+                      createdAt: new Date().toISOString(),
+                      latencyMs: res.latencyMs ?? null,
+                      answer: res.answer,
+                      citations: res.citations ?? [],
+                      evidence:
+                        Array.isArray(res.evidence) && res.evidence.length
+                          ? res.evidence
+                          : undefined,
+                    },
+                  ],
+                } as NoteProvenanceBundle,
               },
             }),
           );
         }
 
-        // typewriter streaming (kept, but safe: no repeated note dispatch)
         let i = 0;
         const step = 14;
 
@@ -382,7 +430,7 @@ export default function ChatPanel({
       }
     },
 
-    [notebookId, sourceIds],
+    [notebookId, sourceIds, answerMode],
   );
 
   // Notebook Guide / Studio can fire a "send this prompt" event.
@@ -748,6 +796,12 @@ export default function ChatPanel({
                         text={m.text}
                         citations={m.citations}
                         mode={m.mode}
+                        evidence={m.evidence}
+                        runId={m.runId}
+                        promptVersion={m.promptVersion}
+                        model={m.model}
+                        latencyMs={m.latencyMs}
+                        messageTs={m.ts}
                         onRegenerate={() => onRegenerate(i)}
                         onAddToNotes={addToNotes}
                       />

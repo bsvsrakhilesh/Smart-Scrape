@@ -1,12 +1,27 @@
-import type { AnswerMode, Citation } from "../../lib/notebookClient";
+import type {
+  AnswerMode,
+  Citation,
+  EvidenceBlock,
+  NoteProvenanceBundle,
+} from "../../lib/notebookClient";
 
 type Props = {
   text: string;
   citations?: Citation[];
   mode?: AnswerMode;
+  evidence?: EvidenceBlock[];
+
+  runId?: string;
+  promptVersion?: string;
+  model?: string | null;
+  latencyMs?: number | null;
+  messageTs?: number;
 
   onRegenerate?: () => void;
-  onAddToNotes?: (md: string) => void;
+  onAddToNotes?: (payload: {
+    content: string;
+    citations?: NoteProvenanceBundle | null;
+  }) => void;
 };
 
 function formatCitations(citations: Citation[]) {
@@ -38,10 +53,52 @@ function formatCitations(citations: Citation[]) {
   return lines.length ? `\n\nSources\n${lines.join("\n")}` : "";
 }
 
+function buildNoteProvenance(p: {
+  text: string;
+  citations?: Citation[];
+  evidence?: EvidenceBlock[];
+  mode?: AnswerMode;
+  runId?: string;
+  promptVersion?: string;
+  model?: string | null;
+  latencyMs?: number | null;
+  messageTs?: number;
+}): NoteProvenanceBundle | null {
+  const safeText = String(p.text ?? "").trim();
+  const safeCitations = Array.isArray(p.citations) ? p.citations : [];
+  const safeEvidence = Array.isArray(p.evidence) ? p.evidence : [];
+
+  if (!safeText && !safeCitations.length && !safeEvidence.length) return null;
+
+  return {
+    version: "note-provenance-v1",
+    artifacts: [
+      {
+        kind: "chat-answer",
+        runId: p.runId ?? null,
+        promptVersion: p.promptVersion ?? null,
+        model: p.model ?? null,
+        answerMode: p.mode ?? null,
+        createdAt: new Date(p.messageTs ?? Date.now()).toISOString(),
+        latencyMs: p.latencyMs ?? null,
+        answer: safeText,
+        citations: safeCitations,
+        evidence: safeEvidence.length ? safeEvidence : undefined,
+      },
+    ],
+  };
+}
+
 export default function MessageActions({
   text,
   citations,
   mode,
+  evidence,
+  runId,
+  promptVersion,
+  model,
+  latencyMs,
+  messageTs,
   onRegenerate,
   onAddToNotes,
 }: Props) {
@@ -89,7 +146,22 @@ export default function MessageActions({
 
       {onAddToNotes && (
         <button
-          onClick={() => onAddToNotes(text)}
+          onClick={() =>
+            onAddToNotes({
+              content: text,
+              citations: buildNoteProvenance({
+                text,
+                citations,
+                evidence,
+                mode,
+                runId,
+                promptVersion,
+                model,
+                latencyMs,
+                messageTs,
+              }),
+            })
+          }
           className="text-[11px] px-2 py-1 border rounded hover:bg-gray-50"
         >
           Add to notes

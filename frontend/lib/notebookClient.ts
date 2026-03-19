@@ -143,6 +143,22 @@ export type EvidenceBlock = {
   citations: Citation[];
 };
 
+export type GroundingClaim = {
+  claim: string;
+  status: "supported" | "review_needed";
+  supportScore: number;
+  citedChunkIds: string[];
+  reasons: string[];
+};
+
+export type GroundingReport = {
+  version: "grounding-v1";
+  status: "verified" | "partially_supported" | "unsupported";
+  supportedClaimsCount: number;
+  unsupportedClaimsCount: number;
+  claims: GroundingClaim[];
+};
+
 export type NoteProvenanceArtifact = {
   kind: "chat-answer";
   runId?: string | null;
@@ -167,6 +183,7 @@ export type ChatAnswer = {
   citations: Citation[];
   evidence?: EvidenceBlock[];
   suggested: string[];
+  grounding?: GroundingReport | null;
 
   runId?: string;
   promptVersion?: string;
@@ -184,6 +201,7 @@ export type ChatHistoryRun = {
   citations: Citation[];
   evidence?: EvidenceBlock[];
   suggested: string[];
+  grounding?: GroundingReport | null;
   error?: string | null;
   promptVersion?: string | null;
   model?: string | null;

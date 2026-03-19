@@ -6,6 +6,7 @@ import type {
   Citation,
   NoteProvenanceBundle,
   ChatHistoryRun,
+  GroundingReport,
 } from "../../lib/notebookClient";
 import { Loader2 } from "lucide-react";
 import CitationBadge from "./CitationBadge";
@@ -40,6 +41,7 @@ type Msg = {
   promptVersion?: string;
   model?: string | null;
   latencyMs?: number | null;
+  grounding?: GroundingReport | null;
 };
 
 function uid() {
@@ -86,6 +88,30 @@ function fmtTime(ts: number) {
   }
 }
 
+function groundingSummary(g: GroundingReport) {
+  if (g.status === "verified") {
+    const n = g.supportedClaimsCount;
+    return `All ${n} evaluated claim${n === 1 ? "" : "s"} are supported by cited source text.`;
+  }
+
+  if (g.status === "partially_supported") {
+    const n = g.unsupportedClaimsCount;
+    return `${n} claim${n === 1 ? "" : "s"} need review before relying on this answer.`;
+  }
+
+  return "The cited evidence does not adequately support this answer yet. Review the sources before relying on it.";
+}
+
+function groundingTone(g: GroundingReport) {
+  if (g.status === "verified") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+  if (g.status === "partially_supported") {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+  return "border-rose-200 bg-rose-50 text-rose-800";
+}
+
 function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
   const out: Msg[] = [];
 
@@ -115,6 +141,7 @@ function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
         promptVersion: run.promptVersion ?? undefined,
         model: run.model ?? null,
         latencyMs: run.latencyMs ?? null,
+        grounding: run.grounding ?? null,
       });
       continue;
     }
@@ -134,6 +161,7 @@ function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
       promptVersion: run.promptVersion ?? undefined,
       model: run.model ?? null,
       latencyMs: run.latencyMs ?? null,
+      grounding: run.grounding ?? null,
     });
   }
 
@@ -367,6 +395,7 @@ export default function ChatPanel({
           promptVersion: res.promptVersion,
           model: res.model ?? null,
           latencyMs: res.latencyMs ?? null,
+          grounding: res.grounding ?? null,
         };
 
         setMessages((m) => [...m, base]);
@@ -752,6 +781,18 @@ export default function ChatPanel({
                         ? { dangerouslySetInnerHTML: { __html: m.html } }
                         : { children: m.html })}
                     />
+
+                    {m.role === "assistant" && m.grounding ? (
+                      <div
+                        className={clsx(
+                          "mt-2 rounded-2xl border px-3 py-2 text-[12px] leading-5",
+                          groundingTone(m.grounding),
+                        )}
+                      >
+                        <span className="font-semibold">Grounding check:</span>{" "}
+                        {groundingSummary(m.grounding)}
+                      </div>
+                    ) : null}
 
                     {/* Evidence blocks (Evidence mode) */}
                     {m.role === "assistant" && m.evidence?.length ? (

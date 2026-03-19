@@ -38,6 +38,29 @@ export type NotebookChatHistoryRun = {
   promptVersion: string | null;
   model: string | null;
   latencyMs: number | null;
+  grounding?: GroundingReport | null;
+};
+
+type GroundingClaimStatus = "supported" | "review_needed";
+type GroundingOverallStatus =
+  | "verified"
+  | "partially_supported"
+  | "unsupported";
+
+type GroundingClaim = {
+  claim: string;
+  status: GroundingClaimStatus;
+  supportScore: number;
+  citedChunkIds: string[];
+  reasons: string[];
+};
+
+type GroundingReport = {
+  version: "grounding-v1";
+  status: GroundingOverallStatus;
+  supportedClaimsCount: number;
+  unsupportedClaimsCount: number;
+  claims: GroundingClaim[];
 };
 
 type PersistedChatResult = {
@@ -46,6 +69,7 @@ type PersistedChatResult = {
   citations: any[];
   evidence?: any[];
   suggested: string[];
+  grounding?: GroundingReport | null;
 };
 
 type ChatRunContext = {
@@ -99,6 +123,12 @@ async function succeedNotebookChatRun(p: {
       citations: asJson(p.result.citations ?? []),
       evidence: asJson(p.result.evidence ?? []),
       suggested: asJson(p.result.suggested ?? []),
+      groundingVersion: p.result.grounding?.version ?? null,
+      groundingStatus: p.result.grounding?.status ?? null,
+      supportedClaimsCount: p.result.grounding?.supportedClaimsCount ?? null,
+      unsupportedClaimsCount:
+        p.result.grounding?.unsupportedClaimsCount ?? null,
+      grounding: asJson(p.result.grounding ?? null),
       retrievedChunkIds: p.candidateChunkIds ?? [],
       finalChunkIds: p.finalChunkIds ?? [],
       sourceRevisionIds: p.sourceRevisionIds ?? [],
@@ -113,6 +143,7 @@ async function succeedNotebookChatRun(p: {
     promptVersion: NOTEBOOK_CHAT_PROMPT_VERSION,
     model: env.OPENAI_ENABLED ? defaultModel() : null,
     latencyMs,
+    grounding: p.result.grounding ?? null,
   };
 }
 
@@ -182,6 +213,7 @@ export async function listNotebookChatRuns(p: {
       promptVersion: true,
       model: true,
       latencyMs: true,
+      grounding: true,
     },
   });
 
@@ -204,6 +236,7 @@ export async function listNotebookChatRuns(p: {
     promptVersion: r.promptVersion ?? null,
     model: r.model ?? null,
     latencyMs: r.latencyMs ?? null,
+    grounding: (r.grounding ?? null) as GroundingReport | null,
   }));
 }
 
@@ -592,6 +625,253 @@ function findVerbatimQuote(
   return { idx: m.index, quote };
 }
 
+const GROUNDING_STOP = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "to",
+  "of",
+  "in",
+  "on",
+  "for",
+  "with",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "that",
+  "this",
+  "these",
+  "those",
+  "from",
+  "into",
+  "their",
+  "there",
+  "about",
+  "over",
+  "under",
+  "than",
+  "then",
+  "also",
+  "such",
+  "through",
+  "across",
+  "between",
+  "within",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "can",
+  "will",
+]);
+
+function normalizeGroundingText(input: string) {
+  return String(input ?? "")
+    .toLowerCase()
+    .replace(/\u00a0/g, " ")
+    .replace(/[^a-z0-9.%\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeGrounding(input: string) {
+  return normalizeGroundingText(input)
+    .split(/[^a-z0-9]+/g)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3 && !GROUNDING_STOP.has(s));
+}
+
+function extractGroundingNumbers(input: string) {
+  return Array.from(
+    new Set(String(input ?? "").match(/\b\d+(?:\.\d+)?%?\b/g) ?? []),
+  );
+}
+
+function splitAnswerIntoClaims(answer: string) {
+  const rawParts = String(answer ?? "")
+    .split(/\n+/g)
+    .flatMap((line) =>
+      line.replace(/^\s*[-*•]+\s*/, "").split(/(?<=[.!?])\s+/g),
+    )
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const part of rawParts) {
+    const clean = part.replace(/\s+/g, " ").trim();
+    if (clean.length < 25) continue;
+    if (/^[a-z ]{1,40}:$/i.test(clean)) continue;
+
+    const key = normalizeGroundingText(clean);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+
+  return out;
+}
+
+function looksLikeSupportedAbstention(answer: string) {
+  return /cannot verify|couldn'?t verify|could not verify|not enough (?:evidence|information)|sources do not contain/i.test(
+    String(answer ?? ""),
+  );
+}
+
+function scoreClaimSupport(claim: string, texts: string[]) {
+  const claimTokens = tokenizeGrounding(claim);
+  if (!claimTokens.length) {
+    return { supportScore: 0, numberCoverage: true };
+  }
+
+  const claimNumbers = extractGroundingNumbers(claim);
+  const normalizedTexts = texts
+    .map((t) => normalizeGroundingText(t))
+    .filter(Boolean);
+
+  const aggregate = normalizedTexts.join(" ");
+  const numberCoverage =
+    claimNumbers.length === 0 ||
+    claimNumbers.every((n) => aggregate.includes(String(n).toLowerCase()));
+
+  let bestScore = 0;
+
+  for (const text of normalizedTexts) {
+    const tokenSet = new Set(tokenizeGrounding(text));
+    let matches = 0;
+    for (const tok of claimTokens) {
+      if (tokenSet.has(tok)) matches += 1;
+    }
+    const score = claimTokens.length ? matches / claimTokens.length : 0;
+    if (score > bestScore) bestScore = score;
+  }
+
+  if (!numberCoverage && claimNumbers.length) {
+    bestScore = Math.min(bestScore, 0.54);
+  }
+
+  return {
+    supportScore: Number(bestScore.toFixed(3)),
+    numberCoverage,
+  };
+}
+
+function buildGroundingReport(p: {
+  answer: string;
+  mode: AnswerMode;
+  citations: any[];
+  evidence: any[];
+  byChunkId: Map<string, any>;
+}): GroundingReport {
+  if (looksLikeSupportedAbstention(p.answer)) {
+    return {
+      version: "grounding-v1",
+      status: "verified",
+      supportedClaimsCount: 0,
+      unsupportedClaimsCount: 0,
+      claims: [],
+    };
+  }
+
+  const claimInputs =
+    p.mode === "evidence" && Array.isArray(p.evidence) && p.evidence.length
+      ? p.evidence.map((b: any) => ({
+          claim: String(b?.claim ?? "").trim(),
+          citations: Array.isArray(b?.citations) ? b.citations : [],
+        }))
+      : splitAnswerIntoClaims(p.answer).map((claim) => ({
+          claim,
+          citations: Array.isArray(p.citations) ? p.citations : [],
+        }));
+
+  if (!claimInputs.length) {
+    const fallback = String(p.answer ?? "").trim();
+    if (fallback) {
+      claimInputs.push({
+        claim: fallback.slice(0, 800),
+        citations: Array.isArray(p.citations) ? p.citations : [],
+      });
+    }
+  }
+
+  const claims: GroundingClaim[] = claimInputs
+    .filter((x) => x.claim)
+    .slice(0, 12)
+    .map(({ claim, citations }) => {
+      const texts = (citations ?? [])
+        .flatMap((c: any) => {
+          const chunk = c?.chunkId ? p.byChunkId.get(c.chunkId) : null;
+          return [
+            String(c?.quote ?? ""),
+            String(chunk?.text ?? "").slice(0, 1400),
+          ];
+        })
+        .filter(Boolean);
+
+      const citedChunkIds: string[] = uniq(
+        (citations ?? [])
+          .map((c: any) => String(c?.chunkId ?? ""))
+          .filter((id: string) => id.length > 0),
+      ) as string[];
+
+      const { supportScore, numberCoverage } = scoreClaimSupport(claim, texts);
+
+      const supported =
+        Array.isArray(citations) &&
+        citations.length > 0 &&
+        (supportScore >= 0.72 || (supportScore >= 0.55 && numberCoverage));
+
+      const reasons: string[] = [];
+      if (!Array.isArray(citations) || citations.length === 0) {
+        reasons.push("No citations attached to this claim.");
+      }
+      if (!numberCoverage) {
+        reasons.push(
+          "Numbers in the claim are not fully visible in the cited text.",
+        );
+      }
+      reasons.push(
+        `Best lexical support score: ${Math.round(supportScore * 100)}%.`,
+      );
+
+      return {
+        claim,
+        status: supported ? "supported" : "review_needed",
+        supportScore,
+        citedChunkIds,
+        reasons,
+      };
+    });
+
+  const supportedClaimsCount = claims.filter(
+    (c) => c.status === "supported",
+  ).length;
+  const unsupportedClaimsCount = claims.length - supportedClaimsCount;
+
+  const status: GroundingOverallStatus =
+    unsupportedClaimsCount === 0
+      ? "verified"
+      : supportedClaimsCount > 0
+        ? "partially_supported"
+        : "unsupported";
+
+  return {
+    version: "grounding-v1",
+    status,
+    supportedClaimsCount,
+    unsupportedClaimsCount,
+    claims,
+  };
+}
+
 function formatContext(
   chunks: Awaited<ReturnType<typeof loadChunksForContext>>,
 ) {
@@ -973,6 +1253,14 @@ export async function runNotebookChat(p: {
             .filter(Boolean)
         : [];
 
+    const grounding = buildGroundingReport({
+      answer: out.answer,
+      mode: (out.mode ?? mode) as AnswerMode,
+      citations: validatedCitations,
+      evidence,
+      byChunkId,
+    });
+
     return await succeedNotebookChatRun({
       runId: run.id,
       startedAtMs,
@@ -988,6 +1276,7 @@ export async function runNotebookChat(p: {
         citations: validatedCitations,
         evidence,
         suggested: out.suggested ?? [],
+        grounding,
       },
     });
   } catch (error) {

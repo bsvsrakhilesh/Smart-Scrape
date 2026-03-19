@@ -14,14 +14,19 @@ function isNoteProvenanceBundle(value: unknown): value is NoteProvenanceBundle {
   );
 }
 
-function mergeNoteProvenance(current: unknown, incoming: unknown): unknown {
+function mergeNoteProvenance(
+  current: NoteProvenanceBundle | null,
+  incoming: unknown,
+): NoteProvenanceBundle | null {
   if (!incoming) return current ?? null;
-  if (!current) return incoming;
+  if (!current) {
+    return isNoteProvenanceBundle(incoming) ? incoming : null;
+  }
 
   const curr = isNoteProvenanceBundle(current) ? current : null;
   const next = isNoteProvenanceBundle(incoming) ? incoming : null;
 
-  if (!curr || !next) return incoming;
+  if (!curr || !next) return curr ?? next ?? null;
 
   const seen = new Set<string>();
   const artifacts = [...curr.artifacts, ...next.artifacts].filter(
@@ -33,12 +38,10 @@ function mergeNoteProvenance(current: unknown, incoming: unknown): unknown {
     },
   );
 
-  const merged: NoteProvenanceBundle = {
+  return {
     version: "note-provenance-v1",
     artifacts,
   };
-
-  return merged;
 }
 
 export default function NotesEditor({

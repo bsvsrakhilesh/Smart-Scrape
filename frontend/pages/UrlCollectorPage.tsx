@@ -593,7 +593,21 @@ const UrlCollectorPage: React.FC = () => {
     });
   }, [searchResults]);
 
-  const handleClear = useCallback(() => {
+  // Clears only results and selection — keeps website, keywords, and scope
+  // intact so the researcher can tweak the query and re-run without retyping.
+  const handleClearResults = useCallback(() => {
+    setSearchResults([]);
+    setSelectedUrls(new Set());
+    setHasSearched(false);
+    setError(null);
+    setIsLoadingMore(false);
+    setNextPage(null);
+    setTotalResults(null);
+    setLastQuery("");
+  }, []);
+
+  // Full reset — wipes the form inputs, scope filters, URL params, and localStorage.
+  const handleReset = useCallback(() => {
     setSearchResults([]);
     setSelectedUrls(new Set());
     setHasSearched(false);
@@ -642,12 +656,22 @@ const UrlCollectorPage: React.FC = () => {
 
         <div className="page-header-meta">
           {hasSearched && (
-            <div className="page-header-pill">
-              <span className="page-header-pill-label">Results</span>
-              <span className="page-header-pill-value">
-                {searchResults.length}
-              </span>
-            </div>
+            <>
+              <div className="page-header-pill">
+                <span className="page-header-pill-label">Results</span>
+                <span className="page-header-pill-value">
+                  {searchResults.length}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleReset}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-500 dark:hover:text-gray-200 transition-colors"
+                title="Clear everything and start a new search"
+              >
+                New search
+              </button>
+            </>
           )}
         </div>
       </header>
@@ -875,7 +899,7 @@ const UrlCollectorPage: React.FC = () => {
                   onTogglePage={onTogglePage}
                   onToggleAll={onToggleAll}
                   onClearSelection={onClearSelection}
-                  onClear={handleClear}
+                  onClear={handleClearResults}
                   sortKey={sortKey}
                   onSortChange={(k) => setSortKey(k)}
                 />

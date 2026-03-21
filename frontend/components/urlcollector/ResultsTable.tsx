@@ -170,6 +170,44 @@ const CONFIDENCE_DOT: Record<string, string> = {
   low: "bg-gray-400",
 };
 
+type CaptureMode = "text" | "pdf";
+
+const PDF_FIRST_DOC_TYPES = new Set([
+  "court_order",
+  "notification",
+  "report",
+  "parliamentary_material",
+  "affidavit_filing",
+  "guideline_circular",
+  "official_document",
+]);
+
+function inferPreferredCapture(result: SearchResult): CaptureMode {
+  const docType = result.intelligence?.docType;
+
+  if (docType) {
+    return PDF_FIRST_DOC_TYPES.has(docType) ? "pdf" : "text";
+  }
+
+  const url = String(result.url || "").toLowerCase();
+  if (/\.pdf(?:$|[?#])/.test(url) || /format=pdf/.test(url)) return "pdf";
+  return "text";
+}
+
+function captureMeta(mode: CaptureMode) {
+  return mode === "pdf"
+    ? {
+        shortLabel: "PDF",
+        longLabel: "Capture PDF",
+        title: "Capture this result as PDF",
+      }
+    : {
+        shortLabel: "Text",
+        longLabel: "Capture Text",
+        title: "Capture this result as text",
+      };
+}
+
 /* ---------------- component ---------------- */
 
 const ResultsTable: React.FC<ResultsTableProps> = ({
@@ -1069,6 +1107,18 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           const dupN = dupCountByUrl[r.url] ?? 0;
           const categoryCount = getUrlCollections(r.url).length;
 
+          const preferredCapture = inferPreferredCapture(r);
+          const secondaryCapture: CaptureMode =
+            preferredCapture === "pdf" ? "text" : "pdf";
+
+          const preferredMeta = captureMeta(preferredCapture);
+          const secondaryMeta = captureMeta(secondaryCapture);
+
+          const recommendationText =
+            preferredCapture === "pdf"
+              ? "Recommended capture: PDF"
+              : "Recommended capture: Text";
+
           return (
             <StaggerItem
               as="li"
@@ -1267,35 +1317,60 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                     </div>
                   )}
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openCapture("text", r.url, r.title || h || "page");
-                      }}
-                      className="btn-ghost px-3 py-1.5"
-                      title="Capture as text"
-                    >
-                      <DownloadIcon className="h-4 w-4" />
-                      <span className="hidden sm:inline">Text</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openCapture("pdf", r.url, r.title || h || "page");
-                      }}
-                      className="btn-ghost px-3 py-1.5"
-                      title="Capture as PDF"
-                    >
-                      <DownloadIcon className="h-4 w-4" />
-                      <span className="hidden sm:inline">PDF</span>
-                    </button>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-[11px] font-medium text-gray-500">
+                      {recommendationText}
+                    </span>
 
-                    {captureBusy === r.url && (
-                      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-100 text-neutral-700">
-                        <SpinnerMini /> Capturing…
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCapture(
+                            preferredCapture,
+                            r.url,
+                            r.title || h || "page",
+                          );
+                        }}
+                        className="btn-primary px-3 py-1.5 rounded-full"
+                        title={preferredMeta.title}
+                      >
+                        <DownloadIcon className="h-4 w-4" />
+                        <span className="hidden sm:inline">
+                          {preferredMeta.longLabel}
+                        </span>
+                        <span className="sm:hidden">
+                          {preferredMeta.shortLabel}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCapture(
+                            secondaryCapture,
+                            r.url,
+                            r.title || h || "page",
+                          );
+                        }}
+                        className="btn-ghost px-3 py-1.5"
+                        title={secondaryMeta.title}
+                      >
+                        <DownloadIcon className="h-4 w-4" />
+                        <span className="hidden sm:inline">
+                          {secondaryMeta.shortLabel}
+                        </span>
+                        <span className="sm:hidden">
+                          {secondaryMeta.shortLabel}
+                        </span>
+                      </button>
+
+                      {captureBusy === r.url && (
+                        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-neutral-100 text-neutral-700">
+                          <SpinnerMini /> Capturing…
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <button

@@ -25,6 +25,9 @@ import {
   listNotebookChatRuns,
 } from "../services/notebookChat.service";
 
+const firstParam = (v: unknown): string =>
+  Array.isArray(v) ? String(v[0] ?? "") : String(v ?? "");
+
 export async function getNotebooksHandler(
   _req: Request,
   res: Response,
@@ -53,7 +56,7 @@ export async function getNotebookDetailHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await getNotebook(req.params.id);
+    const data = await getNotebook(firstParam(req.params.id));
     if (!data) return res.status(404).json({ message: "Notebook not found" });
     res.json(data);
   } catch (e) {
@@ -66,7 +69,7 @@ export async function patchNotebookHandler(
   next: NextFunction,
 ) {
   try {
-    res.json(await updateNotebook(req.params.id, req.body || {}));
+    res.json(await updateNotebook(firstParam(req.params.id), req.body || {}));
   } catch (e) {
     next(e);
   }
@@ -77,7 +80,7 @@ export async function deleteNotebookHandler(
   next: NextFunction,
 ) {
   try {
-    const ok = await deleteNotebook(req.params.id);
+    const ok = await deleteNotebook(firstParam(req.params.id));
     if (!ok) return res.status(404).json({ message: "Notebook not found" });
     res.status(204).end();
   } catch (e) {
@@ -90,7 +93,7 @@ export async function getNotebookSourcesHandler(
   next: NextFunction,
 ) {
   try {
-    res.json(await listSources(req.params.id));
+    res.json(await listSources(firstParam(req.params.id)));
   } catch (e) {
     next(e);
   }
@@ -103,7 +106,12 @@ export async function postNotebookSourceUrlHandler(
   try {
     res
       .status(201)
-      .json(await attachUrlSource(req.params.id, Number(req.body?.urlId)));
+      .json(
+        await attachUrlSource(
+          firstParam(req.params.id),
+          Number(req.body?.urlId),
+        ),
+      );
   } catch (e) {
     next(e);
   }
@@ -116,7 +124,12 @@ export async function postNotebookSourceFileHandler(
   try {
     res
       .status(201)
-      .json(await attachFileSource(req.params.id, String(req.body?.fileId)));
+      .json(
+        await attachFileSource(
+          firstParam(req.params.id),
+          String(req.body?.fileId),
+        ),
+      );
   } catch (e) {
     next(e);
   }
@@ -127,7 +140,10 @@ export async function deleteNotebookSourceHandler(
   next: NextFunction,
 ) {
   try {
-    await deleteSource(req.params.id, req.params.sourceId);
+    await deleteSource(
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
+    );
     res.status(204).end();
   } catch (e) {
     next(e);
@@ -140,7 +156,10 @@ export async function postNotebookSourceRetryIngestionHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await retrySourceIngestion(req.params.id, req.params.sourceId);
+    const data = await retrySourceIngestion(
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
+    );
     res.json(data);
   } catch (e) {
     next(e);
@@ -153,7 +172,10 @@ export async function postNotebookSourceRunOcrHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await runSourceOcr(req.params.id, req.params.sourceId);
+    const data = await runSourceOcr(
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
+    );
     res.json(data);
   } catch (e) {
     next(e);
@@ -166,7 +188,10 @@ export async function postNotebookSourceRetryEmbeddingHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await retrySourceEmbedding(req.params.id, req.params.sourceId);
+    const data = await retrySourceEmbedding(
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
+    );
     res.json(data);
   } catch (e) {
     next(e);
@@ -180,8 +205,8 @@ export async function postNotebookSourceRebuildEmbeddingHandler(
 ) {
   try {
     const data = await rebuildSourceEmbedding(
-      req.params.id,
-      req.params.sourceId,
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
     );
     res.json(data);
   } catch (e) {
@@ -197,8 +222,8 @@ export async function getNotebookSourceDiagnosticsHandler(
   try {
     const maxChars = req.query?.maxChars ? Number(req.query.maxChars) : 20000;
     const data = await getSourceDiagnostics(
-      req.params.id,
-      req.params.sourceId,
+      firstParam(req.params.id),
+      firstParam(req.params.sourceId),
       Number.isFinite(maxChars) ? maxChars : 20000,
     );
     res.json(data);
@@ -216,7 +241,7 @@ export async function getNotebookChatHistoryHandler(
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
 
     const items = await listNotebookChatRuns({
-      notebookId: req.params.id,
+      notebookId: firstParam(req.params.id),
       limit: Number.isFinite(limit) ? limit : 50,
     });
 
@@ -232,10 +257,10 @@ export async function postNotebookChatHandler(
   next: NextFunction,
 ) {
   try {
-    const notebookId = req.params.id;
+    const notebookId = firstParam(req.params.id);
 
     const out = await runNotebookChat({
-      notebookId: req.params.id,
+      notebookId,
       message: req.body.message,
       history: Array.isArray(req.body?.history) ? req.body.history : undefined,
       sourceIds: Array.isArray(req.body?.sourceIds)
@@ -263,7 +288,9 @@ export async function postNotebookNoteHandler(
   next: NextFunction,
 ) {
   try {
-    res.status(201).json(await createNote(req.params.id, req.body || {}));
+    res
+      .status(201)
+      .json(await createNote(firstParam(req.params.id), req.body || {}));
   } catch (e) {
     next(e);
   }
@@ -275,7 +302,11 @@ export async function patchNotebookNoteHandler(
 ) {
   try {
     res.json(
-      await updateNote(req.params.id, req.params.noteId, req.body || {}),
+      await updateNote(
+        firstParam(req.params.id),
+        firstParam(req.params.noteId),
+        req.body || {},
+      ),
     );
   } catch (e) {
     next(e);
@@ -288,7 +319,10 @@ export async function deleteNotebookNoteHandler(
   next: NextFunction,
 ) {
   try {
-    const ok = await deleteNote(req.params.id, req.params.noteId);
+    const ok = await deleteNote(
+      firstParam(req.params.id),
+      firstParam(req.params.noteId),
+    );
     if (!ok) return res.status(404).json({ message: "Note not found" });
     res.status(204).end();
   } catch (e) {

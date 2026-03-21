@@ -10,6 +10,7 @@ interface SearchFormProps {
   initialKeywords?: string;
   onWebsiteChange?: (v: string) => void;
   onKeywordsChange?: (v: string) => void;
+  builtQuery?: string;
 }
 
 const SearchForm: React.FC<SearchFormProps> = ({
@@ -19,6 +20,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
   initialKeywords = "",
   onWebsiteChange,
   onKeywordsChange,
+  builtQuery,
 }) => {
   const [website, setWebsite] = useState(initialWebsite);
   const [keywords, setKeywords] = useState(initialKeywords);
@@ -89,7 +91,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
       <FormField
         label="Keywords"
         htmlFor="sf-keywords"
-        helpText="Comma-separated terms"
+        helpText="Use commas for AND, pipes | for OR groups — e.g. governance, enforcement | smog tower, Delhi"
       >
         <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
           <input
@@ -97,7 +99,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
             ref={keyRef}
             type="text"
             autoComplete="off"
-            placeholder="What to search for…"
+            placeholder="e.g. air quality, governance | smog tower, Delhi"
             className="md3-input input-pill w-full"
             value={keywords}
             onChange={(e) => handleKeywords(e.target.value)}
@@ -120,6 +122,32 @@ const SearchForm: React.FC<SearchFormProps> = ({
           Search
         </PlusButton>
       </div>
+
+      {/* Built query display — shown after first search so researchers can verify what ran */}
+      {builtQuery && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
+          <span className="mt-0.5 shrink-0 font-medium text-gray-500 dark:text-gray-400">
+            Query
+          </span>
+          <code className="min-w-0 break-all font-mono text-gray-700 dark:text-gray-300 leading-relaxed">
+            {builtQuery}
+          </code>
+          <button
+            type="button"
+            title="Copy query to clipboard"
+            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(builtQuery);
+              } catch {
+                /* clipboard unavailable */
+              }
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      )}
     </form>
   );
 };

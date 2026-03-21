@@ -672,6 +672,7 @@ const UrlCollectorPage: React.FC = () => {
             initialKeywords={keywords}
             onWebsiteChange={setWebsite}
             onKeywordsChange={setKeywords}
+            builtQuery={hasSearched && lastQuery ? lastQuery : undefined}
           />
 
           {/* Scope filters */}

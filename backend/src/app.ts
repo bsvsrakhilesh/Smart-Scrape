@@ -1,4 +1,8 @@
-import express from "express";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
@@ -36,7 +40,7 @@ const allowedOrigins = (
   process.env.CORS_ORIGINS || "http://localhost:3000,http://127.0.0.1:3000"
 )
   .split(",")
-  .map((s) => s.trim())
+  .map((s: string) => s.trim())
   .filter(Boolean);
 
 // -------- Parsers (single source of truth) --------
@@ -119,10 +123,13 @@ const devOriginOk = (origin: string) => {
 
 app.use(
   cors({
-    origin: (origin, cb) => {
+    origin: (
+      origin: string | undefined,
+      cb: (err: Error | null, allow?: boolean) => void,
+    ) => {
       // Allow non-browser clients (curl/postman) which may send no Origin
       if (!origin) return cb(null, true);
-      
+
       // Explicit allowlist (works for prod + dev)
       if (allowedOrigins.includes(origin)) return cb(null, true);
 
@@ -133,7 +140,13 @@ app.use(
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID","X-Request-Id",],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-Request-ID",
+      "X-Request-Id",
+    ],
   }),
 );
 
@@ -141,7 +154,7 @@ app.use(
 app.use(timeout("90s"));
 
 // -------- Access log --------
-app.use((req, _res, next) => {
+app.use((req: Request, _res: Response, next: NextFunction) => {
   log.info("http_request", {
     rid: (req as any).requestId,
     method: req.method,
@@ -179,7 +192,6 @@ app.use("/api/crawl", crawlLimiter);
 // Only rate-limit upload endpoints (chunk spam / large uploads), not browsing (list/preview/download)
 app.use("/api/files/upload", uploadLimiter);
 
-
 // -------- Routes --------
 app.use("/api", urlRoutes);
 app.use("/api", collectionRoutes);
@@ -193,7 +205,7 @@ app.use("/api", aiTagRoutes);
 app.use("/api", faviconRoutes);
 
 // ---- Basic root + health endpoints ----
-app.get("/", (_req, res) => {
+app.get("/", (_req: Request, res: Response) => {
   res.json({
     ok: true,
     service: "SmartScrape backend",
@@ -203,9 +215,9 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
-app.get("/ping", (_req, res) => res.send("pong"));
-app.get("/api/ping", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req: Request, res: Response) => res.json({ ok: true }));
+app.get("/ping", (_req: Request, res: Response) => res.send("pong"));
+app.get("/api/ping", (_req: Request, res: Response) => res.json({ ok: true }));
 
 // -------- Single error handler (deterministic + safe) --------
 app.use(

@@ -802,6 +802,60 @@ export async function extractPdfPagesFromFile(
   return pages;
 }
 
+export function detectScannedPdf(
+  pages: { pageNumber: number; text: string }[],
+): {
+  pageCount: number;
+  totalChars: number;
+  avgCharsPerPage: number;
+  nonEmptyPages: number;
+  nonEmptyRatio: number;
+  avgWordsPerPage: number;
+  isScannedLikely: boolean;
+  thresholdCharsPerPage: number;
+  thresholdNonEmptyRatio: number;
+} {
+  const pageCount = pages.length;
+
+  const normalized = pages.map((p) => String(p.text || "").trim());
+
+  const totalChars = normalized.reduce(
+    (sum, text) => sum + text.replace(/\s+/g, "").length,
+    0,
+  );
+
+  const totalWords = normalized.reduce((sum, text) => {
+    if (!text) return sum;
+    return sum + text.split(/\s+/).filter(Boolean).length;
+  }, 0);
+
+  const nonEmptyPages = normalized.filter((text) => text.length > 0).length;
+
+  const avgCharsPerPage = pageCount > 0 ? totalChars / pageCount : 0;
+  const avgWordsPerPage = pageCount > 0 ? totalWords / pageCount : 0;
+  const nonEmptyRatio = pageCount > 0 ? nonEmptyPages / pageCount : 0;
+
+  const thresholdCharsPerPage = 20;
+  const thresholdNonEmptyRatio = 0.5;
+
+  const isScannedLikely =
+    pageCount > 0 &&
+    (avgCharsPerPage < thresholdCharsPerPage ||
+      nonEmptyRatio < thresholdNonEmptyRatio);
+
+  return {
+    pageCount,
+    totalChars,
+    avgCharsPerPage,
+    nonEmptyPages,
+    nonEmptyRatio,
+    avgWordsPerPage,
+    isScannedLikely,
+    thresholdCharsPerPage,
+    thresholdNonEmptyRatio,
+  };
+}
+
 // ---------- File metadata extraction helpers (used by other services) ----------
 
 export async function extractTextFromStoredFile(

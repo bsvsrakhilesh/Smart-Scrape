@@ -18,7 +18,7 @@ import {
 import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
-import StructuredTags from "../common/StructuredTags";
+import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
 
 interface SavedUrlDetailModalProps {
   url: SavedUrl;
@@ -40,6 +40,119 @@ function isPdfUrlLike(raw: string): boolean {
     const s = (raw || "").toLowerCase();
     return s.includes(".pdf");
   }
+}
+
+function shortHash(value?: string | null) {
+  if (!value) return "—";
+  const s = String(value);
+  return s.length <= 18 ? s : `${s.slice(0, 12)}…${s.slice(-4)}`;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
+
+function getUrlSourceHost(saved: SavedUrl) {
+  if (saved.domain) return saved.domain.replace(/^www\./, "");
+  try {
+    return new URL(saved.url).hostname.replace(/^www\./, "");
+  } catch {
+    return "Unknown source";
+  }
+}
+
+function getUrlTaggingSummary(saved: SavedUrl): {
+  tone: "green" | "blue" | "slate";
+  label: string;
+  meta: string;
+} {
+  const status = saved.taggingStatus ?? "NONE";
+
+  if (status === "SUCCESS") {
+    return {
+      tone: "green",
+      label: "AI tags ready",
+      meta: saved.taggerVersion
+        ? `Tagger ${saved.taggerVersion}`
+        : `${saved.tags.length} labels on record`,
+    };
+  }
+
+  if (status === "RUNNING") {
+    return {
+      tone: "blue",
+      label: "AI tagging running",
+      meta: "Background extraction in progress",
+    };
+  }
+
+  if (status === "PENDING") {
+    return {
+      tone: "blue",
+      label: "AI tagging queued",
+      meta: "Waiting for worker pickup",
+    };
+  }
+
+  if (status === "FAILED") {
+    return {
+      tone: "slate",
+      label: "AI tagging failed",
+      meta: saved.taggingError || "Retry tagging from this record",
+    };
+  }
+
+  return {
+    tone: "slate",
+    label: "AI tags not started",
+    meta: "No background tag job recorded",
+  };
+}
+
+function getUrlIntegritySummary(
+  saved: SavedUrl,
+  revisions: BackendDocumentRevision[],
+): {
+  tone: "green" | "blue" | "slate";
+  label: string;
+  meta: string;
+} {
+  const latestRevision = revisions[0];
+
+  if (latestRevision?.storedFile?.sha256) {
+    return {
+      tone: "green",
+      label: "Artifact SHA-256",
+      meta: shortHash(latestRevision.storedFile.sha256),
+    };
+  }
+
+  if (saved.latestSnapshot?.sha256) {
+    return {
+      tone: "blue",
+      label: "Snapshot SHA-256",
+      meta: shortHash(saved.latestSnapshot.sha256),
+    };
+  }
+
+  if (saved.contentHash) {
+    return {
+      tone: "blue",
+      label: "Normalized content SHA-256",
+      meta: shortHash(saved.contentHash),
+    };
+  }
+
+  return {
+    tone: "slate",
+    label: "Hash pending",
+    meta: "No snapshot or content hash recorded",
+  };
 }
 
 const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
@@ -90,16 +203,21 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     (url as any).publishedAt ?? null,
   );
   const [publishedAtMeta, setPublishedAtMeta] = useState<any | null>(
-    (url as any)?.tagsMeta?.publishedAtMeta ?? null,
+    (url as any)?.tagsMetaRaw?.publishedAtMeta ??
+      (url as any)?.tagsMeta?.publishedAtMeta ??
+      null,
   );
   const [authors, setAuthors] = useState<string[]>(
     Array.isArray((url as any).authors) ? (url as any).authors : [],
   );
 
-  // keep in sync when the modal receives a different URL
   useEffect(() => {
     setPublishedAt((url as any).publishedAt ?? null);
-    setPublishedAtMeta((url as any)?.tagsMeta?.publishedAtMeta ?? null);
+    setPublishedAtMeta(
+      (url as any)?.tagsMetaRaw?.publishedAtMeta ??
+        (url as any)?.tagsMeta?.publishedAtMeta ??
+        null,
+    );
     setAuthors(Array.isArray((url as any).authors) ? (url as any).authors : []);
   }, [url.id]);
 
@@ -271,9 +389,183 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     onTagUpdate?.(url.id, updated);
   };
 
+  const sourceHost = getUrlSourceHost(url);
+  const latestRevision = revisions[0] ?? null;
+  const latestSnapshot = snapshots[0] ?? url.latestSnapshot ?? null;
+  const notebookFileId =
+    latestRevision?.storedFile?.id ?? latestSnapshot?.id ?? null;
+
+  const integrity = getUrlIntegritySummary(url, revisions);
+  const tagging = getUrlTaggingSummary(url);
+
+  const evidencePills: Array<{
+    label: string;
+    tone: "green" | "blue" | "violet" | "slate" | "ghost";
+  }> = [
+    { label: integrity.label, tone: integrity.tone },
+    { label: url.visibility, tone: "ghost" },
+    { label: tagging.label, tone: tagging.tone },
+  ];
+
+  if (latestRevision) {
+    evidencePills.push({
+      label: `Revision R${latestRevision.ordinal}`,
+      tone: "ghost",
+    });
+  }
+
+  if (latestSnapshot?.captureType) {
+    evidencePills.push({
+      label: latestSnapshot.captureType,
+      tone: "ghost",
+    });
+  }
+
+  const evidenceSummaryCards = [
+    {
+      label: "Integrity",
+      value: integrity.label,
+      meta: integrity.meta,
+    },
+    {
+      label: "Published",
+      value: publishedAt ? formatDateTime(publishedAt) : "Unknown",
+      meta:
+        publishedAtMeta?.source && publishedAtMeta.source !== "unknown"
+          ? `Source: ${publishedAtMeta.source}`
+          : sourceHost,
+    },
+    {
+      label: "Latest capture",
+      value: latestSnapshot ? formatDateTime(latestSnapshot.createdAt) : "None",
+      meta: latestSnapshot?.fileName ?? "No stored snapshot yet",
+    },
+    {
+      label: "Registry state",
+      value: url.visibility,
+      meta: `Saved ${formatDateTime(url.createdAt)}`,
+    },
+  ];
+
+  const evidenceAiCard = {
+    label: "AI tagging",
+    value: tagging.label,
+    meta: tagging.meta,
+  };
+
+  const evidenceTimeline = [
+    {
+      id: "saved",
+      title: "Source saved to registry",
+      time: url.createdAt,
+      detail: `${sourceHost} • ${url.visibility}`,
+      tone: "blue" as const,
+    },
+    ...(publishedAt
+      ? [
+          {
+            id: "published",
+            title: "Published date detected",
+            time: publishedAt,
+            detail: authors.length
+              ? authors.join(", ")
+              : "Author data unavailable",
+            tone: "slate" as const,
+          },
+        ]
+      : []),
+    ...(latestSnapshot
+      ? [
+          {
+            id: "snapshot",
+            title: `${latestSnapshot.captureType} snapshot available`,
+            time: latestSnapshot.createdAt,
+            detail: latestSnapshot.fileName ?? "Stored evidence snapshot",
+            tone: "violet" as const,
+          },
+        ]
+      : []),
+    ...(latestRevision
+      ? [
+          {
+            id: "revision",
+            title: `Canonical revision R${latestRevision.ordinal}`,
+            time: latestRevision.createdAt,
+            detail: latestRevision.captureType,
+            tone: "green" as const,
+          },
+        ]
+      : []),
+    {
+      id: "updated",
+      title: "Registry record updated",
+      time: url.updatedAt,
+      detail: tagging.meta,
+      tone: "slate" as const,
+    },
+  ];
+
+  const evidenceStructured =
+    (url as any)?.tagsMetaRaw?.tagger?.structured ??
+    (url as any)?.tagsMetaRaw?.aiTagger?.structured ??
+    null;
+
+  const evidenceIntelligenceRows = [
+    { label: "Domain", value: sourceHost },
+    { label: "Source URL", value: url.url },
+    {
+      label: "Published",
+      value: publishedAt ? formatDateTime(publishedAt) : "—",
+    },
+    {
+      label: "Authors",
+      value: authors.length ? authors.join(", ") : "—",
+    },
+    {
+      label: "Collections",
+      value: url.collections.length ? url.collections.join(", ") : "—",
+    },
+    {
+      label: "Latest snapshot",
+      value: latestSnapshot?.captureType ?? "—",
+    },
+  ];
+
+  const evidenceProvenanceRows = [
+    { label: "URL ID", value: url.id, mono: true },
+    { label: "Content hash", value: url.contentHash ?? "—", mono: true },
+    {
+      label: "Latest artifact hash",
+      value:
+        latestRevision?.storedFile?.sha256 ?? url.latestSnapshot?.sha256 ?? "—",
+      mono: true,
+    },
+    {
+      label: "Latest snapshot ID",
+      value: latestSnapshot?.id ?? "—",
+      mono: true,
+    },
+    {
+      label: "Tagger version",
+      value: url.taggerVersion ?? "—",
+    },
+    {
+      label: "Tagging status",
+      value: url.taggingStatus ?? "NONE",
+    },
+    {
+      label: "Tagging error",
+      value: url.taggingError ?? "—",
+    },
+    {
+      label: "Updated at",
+      value: formatDateTime(url.updatedAt),
+    },
+  ];
+
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/50 p-4">
-      <div className="relative max-w-4xl w-full bg-white dark:bg-gray-900 rounded-2xl shadow-xl flex flex-col overflow-hidden">
+      <div className="relative max-w-7xl w-full bg-white dark:bg-gray-900 rounded-2xl shadow-xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b dark:border-gray-700">
           <div className="flex items-center gap-3">
@@ -286,9 +578,9 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="p-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
           {/* Left: Main details */}
-          <div className="md:col-span-2 space-y-4">
+          <div className="xl:col-span-2 space-y-4 min-w-0">
             {/* URL & Favorite */}
             <div className="flex justify-between items-start">
               <div className="flex gap-4">
@@ -383,11 +675,6 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
               </div>
             </div>
 
-            <StructuredTags
-              structured={(url as any)?.tagsMetaRaw?.tagger?.structured ?? null}
-              compact
-            />
-
             {/* Metadata */}
             <div>
               <div className="flex items-center justify-between">
@@ -404,7 +691,9 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                       onUrlHydrate?.(fresh);
                       setPublishedAt((fresh as any).publishedAt ?? null);
                       setPublishedAtMeta(
-                        (fresh as any)?.tagsMeta?.publishedAtMeta ?? null,
+                        (fresh as any)?.tagsMetaRaw?.publishedAtMeta ??
+                          (fresh as any)?.tagsMeta?.publishedAtMeta ??
+                          null,
                       );
                       setAuthors(
                         Array.isArray((fresh as any).authors)
@@ -465,8 +754,54 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Right: Related & Collections */}
-          <div className="space-y-4">
+          {/* Right: Unified evidence inspector + revision tools */}
+          <div className="space-y-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto xl:pr-1">
+            <div className="rounded-2xl border border-[hsl(var(--border))] bg-white/80 shadow-sm backdrop-blur p-4">
+              <EvidenceOverviewPanel
+                eyebrow="Source evidence"
+                title={url.title}
+                subtitle={`${sourceHost} • registry entry`}
+                pills={evidencePills}
+                actions={[
+                  {
+                    label: "Open source",
+                    onClick: () => {
+                      window.open(url.url, "_blank", "noopener,noreferrer");
+                    },
+                    title: "Open source URL",
+                  },
+                  {
+                    label: "Copy URL",
+                    onClick: async () => {
+                      try {
+                        await navigator.clipboard.writeText(url.url);
+                        notify({ text: "Source URL copied", kind: "success" });
+                      } catch {
+                        notify({ text: "Copy failed", kind: "error" });
+                      }
+                    },
+                    title: "Copy source URL",
+                  },
+                  ...(notebookFileId
+                    ? [
+                        {
+                          label: "Use in notebook",
+                          onClick: () => useRevisionInNotebook(notebookFileId),
+                          primary: true,
+                          title: "Use latest evidence revision in Notebook",
+                        },
+                      ]
+                    : []),
+                ]}
+                summaryCards={evidenceSummaryCards}
+                aiCard={evidenceAiCard}
+                timelineItems={evidenceTimeline}
+                structured={evidenceStructured}
+                intelligenceRows={evidenceIntelligenceRows}
+                provenanceRows={evidenceProvenanceRows}
+              />
+            </div>
+
             {/* Re-capture (creates a new canonical revision) */}
             <div className="border rounded-xl p-3 bg-white">
               <div className="flex items-center justify-between gap-2">
@@ -501,6 +836,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 {recaptureLoading ? "Re-capturing…" : "Re-capture now"}
               </button>
             </div>
+
             <div>
               {revisionsLoading ? (
                 <div className="text-sm text-gray-500">
@@ -522,7 +858,6 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   currentA={leftSnapId}
                   currentB={rightSnapId}
                   onCompareWithPrev={async (currentId, prevId) => {
-                    // Compare prev → show "what changed since last revision"
                     setLeftSnapId(prevId);
                     setRightSnapId(currentId);
                     await runCompare(prevId, currentId);
@@ -533,6 +868,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 />
               )}
             </div>
+
             <div>
               <div className="font-semibold mb-2">Snapshots</div>
               {snapshotsLoading && (
@@ -592,6 +928,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                 ))}
               </div>
             </div>
+
             <div className="mt-3 space-y-2">
               <div className="font-semibold text-sm">Compare snapshots</div>
 
@@ -650,20 +987,6 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   rightText={rightPayload.text}
                 />
               )}
-            </div>
-
-            <div>
-              <div className="font-semibold mb-1">Collections</div>
-              <div className="flex flex-wrap gap-2">
-                {url.collections.map((c) => (
-                  <span
-                    key={c}
-                    className="text-xs px-2 py-1 bg-gray-200 rounded-full"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </div>
             </div>
           </div>
         </div>

@@ -8,36 +8,11 @@ import {
   apiUrl,
 } from "../../lib/api";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
-import StructuredTags from "../common/StructuredTags";
+import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
 
 type Props = {
   file: FileItem | null;
 };
-
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-2">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[hsl(var(--muted-foreground))]">
-        {label}
-      </div>
-      <div
-        className={`min-w-0 text-right text-[12px] text-slate-900 ${
-          mono ? "font-mono" : ""
-        }`}
-      >
-        <div className="truncate max-w-[240px]">{value}</div>
-      </div>
-    </div>
-  );
-}
 
 async function copyToClipboard(txt?: string | null) {
   try {
@@ -285,6 +260,129 @@ export default function EvidenceInspector({ file }: Props) {
     return items;
   }, [file, revisions.length, actorLabel, authorsLabel]);
 
+  const evidencePills: Array<{
+    label: string;
+    tone: "green" | "blue" | "violet" | "slate" | "ghost";
+  }> = [];
+
+  if (integrity) {
+    evidencePills.push({ label: integrity.label, tone: integrity.tone });
+  }
+
+  if (file) {
+    evidencePills.push({
+      label: file.documentRevision?.ordinal
+        ? `Revision R${file.documentRevision.ordinal}`
+        : "Base file",
+      tone: "ghost",
+    });
+    evidencePills.push({ label: file.visibility, tone: "ghost" });
+  }
+
+  if (tagging) {
+    evidencePills.push({ label: tagging.label, tone: tagging.tone });
+  }
+
+  if (revisions.length > 0) {
+    evidencePills.push({
+      label: `${revisions.length} revisions`,
+      tone: "ghost",
+    });
+  }
+
+  const evidenceSummaryCards = file
+    ? [
+        {
+          label: "Integrity",
+          value: integrity?.label ?? "—",
+          meta: integrity?.meta ?? "—",
+        },
+        {
+          label: "Captured by",
+          value: actorLabel,
+          meta: formatDateTime(file.captureEvent?.createdAt ?? file.uploadDate),
+        },
+        {
+          label: "Pipeline",
+          value: pipelineLabel,
+          meta: file.captureEvent?.pipelineConfig?.configHash
+            ? shortHash(file.captureEvent.pipelineConfig.configHash)
+            : "No config hash",
+        },
+        {
+          label: "Published",
+          value: file.sourcePublishedAt
+            ? formatDateTime(file.sourcePublishedAt)
+            : "Unknown",
+          meta: sourceHost,
+        },
+      ]
+    : [];
+
+  const evidenceAiCard = tagging
+    ? {
+        label: "AI tagging",
+        value: tagging.label,
+        meta: tagging.meta,
+      }
+    : null;
+
+  const evidenceStructured =
+    (file as any)?.tagsMetaRaw?.tagger?.structured ??
+    (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
+    null;
+
+  const evidenceIntelligenceRows = file
+    ? [
+        { label: "Domain", value: sourceHost },
+        {
+          label: "Source URL",
+          value: file.sourceUrl ?? file.captureEvent?.sourceUrl ?? "—",
+        },
+        {
+          label: "Published",
+          value: formatDateTime(file.sourcePublishedAt),
+        },
+        {
+          label: "Authors",
+          value: authorsLabel,
+        },
+        {
+          label: "URL ID",
+          value: file.urlId != null ? String(file.urlId) : "—",
+        },
+      ]
+    : [];
+
+  const evidenceProvenanceRows = file
+    ? [
+        { label: "File ID", value: file.id, mono: true },
+        { label: "SHA-256", value: file.sha256 ?? "—", mono: true },
+        {
+          label: "Normalized content SHA-256",
+          value: file.contentHash ?? "—",
+          mono: true,
+        },
+        { label: "Capture type", value: file.captureType ?? "—" },
+        { label: "Capture method", value: file.captureMeta?.method ?? "—" },
+        {
+          label: "Captured URL",
+          value: file.captureMeta?.capturedUrl ?? "—",
+        },
+        { label: "Tagger version", value: file.taggerVersion ?? "—" },
+        { label: "Tagging status", value: file.taggingStatus ?? "NONE" },
+        { label: "Tagging job", value: file.taggingJobId ?? "—", mono: true },
+        { label: "Tagging error", value: file.taggingError ?? "—" },
+        { label: "Actor", value: actorLabel },
+        {
+          label: "Request ID",
+          value: file.captureEvent?.requestId ?? "—",
+          mono: true,
+        },
+        { label: "Pipeline", value: pipelineLabel },
+      ]
+    : [];
+
   return (
     <aside className="rounded-2xl border border-[hsl(var(--border))] bg-white/80 shadow-sm backdrop-blur">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[hsl(var(--border))]">
@@ -343,242 +441,56 @@ export default function EvidenceInspector({ file }: Props) {
         </div>
       ) : (
         <div className="px-4 py-4">
-          <div className="ei-shell">
-            <div className="ei-hero">
-              <div className="ei-hero__eyebrow">Selected evidence</div>
-              <h3 className="ei-hero__title">{file.title}</h3>
-              <p className="ei-hero__subtitle">
-                {sourceHost} • {file.captureType ?? "UPLOAD"} • {file.mimeType}
-              </p>
+          <EvidenceOverviewPanel
+            eyebrow="Selected evidence"
+            title={file.title}
+            subtitle={`${sourceHost} • ${file.captureType ?? "UPLOAD"} • ${file.mimeType}`}
+            pills={evidencePills}
+            actions={[
+              {
+                label: "Open preview",
+                onClick: () => {
+                  window.open(
+                    apiUrl(`/api/files/${file.id}/preview`),
+                    "_blank",
+                  );
+                },
+                title: "Open current file preview",
+              },
+              ...(sourceUrl
+                ? [
+                    {
+                      label: "Open source",
+                      onClick: () => {
+                        window.open(sourceUrl, "_blank", "noopener");
+                      },
+                      icon: <ExternalLink className="w-4 h-4" />,
+                      title: "Open source URL",
+                    },
+                    {
+                      label: "Copy URL",
+                      onClick: () => copyToClipboard(sourceUrl),
+                      icon: <Copy className="w-4 h-4" />,
+                      title: "Copy source URL",
+                    },
+                  ]
+                : []),
+              {
+                label: "Use in notebook",
+                onClick: () => useRevisionInNotebook(file.id),
+                primary: true,
+                title: "Use this evidence in Notebook",
+              },
+            ]}
+            summaryCards={evidenceSummaryCards}
+            aiCard={evidenceAiCard}
+            timelineItems={timelineItems}
+            structured={evidenceStructured}
+            intelligenceRows={evidenceIntelligenceRows}
+            provenanceRows={evidenceProvenanceRows}
+          />
 
-              <div className="ei-pill-row">
-                {integrity ? (
-                  <span className={`ei-pill ei-pill--${integrity.tone}`}>
-                    {integrity.label}
-                  </span>
-                ) : null}
-                <span className="ei-pill ei-pill--ghost">
-                  {file.documentRevision?.ordinal
-                    ? `Revision R${file.documentRevision.ordinal}`
-                    : "Base file"}
-                </span>
-                <span className="ei-pill ei-pill--ghost">
-                  {file.visibility}
-                </span>
-
-                {tagging ? (
-                  <span className={`ei-pill ei-pill--${tagging.tone}`}>
-                    {tagging.label}
-                  </span>
-                ) : null}
-                {revisions.length > 0 && (
-                  <span className="ei-pill ei-pill--ghost">
-                    {revisions.length} revisions
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="ei-toolbar">
-              <button
-                type="button"
-                className="ei-toolbar__btn"
-                onClick={() =>
-                  window.open(apiUrl(`/api/files/${file.id}/preview`), "_blank")
-                }
-                title="Open current file preview"
-              >
-                Open preview
-              </button>
-
-              {sourceUrl ? (
-                <>
-                  <button
-                    type="button"
-                    className="ei-toolbar__btn"
-                    onClick={() => window.open(sourceUrl, "_blank", "noopener")}
-                    title="Open source URL"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open source
-                  </button>
-
-                  <button
-                    type="button"
-                    className="ei-toolbar__btn"
-                    onClick={() => copyToClipboard(sourceUrl)}
-                    title="Copy source URL"
-                  >
-                    <Copy className="w-4 h-4" />
-                    Copy URL
-                  </button>
-                </>
-              ) : null}
-
-              <button
-                type="button"
-                className="ei-toolbar__btn ei-toolbar__btn--primary"
-                onClick={() => useRevisionInNotebook(file.id)}
-                title="Use this evidence in Notebook"
-              >
-                Use in notebook
-              </button>
-            </div>
-            <div className="ei-summary-grid">
-              <div className="ei-summary-card">
-                <span className="ei-summary-card__label">Integrity</span>
-                <strong className="ei-summary-card__value">
-                  {integrity?.label ?? "—"}
-                </strong>
-                <small className="ei-summary-card__meta">
-                  {integrity?.meta ?? "—"}
-                </small>
-              </div>
-
-              <div className="ei-summary-card">
-                <span className="ei-summary-card__label">Captured by</span>
-                <strong className="ei-summary-card__value">{actorLabel}</strong>
-                <small className="ei-summary-card__meta">
-                  {formatDateTime(
-                    file.captureEvent?.createdAt ?? file.uploadDate,
-                  )}
-                </small>
-              </div>
-
-              <div className="ei-summary-card">
-                <span className="ei-summary-card__label">Pipeline</span>
-                <strong className="ei-summary-card__value">
-                  {pipelineLabel}
-                </strong>
-                <small className="ei-summary-card__meta">
-                  {file.captureEvent?.pipelineConfig?.configHash
-                    ? shortHash(file.captureEvent.pipelineConfig.configHash)
-                    : "No config hash"}
-                </small>
-              </div>
-
-              <div className="ei-summary-card">
-                <span className="ei-summary-card__label">Published</span>
-                <strong className="ei-summary-card__value">
-                  {file.sourcePublishedAt
-                    ? formatDateTime(file.sourcePublishedAt)
-                    : "Unknown"}
-                </strong>
-                <small className="ei-summary-card__meta">{sourceHost}</small>
-              </div>
-            </div>
-
-            <div className="ei-summary-card">
-              <span className="ei-summary-card__label">AI tagging</span>
-              <strong className="ei-summary-card__value">
-                {tagging?.label ?? "—"}
-              </strong>
-              <small className="ei-summary-card__meta">
-                {tagging?.meta ?? "—"}
-              </small>
-            </div>
-
-            <div className="ei-card">
-              <div className="ei-card__head">
-                <div className="ei-card__title">Chain of custody</div>
-                <div className="ei-card__meta">Timeline-first provenance</div>
-              </div>
-
-              <div className="ei-timeline">
-                {timelineItems.map((item) => (
-                  <div key={item.id} className="ei-timeline__item">
-                    <div
-                      className={`ei-timeline__dot ei-timeline__dot--${item.tone}`}
-                    />
-                    <div className="ei-timeline__body">
-                      <div className="ei-timeline__titleRow">
-                        <div className="ei-timeline__title">{item.title}</div>
-                        <div className="ei-timeline__time">
-                          {formatDateTime(item.time)}
-                        </div>
-                      </div>
-                      <div className="ei-timeline__detail">{item.detail}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <StructuredTags
-              structured={
-                (file as any)?.tagsMetaRaw?.tagger?.structured ??
-                (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
-                null
-              }
-            />
-            <div className="ei-card">
-              <div className="ei-card__head">
-                <div className="ei-card__title">Source intelligence</div>
-                <div className="ei-card__meta">
-                  Origin and publication context
-                </div>
-              </div>
-
-              <div className="divide-y divide-[hsl(var(--border))]">
-                <Row label="Domain" value={sourceHost} />
-                <Row
-                  label="Source URL"
-                  value={file.sourceUrl ?? file.captureEvent?.sourceUrl ?? "—"}
-                />
-                <Row
-                  label="Published"
-                  value={formatDateTime(file.sourcePublishedAt)}
-                />
-                <Row label="Authors" value={authorsLabel} />
-                <Row
-                  label="URL ID"
-                  value={file.urlId != null ? String(file.urlId) : "—"}
-                />
-              </div>
-            </div>
-            <div className="ei-card">
-              <div className="ei-card__head">
-                <div className="ei-card__title">Raw provenance</div>
-                <div className="ei-card__meta">
-                  Traceability and audit fields
-                </div>
-              </div>
-
-              <div className="divide-y divide-[hsl(var(--border))]">
-                <Row label="File ID" value={file.id} mono />
-                <Row label="SHA-256" value={file.sha256 ?? "—"} mono />
-                <Row
-                  label="Normalized content SHA-256"
-                  value={file.contentHash ?? "—"}
-                  mono
-                />
-                <Row label="Capture type" value={file.captureType ?? "—"} />
-                <Row
-                  label="Capture method"
-                  value={file.captureMeta?.method ?? "—"}
-                />
-                <Row
-                  label="Captured URL"
-                  value={file.captureMeta?.capturedUrl ?? "—"}
-                />
-                <Row label="Tagger version" value={file.taggerVersion ?? "—"} />
-                <Row
-                  label="Tagging status"
-                  value={file.taggingStatus ?? "NONE"}
-                />
-                <Row
-                  label="Tagging job"
-                  value={file.taggingJobId ?? "—"}
-                  mono
-                />
-                <Row label="Tagging error" value={file.taggingError ?? "—"} />
-                <Row label="Actor" value={actorLabel} />
-                <Row
-                  label="Request ID"
-                  value={file.captureEvent?.requestId ?? "—"}
-                  mono
-                />
-                <Row label="Pipeline" value={pipelineLabel} />
-              </div>
-            </div>
+          <div className="mt-4">
             {revLoading ? (
               <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
                 Loading revision history…

@@ -14,6 +14,7 @@ import SavedUrlDetailModal from "../components/savedurls/SavedUrlDetailModal";
 import CollectionSidebar from "../components/savedurls/CollectionSidebar";
 import CollectionPickerModal from "../components/savedurls/CollectionPickerModal";
 import BulkActionBar from "../components/common/BulkActionBar";
+import SourceRegistryTable from "../components/savedurls/SourceRegistryTable";
 import {
   fetchSavedUrls as apiFetchSavedUrls,
   saveUrls as apiSaveUrls,
@@ -41,6 +42,10 @@ import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 
 type SortKey = "createdAt" | "updatedAt" | "title";
 type SortOrder = "asc" | "desc";
+
+type SavedUrlsViewMode = "registry" | "cards";
+
+const SAVED_URLS_VIEW_KEY = "saved-urls:view-mode";
 
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -137,6 +142,17 @@ const SavedUrlsPage: React.FC = () => {
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [year, setYear] = useState<string>("all"); // 'all' or 'YYYY'
+
+  const [viewMode, setViewMode] = useState<SavedUrlsViewMode>(() => {
+    if (typeof window === "undefined") return "registry";
+    const stored = localStorage.getItem(SAVED_URLS_VIEW_KEY);
+    return stored === "cards" ? "cards" : "registry";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(SAVED_URLS_VIEW_KEY, viewMode);
+  }, [viewMode]);
 
   // Selection + detail
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -487,6 +503,9 @@ const SavedUrlsPage: React.FC = () => {
     [sorted],
   );
   const clearSelection = useCallback(() => setSelection(new Set()), []);
+
+  const allVisibleSelected =
+    sorted.length > 0 && sorted.every((u) => selection.has(u.id));
 
   // Persisted actions
   const handleFavoriteToggle = async (u: UISavedUrl) => {
@@ -1090,6 +1109,36 @@ const SavedUrlsPage: React.FC = () => {
                     <option value="desc">Desc</option>
                     <option value="asc">Asc</option>
                   </select>
+
+                  <div className="ml-auto inline-flex items-center rounded-xl border border-black/10 dark:border-white/10 bg-white/70 dark:bg-neutral-900/70 p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("registry")}
+                      className={[
+                        "rounded-lg px-3 py-2 text-sm font-medium transition",
+                        viewMode === "registry"
+                          ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                          : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white",
+                      ].join(" ")}
+                      title="Show dense source registry table"
+                    >
+                      Registry
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setViewMode("cards")}
+                      className={[
+                        "rounded-lg px-3 py-2 text-sm font-medium transition",
+                        viewMode === "cards"
+                          ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                          : "text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white",
+                      ].join(" ")}
+                      title="Show card layout"
+                    >
+                      Cards
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1225,25 +1274,37 @@ const SavedUrlsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Cards */}
-            <StaggerList className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 2xl:gap-6">
-              {sorted.map((u) => (
-                <StaggerItem key={u.id}>
-                  <SavedUrlCard
-                    url={u}
-                    selected={selection.has(u.id)}
-                    onSelect={() => toggleSelect(u.id)}
-                    onFavoriteToggle={handleFavoriteToggle}
-                    onOpenDetail={(x) => setDetail(x)}
-                    onCapture={async (x, mode) => {
-                      setPickerTarget(x);
-                      setPickerMode(mode);
-                      setPickerOpen(true);
-                    }}
-                  />
-                </StaggerItem>
-              ))}
-            </StaggerList>
+            {/* Registry / Cards */}
+            {viewMode === "registry" ? (
+              <SourceRegistryTable
+                rows={sorted}
+                selection={selection}
+                allVisibleSelected={allVisibleSelected}
+                onToggleSelect={toggleSelect}
+                onSelectAllVisible={selectAllFiltered}
+                onClearSelection={clearSelection}
+                onOpenDetail={(x) => setDetail(x)}
+              />
+            ) : (
+              <StaggerList className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 2xl:gap-6">
+                {sorted.map((u) => (
+                  <StaggerItem key={u.id}>
+                    <SavedUrlCard
+                      url={u}
+                      selected={selection.has(u.id)}
+                      onSelect={() => toggleSelect(u.id)}
+                      onFavoriteToggle={handleFavoriteToggle}
+                      onOpenDetail={(x) => setDetail(x)}
+                      onCapture={async (x, mode) => {
+                        setPickerTarget(x);
+                        setPickerMode(mode);
+                        setPickerOpen(true);
+                      }}
+                    />
+                  </StaggerItem>
+                ))}
+              </StaggerList>
+            )}
 
             {/* Modals */}
             <CollectionPickerModal

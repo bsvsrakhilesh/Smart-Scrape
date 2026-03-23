@@ -38,8 +38,8 @@ interface ResultsTableProps {
   onTogglePage?: (urls: string[], select: boolean) => void;
   onClearSelection?: () => void;
   onClear?: () => void;
-  sortKey?: "original" | "title" | "domain";
-  onSortChange?: (k: "original" | "title" | "domain") => void;
+  sortKey?: "original" | "title" | "domain" | "year";
+  onSortChange?: (k: "original" | "title" | "domain" | "year") => void;
 }
 
 /* ---------------- helpers ---------------- */
@@ -65,6 +65,39 @@ const nicePath = (url: string) => {
 
 const favicon = (url: string) =>
   apiUrl(`/api/favicon?url=${encodeURIComponent(url)}`);
+
+const YEAR_RE = /\b(19|20)\d{2}\b/g;
+
+function extractYears(raw: string): number[] {
+  const hits = String(raw || "").match(YEAR_RE) || [];
+  return hits
+    .map((v) => Number(v))
+    .filter((y) => Number.isFinite(y) && y >= 1900 && y <= 2100);
+}
+
+function getResultYear(result: SearchResult): number | null {
+  const titleSnippetYears = extractYears(
+    `${result.title ?? ""} ${result.snippet ?? ""}`,
+  );
+
+  if (titleSnippetYears.length) {
+    return Math.max(...titleSnippetYears);
+  }
+
+  const urlYears = extractYears(result.url ?? "");
+  if (urlYears.length) {
+    return Math.max(...urlYears);
+  }
+
+  return null;
+}
+
+function sortDirectionLabel(sortKey: SortKey, dir: SortDir): string {
+  if (sortKey === "year") {
+    return dir === "asc" ? "Oldest first" : "Newest first";
+  }
+  return dir === "asc" ? "A→Z" : "Z→A";
+}
 
 // Dedupe canonicalization (strip common tracking params)
 const TRACKING_PARAMS = new Set([
@@ -137,7 +170,7 @@ function exportToCsv(rows: SearchResult[], filename = "results") {
 }
 
 type SavedFilter = "all" | "saved" | "unsaved";
-type SortKey = "original" | "title" | "domain";
+type SortKey = "original" | "title" | "domain" | "year";
 type SortDir = "asc" | "desc";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -357,34 +390,64 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   const sorted = useMemo(() => {
     if (sortKey === "original") return results;
+
     const dir = sortDir === "asc" ? 1 : -1;
-    const clone = [...results];
 
-    if (sortKey === "title") {
-      // Stable-ish sort: tie-break by URL so ordering doesn't flicker
-      clone.sort((a, b) => {
-        const tA = (a.title || "").toLowerCase();
-        const tB = (b.title || "").toLowerCase();
-        if (tA === tB) return a.url.localeCompare(b.url) * dir;
-        return tA.localeCompare(tB) * dir;
-      });
-    }
+    const indexed = results.map((row, idx) => ({
+      row,
+      idx,
+    }));
 
-    if (sortKey === "domain") {
-      clone.sort((a, b) => {
-        const dA = host(a.url).toLowerCase();
-        const dB = host(b.url).toLowerCase();
-        if (dA === dB) {
-          const tA = (a.title || "").toLowerCase();
-          const tB = (b.title || "").toLowerCase();
-          if (tA === tB) return a.url.localeCompare(b.url) * dir;
-          return tA.localeCompare(tB) * dir;
+    indexed.sort((a, b) => {
+      const aTitle = (a.row.title || "").toLowerCase();
+      const bTitle = (b.row.title || "").toLowerCase();
+      const aUrl = a.row.url || "";
+      const bUrl = b.row.url || "";
+
+      if (sortKey === "title") {
+        if (aTitle === bTitle) return a.idx - b.idx;
+        return aTitle.localeCompare(bTitle) * dir;
+      }
+
+      if (sortKey === "domain") {
+        const aDomain = host(aUrl).toLowerCase();
+        const bDomain = host(bUrl).toLowerCase();
+
+        if (aDomain !== bDomain) {
+          return aDomain.localeCompare(bDomain) * dir;
         }
-        return dA.localeCompare(dB) * dir;
-      });
-    }
 
-    return clone;
+        if (aTitle !== bTitle) {
+          return aTitle.localeCompare(bTitle) * dir;
+        }
+
+        return a.idx - b.idx;
+      }
+
+      if (sortKey === "year") {
+        const aYear = getResultYear(a.row);
+        const bYear = getResultYear(b.row);
+
+        // Always push missing years to the bottom
+        if (aYear == null && bYear != null) return 1;
+        if (aYear != null && bYear == null) return -1;
+        if (aYear == null && bYear == null) return a.idx - b.idx;
+
+        if (aYear !== bYear) {
+          return ((aYear as number) - (bYear as number)) * dir;
+        }
+
+        if (aTitle !== bTitle) {
+          return aTitle.localeCompare(bTitle);
+        }
+
+        return a.idx - b.idx;
+      }
+
+      return a.idx - b.idx;
+    });
+
+    return indexed.map((x) => x.row);
   }, [results, sortKey, sortDir]);
 
   // Dedupe + duplicate counters
@@ -954,37 +1017,82 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
               )}
             </label>
 
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <ListFilterIcon className="h-4 w-4 text-gray-500" />
+
               <select
                 value={sortKey}
                 onChange={(e) => {
                   const next = e.target.value as SortKey;
                   setSortKey(next);
-                  if (next === "original") setSortDir("asc");
+
+                  if (next === "original") {
+                    setSortDir("asc");
+                  } else if (next === "year") {
+                    setSortDir("desc");
+                  } else {
+                    setSortDir("asc");
+                  }
                 }}
                 className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-200"
                 aria-label="Sort results"
               >
                 <option value="original">AI relevance</option>
+                <option value="year">Year (detected)</option>
                 <option value="title">Title</option>
                 <option value="domain">Domain</option>
               </select>
 
               {sortKey !== "original" && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-                  }
-                  className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-200"
-                  aria-label={
-                    sortDir === "asc" ? "Sort descending" : "Sort ascending"
-                  }
-                  title={sortDir === "asc" ? "Ascending" : "Descending"}
+                <div
+                  className="inline-flex overflow-hidden rounded-md border border-gray-200 bg-white"
+                  role="group"
+                  aria-label="Sort direction"
                 >
-                  {sortDir === "asc" ? "A→Z" : "Z→A"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setSortDir("asc")}
+                    className={[
+                      "px-3 py-1 text-xs font-medium transition",
+                      sortDir === "asc"
+                        ? "bg-green-50 text-green-700"
+                        : "text-gray-700 hover:bg-gray-50",
+                    ].join(" ")}
+                    aria-pressed={sortDir === "asc"}
+                    title={
+                      sortKey === "year"
+                        ? "Oldest documents first"
+                        : "Ascending order"
+                    }
+                  >
+                    {sortKey === "year" ? "Oldest first" : "A→Z"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSortDir("desc")}
+                    className={[
+                      "border-l border-gray-200 px-3 py-1 text-xs font-medium transition",
+                      sortDir === "desc"
+                        ? "bg-green-50 text-green-700"
+                        : "text-gray-700 hover:bg-gray-50",
+                    ].join(" ")}
+                    aria-pressed={sortDir === "desc"}
+                    title={
+                      sortKey === "year"
+                        ? "Newest documents first"
+                        : "Descending order"
+                    }
+                  >
+                    {sortKey === "year" ? "Newest first" : "Z→A"}
+                  </button>
+                </div>
+              )}
+
+              {sortKey !== "original" && (
+                <span className="text-xs text-gray-500">
+                  {sortDirectionLabel(sortKey, sortDir)}
+                </span>
               )}
             </div>
 
@@ -1106,6 +1214,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           const isSaved = !!rowSaved[r.url];
           const dupN = dupCountByUrl[r.url] ?? 0;
           const categoryCount = getUrlCollections(r.url).length;
+          const detectedYear = getResultYear(r);
 
           const preferredCapture = inferPreferredCapture(r);
           const secondaryCapture: CaptureMode =
@@ -1203,6 +1312,12 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                       <span className="text-gray-400">·</span>
                       <span className="text-gray-500">{nicePath(r.url)}</span>
                     </span>
+
+                    {detectedYear && (
+                      <span className="inline-flex items-center rounded-full border border-gray-200 bg-white/90 px-2 py-0.5">
+                        Year {detectedYear}
+                      </span>
+                    )}
 
                     {r.intelligence?.docType && (
                       <span

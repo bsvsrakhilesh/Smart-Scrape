@@ -35,7 +35,7 @@ function sleep(ms: number, signal?: AbortSignal) {
   });
 }
 
-type SortKey = "original" | "title" | "domain";
+type SortKey = "original" | "title" | "domain" | "year";
 
 /**
  * Collector "scope" filters.

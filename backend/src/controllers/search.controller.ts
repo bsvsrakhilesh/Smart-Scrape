@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import { googleSearch } from "../services/search.service";
 import { planCollectorQuery } from "../services/searchPlanner.service";
 import { enrichSearchResults } from "../services/searchResultIntelligence.service";
+import { rerankSearchResults } from "../services/searchReranker.service";
+import { env } from "../config/env";
 import { log } from "../utils/logger";
 
 function numOrUndef(v: unknown): number | undefined {
@@ -48,21 +50,30 @@ export async function searchHandler(
     );
 
     const enrichedResults = await enrichSearchResults(results);
+    const rerankedResults = await rerankSearchResults({
+      query: q,
+      results: enrichedResults,
+      opts,
+    });
 
     if (typeof nextPage === "number")
       res.setHeader("x-next-page", String(nextPage));
     res.setHeader("x-has-more", typeof nextPage === "number" ? "1" : "0");
+    res.setHeader(
+      "x-ai-reranked",
+      env.OPENAI_ENABLED && env.OPENAI_API_KEY ? "1" : "0",
+    );
 
     if (typeof totalResults === "number" && !Number.isNaN(totalResults)) {
       res.setHeader("x-total-results", String(totalResults));
     }
 
     log.info("search.response.ok", {
-      items_count: enrichedResults.length,
+      items_count: rerankedResults.length,
       ms: Date.now() - startedAt,
     });
 
-    return res.json(enrichedResults);
+    return res.json(rerankedResults);
   } catch (err: any) {
     log.error("search.response.error", {
       ms: Date.now() - startedAt,

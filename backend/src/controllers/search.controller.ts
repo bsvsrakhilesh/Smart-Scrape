@@ -1,10 +1,19 @@
 import { Request, Response, NextFunction } from "express";
 import { googleSearch } from "../services/search.service";
 import { planCollectorQuery } from "../services/searchPlanner.service";
-import { enrichSearchResults } from "../services/searchResultIntelligence.service";
+import {
+  enrichSearchResults,
+  type EnrichedSearchResult,
+  type SearchResultIntelligence,
+  type SearchResultRow,
+} from "../services/searchResultIntelligence.service";
 import { rerankSearchResults } from "../services/searchReranker.service";
 import { env } from "../config/env";
 import { log } from "../utils/logger";
+
+type IncomingRerankRow = SearchResultRow & {
+  intelligence?: SearchResultIntelligence;
+};
 
 function numOrUndef(v: unknown): number | undefined {
   const n = typeof v === "string" || typeof v === "number" ? Number(v) : NaN;
@@ -76,6 +85,99 @@ export async function searchHandler(
     return res.json(rerankedResults);
   } catch (err: any) {
     log.error("search.response.error", {
+      ms: Date.now() - startedAt,
+      reason: err?.message,
+    });
+    return next(err);
+  }
+}
+
+export async function searchRerankHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  const q = String(req.body?.q || "").trim();
+
+  if (!q) {
+    log.warn("search.rerank.invalid", { reason: "missing q" });
+    return res.status(400).json({ error: "Missing body field `q`" });
+  }
+
+  const incoming = Array.isArray(req.body?.results) ? req.body.results : [];
+  if (!incoming.length) {
+    log.warn("search.rerank.invalid", { reason: "missing results" });
+    return res.status(400).json({ error: "Missing body field `results`" });
+  }
+
+  const opts = {
+    site: strOrUndef(req.body?.site),
+    yearFrom: numOrUndef(req.body?.yearFrom),
+    yearTo: numOrUndef(req.body?.yearTo),
+    jurisdiction: strOrUndef(req.body?.jurisdiction),
+    region: strOrUndef(req.body?.region),
+    fileType: strOrUndef(req.body?.fileType) as "pdf" | "html" | undefined,
+  };
+
+  const startedAt = Date.now();
+
+  try {
+    const normalized: IncomingRerankRow[] = incoming.map(
+      (row: any): IncomingRerankRow => ({
+        title: String(row?.title || "").trim(),
+        url: String(row?.url || "").trim(),
+        snippet: typeof row?.snippet === "string" ? row.snippet : "",
+        intelligence:
+          row?.intelligence &&
+          typeof row.intelligence === "object" &&
+          typeof row.intelligence.docType === "string" &&
+          typeof row.intelligence.sourceType === "string" &&
+          typeof row.intelligence.fileTypeHint === "string" &&
+          typeof row.intelligence.confidence === "string"
+            ? {
+                docType: row.intelligence.docType,
+                sourceType: row.intelligence.sourceType,
+                fileTypeHint: row.intelligence.fileTypeHint,
+                confidence: row.intelligence.confidence,
+                reason: String(row.intelligence.reason || ""),
+              }
+            : undefined,
+      }),
+    );
+
+    const fullyEnriched = normalized.every(
+      (row): row is EnrichedSearchResult => !!row.intelligence,
+    );
+
+    const enrichedRows: EnrichedSearchResult[] = fullyEnriched
+      ? normalized
+      : await enrichSearchResults(
+          normalized.map(({ title, url, snippet }: SearchResultRow) => ({
+            title,
+            url,
+            snippet,
+          })),
+        );
+
+    const rerankedResults = await rerankSearchResults({
+      query: q,
+      results: enrichedRows as any,
+      opts,
+    });
+
+    res.setHeader(
+      "x-ai-reranked",
+      env.OPENAI_ENABLED && env.OPENAI_API_KEY ? "1" : "0",
+    );
+
+    log.info("search.rerank.response.ok", {
+      items_count: rerankedResults.length,
+      ms: Date.now() - startedAt,
+    });
+
+    return res.json(rerankedResults);
+  } catch (err: any) {
+    log.error("search.rerank.response.error", {
       ms: Date.now() - startedAt,
       reason: err?.message,
     });

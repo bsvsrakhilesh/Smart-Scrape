@@ -3,7 +3,12 @@ import SearchForm from "../components/urlcollector/SearchForm";
 import ResultsTable from "../components/urlcollector/ResultsTable";
 import Spinner from "../components/urlcollector/Spinner";
 import { SearchResult } from "../lib/types";
-import { planCollectorQuery, searchWeb } from "../lib/api";
+import {
+  planCollectorQuery,
+  rerankSearchResults,
+  searchWeb,
+  type SearchWebOptions,
+} from "../lib/api";
 import { useLocation, useNavigate } from "react-router-dom";
 import SmartCard from "../components/ui/SmartCard";
 
@@ -190,6 +195,9 @@ const UrlCollectorPage: React.FC = () => {
   // Auto-prefetch progress (so the UI can say "Loading 30/50 results…")
   const [prefetchCount, setPrefetchCount] = useState<number>(0);
 
+  const [isReranking, setIsReranking] = useState(false);
+  const [aiRerankedCount, setAiRerankedCount] = useState(0);
+
   // Selection must be Set<string> for ResultsTable
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
 
@@ -357,6 +365,74 @@ const UrlCollectorPage: React.FC = () => {
     );
   }
 
+  function buildRerankOpts(site: string, sc: CollectorScope): SearchWebOptions {
+    const yFrom = toYYYY(sc.yearFrom);
+    const yTo = toYYYY(sc.yearTo);
+
+    return {
+      site: site.trim() || undefined,
+      yearFrom: yFrom ? Number(yFrom) : undefined,
+      yearTo: yTo ? Number(yTo) : undefined,
+      jurisdiction: sc.jurisdiction.trim() || undefined,
+      region: sc.region.trim() || undefined,
+      fileType: sc.format === "pdfOnly" ? "pdf" : undefined,
+    };
+  }
+
+  const applyMergedRerank = useCallback(
+    async (
+      query: string,
+      rows: SearchResult[],
+      site: string,
+      sc: CollectorScope,
+      signal?: AbortSignal,
+    ) => {
+      if (!rows.length) {
+        setAiRerankedCount(0);
+        return rows;
+      }
+
+      if (rows.length === 1) {
+        setAiRerankedCount(0);
+        return rows;
+      }
+
+      setIsReranking(true);
+
+      try {
+        const reranked = await rerankSearchResults(
+          {
+            q: query,
+            results: rows,
+            opts: buildRerankOpts(site, sc),
+          },
+          signal,
+        );
+
+        const finalRows =
+          Array.isArray(reranked) && reranked.length ? reranked : rows;
+
+        const rankedCount = finalRows.filter(
+          (r) => r.ranking && Number.isFinite(r.ranking.score),
+        ).length;
+
+        setAiRerankedCount(rankedCount);
+        return finalRows;
+      } catch (e: any) {
+        if (e?.code === "ERR_CANCELED" || e?.name === "AbortError") {
+          return rows;
+        }
+
+        console.warn("AI rerank failed; keeping current order.", e);
+        setAiRerankedCount(0);
+        return rows;
+      } finally {
+        setIsReranking(false);
+      }
+    },
+    [],
+  );
+
   /* ---------- Search handler (working fetch + abort) ---------- */
   const handleSearch = useCallback(
     async (siteArg?: string, kwArg?: string) => {
@@ -398,6 +474,7 @@ const UrlCollectorPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       setHasSearched(true);
+      setAiRerankedCount(0);
 
       // keep URL in sync (shareable)
       syncUrl(site, kws, scope);
@@ -486,6 +563,20 @@ const UrlCollectorPage: React.FC = () => {
           // If a page returns no rows, stop trying.
           if (pn.rows.length === 0) break;
         }
+
+        if (!controller.signal.aborted && merged.length > 1) {
+          const reranked = await applyMergedRerank(
+            q,
+            merged,
+            site,
+            scope,
+            controller.signal,
+          );
+
+          if (!controller.signal.aborted) {
+            setSearchResults(reranked);
+          }
+        }
       } catch (e: any) {
         if (e?.name !== "AbortError" && e?.code !== "ERR_CANCELED") {
           if (e?.message === "RATE_LIMITED") {
@@ -566,17 +657,26 @@ const UrlCollectorPage: React.FC = () => {
         totalResults: tot,
       } = await searchWeb(lastQuery, nextPage);
 
-      setSearchResults((prev) => {
-        const seen = new Set(prev.map((r) => r.url));
-        const merged = [...prev];
-        for (const r of newRows) {
-          if (r.url && !seen.has(r.url)) {
-            seen.add(r.url);
-            merged.push(r);
-          }
+      const seen = new Set(searchResults.map((r) => r.url));
+      const merged = [...searchResults];
+
+      for (const r of newRows) {
+        if (r.url && !seen.has(r.url)) {
+          seen.add(r.url);
+          merged.push(r);
         }
-        return merged;
-      });
+      }
+
+      setSearchResults(merged);
+
+      const reranked = await applyMergedRerank(
+        lastQuery,
+        merged,
+        website,
+        scope,
+      );
+
+      setSearchResults(reranked);
 
       setNextPage(np);
       setTotalResults(tot);
@@ -601,7 +701,7 @@ const UrlCollectorPage: React.FC = () => {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [nextPage, lastQuery]);
+  }, [nextPage, lastQuery, searchResults, website, scope, applyMergedRerank]);
 
   /* ---------- Selection handlers ---------- */
   const onToggleRow = useCallback((url: string) => {
@@ -644,6 +744,8 @@ const UrlCollectorPage: React.FC = () => {
     setHasSearched(false);
     setError(null);
     setIsLoadingMore(false);
+    setIsReranking(false);
+    setAiRerankedCount(0);
     setNextPage(null);
     setTotalResults(null);
     setLastQuery("");
@@ -656,6 +758,8 @@ const UrlCollectorPage: React.FC = () => {
     setHasSearched(false);
     setError(null);
     setIsLoadingMore(false);
+    setIsReranking(false);
+    setAiRerankedCount(0);
     setNextPage(null);
     setTotalResults(null);
     setLastQuery("");
@@ -904,6 +1008,22 @@ const UrlCollectorPage: React.FC = () => {
                 {searchResults.length === 1 ? "" : "s"}
               </span>
             )}
+
+            {isReranking && hasSearched && (
+              <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                AI reranking loaded results…
+              </span>
+            )}
+
+            {!isLoading &&
+              !isReranking &&
+              hasSearched &&
+              aiRerankedCount > 0 && (
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                  AI-reranked {aiRerankedCount} result
+                  {aiRerankedCount === 1 ? "" : "s"}
+                </span>
+              )}
             {/* announce sort to screen readers */}
             <span className="sr-only">Sorted by {sortKey}</span>
           </div>

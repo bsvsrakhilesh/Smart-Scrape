@@ -19,6 +19,14 @@ export type SearchResultSourceType =
 
 export type SearchResultConfidence = "high" | "medium" | "low";
 
+export interface SearchResultRanking {
+  rank: number;
+  score: number;
+  heuristicScore: number;
+  llmScore: number;
+  reasons: string[];
+}
+
 export interface SearchResult {
   title: string;
   url: string;
@@ -30,6 +38,7 @@ export interface SearchResult {
     confidence: SearchResultConfidence;
     reason?: string;
   };
+  ranking?: SearchResultRanking;
 }
 
 export type Page = "url-collector" | "saved-urls" | "file-manager" | "notebook";

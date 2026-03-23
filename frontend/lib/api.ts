@@ -164,6 +164,7 @@ export async function searchWeb(
           url: it?.url ?? "",
           snippet: it?.snippet ?? "",
           intelligence: it?.intelligence,
+          ranking: it?.ranking,
         }))
       : [];
 
@@ -186,6 +187,44 @@ export async function searchWeb(
     throw new Error(
       `Proxy error ${status ?? "?"}: ${text || err?.message || "request failed"}`,
     );
+  }
+}
+
+export async function rerankSearchResults(
+  payload: {
+    q: string;
+    results: SearchResult[];
+    opts?: SearchWebOptions;
+  },
+  signal?: AbortSignal,
+): Promise<SearchResult[]> {
+  try {
+    const res = await api.post(
+      "/api/search/rerank",
+      {
+        q: payload.q,
+        results: payload.results,
+        ...(payload.opts || {}),
+      },
+      {
+        headers: { Accept: "application/json" },
+        signal,
+      },
+    );
+
+    const data = res.data as SearchResult[];
+    return Array.isArray(data)
+      ? data.map((it) => ({
+          title: it?.title ?? "(no title)",
+          url: it?.url ?? "",
+          snippet: it?.snippet ?? "",
+          intelligence: it?.intelligence,
+          ranking: it?.ranking,
+        }))
+      : [];
+  } catch (err: any) {
+    if (err?.code === "ERR_CANCELED") throw err;
+    normalizeApiError(err, "AI rerank failed");
   }
 }
 

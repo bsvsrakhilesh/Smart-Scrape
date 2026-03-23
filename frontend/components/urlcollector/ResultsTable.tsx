@@ -966,7 +966,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                 className="rounded-md border border-gray-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-green-200"
                 aria-label="Sort results"
               >
-                <option value="original">Relevance</option>
+                <option value="original">AI relevance</option>
                 <option value="title">Title</option>
                 <option value="domain">Domain</option>
               </select>

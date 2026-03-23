@@ -25,6 +25,41 @@ function mergeUnique(
   return Array.from(new Set([...(existing || []), ...(incoming || [])]));
 }
 
+function parseStructuredDate(value: unknown): Date | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) return direct;
+
+  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let year = Number(dmy[3]);
+
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+
+    const dt = new Date(Date.UTC(year, month - 1, day));
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  return null;
+}
+
+function derivePublishedAtFromAiTaggerPayload(data: any): Date | null {
+  const candidates = Array.isArray(data?.structured?.entities?.dates)
+    ? data.structured.entities.dates
+    : [];
+
+  for (const candidate of candidates) {
+    const parsed = parseStructuredDate(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 /**
  * Runs Python ai-tagger for an existing StoredFile row and persists results when done.
  * Safe to call multiple times (merges tags).
@@ -117,10 +152,16 @@ export async function runAiTagForFile(
 
       const latest = await prisma.storedFile.findUnique({
         where: { id: String(fileId) },
-        select: { tags: true, tagsMeta: true },
+        select: {
+          tags: true,
+          tagsMeta: true,
+          sourcePublishedAt: true,
+          sourceAuthors: true,
+        },
       });
 
       const merged = mergeUnique(latest?.tags, tags);
+      const structuredPublishedAt = derivePublishedAtFromAiTaggerPayload(data);
 
       await prisma.$transaction([
         prisma.storedFile.update({
@@ -129,6 +170,8 @@ export async function runAiTagForFile(
             tags: { set: merged },
             contentHash: data?.hash ?? null,
             taggerVersion: data?.tagger_version ?? null,
+            sourcePublishedAt:
+              latest?.sourcePublishedAt ?? structuredPublishedAt ?? null,
             tagsMeta: {
               ...((latest?.tagsMeta as any) || {}),
               tagger: {

@@ -284,7 +284,50 @@ export type BackendStoredFile = {
   captureEvent?: any;
 };
 
+function parseStructuredDateToIso(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const direct = new Date(raw);
+  if (!Number.isNaN(direct.getTime())) return direct.toISOString();
+
+  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    let year = Number(dmy[3]);
+
+    if (year < 100) year += year >= 70 ? 1900 : 2000;
+
+    const dt = new Date(Date.UTC(year, month - 1, day));
+    return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+  }
+
+  return null;
+}
+
+function deriveStructuredPublishedAt(tagsMeta: any): string | null {
+  const dateLists = [
+    tagsMeta?.tagger?.structured?.entities?.dates,
+    tagsMeta?.aiTagger?.structured?.entities?.dates,
+  ];
+
+  for (const list of dateLists) {
+    if (!Array.isArray(list)) continue;
+
+    for (const entry of list) {
+      const iso = parseStructuredDateToIso(entry);
+      if (iso) return iso;
+    }
+  }
+
+  return null;
+}
+
 export function toFileItem(row: BackendStoredFile): FileItem {
+  const tagsMetaRaw = (row as any)?.tagsMeta ?? null;
+  const derivedStructuredPublishedAt = deriveStructuredPublishedAt(tagsMetaRaw);
+
   return {
     id: row.id,
     title: row.fileName || "Untitled",
@@ -306,7 +349,10 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     sourceUrl: row.sourceUrl ?? null,
     urlId: row.urlId ?? null,
     sourcePublishedAt:
-      (row as any).sourcePublishedAt ?? (row as any)?.url?.publishedAt ?? null,
+      (row as any).sourcePublishedAt ??
+      (row as any)?.url?.publishedAt ??
+      derivedStructuredPublishedAt ??
+      null,
     sourceAuthors:
       (row as any).sourceAuthors ?? (row as any)?.url?.authors ?? null,
     sha256: (row as any).sha256 ?? null,
@@ -316,7 +362,7 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     taggingStatus: (row as any)?.taggingStatus ?? "NONE",
     taggingJobId: (row as any)?.taggingJobId ?? null,
     taggingError: (row as any)?.taggingError ?? null,
-    tagsMetaRaw: (row as any)?.tagsMeta ?? null,
+    tagsMetaRaw,
 
     document: (row as any).document ?? null,
     documentRevision: (row as any).documentRevision ?? null,

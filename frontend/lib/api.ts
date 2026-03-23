@@ -84,6 +84,43 @@ async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
 }
 
+export type InstitutionalProvider =
+  | "openathens"
+  | "proquest"
+  | "nexis"
+  | "pressreader"
+  | "custom";
+
+export type InstitutionalNodeHealth = {
+  ok: true;
+  enabled: boolean;
+  reachable: boolean;
+  nodeName: string | null;
+  browserReady: boolean;
+  headlessDefault: boolean | null;
+  lastLaunchAt: string | null;
+  lastCaptureAt: string | null;
+  lastLoginOpenedAt: string | null;
+  browserChannel: string | null;
+  message: string | null;
+};
+
+export type InstitutionalSessionStatus = {
+  ok: true;
+  enabled: boolean;
+  reachable: boolean;
+  authenticated: boolean;
+  nodeName: string | null;
+  pages: number;
+  cookieCount: number;
+  headless: boolean | null;
+  providerHints: string[];
+  lastLaunchAt: string | null;
+  lastCaptureAt: string | null;
+  lastLoginOpenedAt: string | null;
+  message: string | null;
+};
+
 export type SearchWebOptions = {
   site?: string;
   yearFrom?: number;
@@ -734,6 +771,42 @@ export async function moveFolder(id: string, targetFolderId?: string | null) {
     targetFolderId: targetFolderId ?? null,
   });
   return res.data as BackendFolder;
+}
+
+export async function getInstitutionalNodeHealth(): Promise<InstitutionalNodeHealth> {
+  try {
+    const res = await api.get("/api/icn/health");
+    return res.data as InstitutionalNodeHealth;
+  } catch (err: any) {
+    normalizeApiError(err, "Could not read institutional node health");
+  }
+}
+
+export async function getInstitutionalSessionStatus(): Promise<InstitutionalSessionStatus> {
+  try {
+    const res = await api.get("/api/icn/session/status");
+    return res.data as InstitutionalSessionStatus;
+  } catch (err: any) {
+    normalizeApiError(err, "Could not read institutional session status");
+  }
+}
+
+export async function openInstitutionalLogin(body: {
+  provider?: InstitutionalProvider;
+  url?: string | null;
+}): Promise<{
+  ok?: boolean;
+  nodeName?: string | null;
+  message?: string | null;
+  startUrl?: string | null;
+  browserChannel?: string | null;
+}> {
+  try {
+    const res = await api.post("/api/icn/session/open-login", body);
+    return res.data;
+  } catch (err: any) {
+    normalizeApiError(err, "Could not open institutional login window");
+  }
 }
 
 // ---------- Crawl / Capture ----------

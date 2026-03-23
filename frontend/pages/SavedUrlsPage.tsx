@@ -30,7 +30,7 @@ import {
   startUrlTagJob,
   getUrlById,
 } from "../lib/api";
-import FolderPickerModal from "../components/savedurls/FolderPickerModal";
+import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
 import {
   getCollections,
   createCollection,

@@ -21,7 +21,7 @@ import {
   crawlSaveText,
 } from "../../lib/api";
 import DownloadIcon from "../icons/DownloadIcon";
-import FolderPickerModal from "../savedurls/FolderPickerModal";
+import FolderPickerModal from "./FolderPickerModal";
 import { StaggerList, StaggerItem } from "../motion/StaggerList";
 import {
   canonicalize as canonicalizeSaved,
@@ -810,7 +810,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     return id;
   };
 
-  // confirm + call backend to persist capture
   // confirm + call backend to persist capture
   const onConfirmCapture = async (opts: {
     folderId?: string | null;

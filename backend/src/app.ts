@@ -24,6 +24,7 @@ import aiTagRoutes from "./routes/aiTag.routes";
 import chunkRoutes from "./routes/chunk.routes";
 import collectionRoutes from "./routes/collection.routes";
 import faviconRoutes from "./routes/favicon.routes";
+import institutionalNodeRoutes from "./routes/institutionalNode.routes";
 
 dotenv.config();
 
@@ -189,16 +190,17 @@ const searchLimiter = rateLimit({
 app.use("/api/tagger", taggerLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/crawl", crawlLimiter);
-// Only rate-limit upload endpoints (chunk spam / large uploads), not browsing (list/preview/download)
 app.use("/api/files/upload", uploadLimiter);
 
 // -------- Routes --------
 app.use("/api", urlRoutes);
 app.use("/api", collectionRoutes);
 app.use("/api/search", searchLimiter, searchRoutes);
+
 app.use("/api", fileRoutes);
 app.use("/api", documentRoutes);
 app.use("/api", crawlRoutes);
+app.use("/api", institutionalNodeRoutes);
 app.use("/api", notebookRoutes);
 app.use("/api", chunkRoutes);
 app.use("/api", aiTagRoutes);

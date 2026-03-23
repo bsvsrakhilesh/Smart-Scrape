@@ -5,7 +5,17 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { listFolders, createFolder, getFolder } from "../../lib/api";
+import {
+  listFolders,
+  createFolder,
+  getFolder,
+  getInstitutionalNodeHealth,
+  getInstitutionalSessionStatus,
+  openInstitutionalLogin,
+  type InstitutionalNodeHealth,
+  type InstitutionalProvider,
+  type InstitutionalSessionStatus,
+} from "../../lib/api";
 import CloseIcon from "../icons/CloseIcon";
 import { PlusButton } from "../ui/PlusButton";
 
@@ -46,6 +56,22 @@ const FolderPickerModal: React.FC<Props> = ({
   const [accessMode, setAccessMode] =
     useState<CaptureAccessMode>(defaultAccessMode);
 
+  const [loginProvider, setLoginProvider] =
+    useState<InstitutionalProvider>("pressreader");
+  const [customLoginUrl, setCustomLoginUrl] = useState("");
+
+  const [icnHealth, setIcnHealth] = useState<InstitutionalNodeHealth | null>(
+    null,
+  );
+  const [icnSession, setIcnSession] =
+    useState<InstitutionalSessionStatus | null>(null);
+  const [icnStatusLoading, setIcnStatusLoading] = useState(false);
+  const [icnBusy, setIcnBusy] = useState(false);
+  const [icnMessage, setIcnMessage] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+
   const [creating, setCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
@@ -63,6 +89,11 @@ const FolderPickerModal: React.FC<Props> = ({
     if (!open) return;
     setFileName(suggestedName);
     setAccessMode(defaultAccessMode);
+    setLoginProvider("pressreader");
+    setCustomLoginUrl("");
+    setIcnHealth(null);
+    setIcnSession(null);
+    setIcnMessage(null);
     setCurrent(null);
     setStack([]);
     setSelectedFolderId(null);
@@ -137,6 +168,35 @@ const FolderPickerModal: React.FC<Props> = ({
     if (open) load(current);
   }, [open, current, load]);
 
+  const refreshInstitutionalState = useCallback(async () => {
+    if (!showInstitutionalToggle || accessMode !== "institutional") return;
+
+    setIcnStatusLoading(true);
+    try {
+      const [health, session] = await Promise.all([
+        getInstitutionalNodeHealth(),
+        getInstitutionalSessionStatus(),
+      ]);
+
+      setIcnHealth(health);
+      setIcnSession(session);
+    } catch (e: any) {
+      setIcnMessage({
+        type: "error",
+        text:
+          e?.message || "Could not reach the institutional session backend.",
+      });
+    } finally {
+      setIcnStatusLoading(false);
+    }
+  }, [showInstitutionalToggle, accessMode]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!(showInstitutionalToggle && accessMode === "institutional")) return;
+    void refreshInstitutionalState();
+  }, [open, showInstitutionalToggle, accessMode, refreshInstitutionalState]);
+
   const goInto = (f: Folder) => {
     setStack((s) => [...s, f]);
     setCurrent(f.id);
@@ -182,6 +242,89 @@ const FolderPickerModal: React.FC<Props> = ({
 
   const destinationName = selectedFolder?.name ?? currentInfo?.name ?? "Home";
 
+  const institutionalReady =
+    accessMode !== "institutional" ||
+    Boolean(
+      icnSession?.enabled && icnSession?.reachable && icnSession?.authenticated,
+    );
+
+  const institutionalStatus = (() => {
+    if (accessMode !== "institutional") {
+      return {
+        label: "Public route",
+        className: "border-neutral-200 bg-neutral-50 text-neutral-700",
+      };
+    }
+
+    if (icnStatusLoading) {
+      return {
+        label: "Checking IIT session…",
+        className: "border-blue-200 bg-blue-50 text-blue-700",
+      };
+    }
+
+    if (!icnHealth?.enabled) {
+      return {
+        label: "ICN disabled",
+        className: "border-neutral-200 bg-neutral-50 text-neutral-700",
+      };
+    }
+
+    if (!icnHealth?.reachable) {
+      return {
+        label: "ICN offline",
+        className: "border-red-200 bg-red-50 text-red-700",
+      };
+    }
+
+    if (icnSession?.authenticated) {
+      return {
+        label: "IIT session ready",
+        className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      };
+    }
+
+    return {
+      label: "Login required",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  })();
+
+  const handleOpenInstitutionalLogin = async () => {
+    if (loginProvider === "custom" && !customLoginUrl.trim()) {
+      setIcnMessage({
+        type: "error",
+        text: "Enter the exact IIT/library entry URL for custom login.",
+      });
+      return;
+    }
+
+    setIcnBusy(true);
+    try {
+      const result = await openInstitutionalLogin(
+        loginProvider === "custom"
+          ? { provider: "custom", url: customLoginUrl.trim() }
+          : { provider: loginProvider },
+      );
+
+      setIcnMessage({
+        type: "success",
+        text:
+          result?.message ||
+          "Login window opened. Complete the IIT/library sign-in there, then refresh the session status.",
+      });
+
+      await refreshInstitutionalState();
+    } catch (e: any) {
+      setIcnMessage({
+        type: "error",
+        text: e?.message || "Could not open the institutional login window.",
+      });
+    } finally {
+      setIcnBusy(false);
+    }
+  };
+
   const handleCreate = async () => {
     const name = newFolderName.trim();
     if (!name) return;
@@ -222,6 +365,11 @@ const FolderPickerModal: React.FC<Props> = ({
                   <span className="md3-chip">
                     {mode === "pdf" ? "PDF" : "TEXT"}
                   </span>
+
+                  {showInstitutionalToggle &&
+                    accessMode === "institutional" && (
+                      <span className="md3-chip">IIT session</span>
+                    )}
 
                   <span className="text-sm text-muted truncate flex items-center gap-2">
                     <span className="truncate">
@@ -416,7 +564,7 @@ const FolderPickerModal: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Right column: create + filename */}
+                {/* Right column: create + filename + route + institutional session */}
                 <div className="md:col-span-2 space-y-4">
                   <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4">
                     <div className="text-sm font-semibold">Create folder</div>
@@ -451,40 +599,6 @@ const FolderPickerModal: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  {showInstitutionalToggle && (
-                    <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4">
-                      <div className="text-sm font-semibold">Access route</div>
-                      <p className="text-xs text-muted mt-1">
-                        Use the IIT institutional session only for sources that
-                        require campus or library access.
-                      </p>
-
-                      <label className="mt-3 flex items-start gap-3 rounded-2xl border border-border px-3 py-3 cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
-                        <input
-                          type="checkbox"
-                          className="mt-1 h-4 w-4"
-                          checked={accessMode === "institutional"}
-                          onChange={(e) =>
-                            setAccessMode(
-                              e.target.checked ? "institutional" : "public",
-                            )
-                          }
-                        />
-
-                        <div className="min-w-0">
-                          <div className="font-medium text-sm">
-                            Use IIT institutional session
-                          </div>
-                          <div className="text-xs text-muted mt-1">
-                            {accessMode === "institutional"
-                              ? "This capture will be routed through the institutional capture lane."
-                              : "This capture will use the normal public capture lane."}
-                          </div>
-                        </div>
-                      </label>
-                    </div>
-                  )}
-
                   <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4">
                     <div className="text-sm font-semibold">File name</div>
                     <p className="text-xs text-muted mt-1">
@@ -502,6 +616,202 @@ const FolderPickerModal: React.FC<Props> = ({
                       />
                     </div>
                   </div>
+
+                  {showInstitutionalToggle && (
+                    <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">
+                            Access route
+                          </div>
+                          <p className="text-xs text-muted mt-1">
+                            Use the IIT institutional lane only for sources that
+                            require campus, VPN, or library access.
+                          </p>
+                        </div>
+
+                        <span
+                          className={[
+                            "inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                            institutionalStatus.className,
+                          ].join(" ")}
+                        >
+                          {institutionalStatus.label}
+                        </span>
+                      </div>
+
+                      <label className="mt-3 flex items-start gap-3 rounded-2xl border border-border px-3 py-3 cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4"
+                          checked={accessMode === "institutional"}
+                          onChange={(e) => {
+                            const nextMode = e.target.checked
+                              ? "institutional"
+                              : "public";
+                            setAccessMode(nextMode);
+                            setIcnMessage(null);
+                          }}
+                        />
+
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm">
+                            Use IIT institutional session
+                          </div>
+                          <div className="text-xs text-muted mt-1">
+                            {accessMode === "institutional"
+                              ? "This capture will be routed through the institutional capture lane."
+                              : "This capture will use the normal public capture lane."}
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
+                  {showInstitutionalToggle &&
+                    accessMode === "institutional" && (
+                      <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold">
+                              IIT session
+                            </div>
+                            <p className="text-xs text-muted mt-1">
+                              Open the dedicated login window, complete the
+                              sign-in there, then refresh this status before
+                              saving.
+                            </p>
+                          </div>
+
+                          <PlusButton
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            loading={icnStatusLoading}
+                            disabled={icnBusy}
+                            onClick={() => {
+                              setIcnMessage(null);
+                              void refreshInstitutionalState();
+                            }}
+                          >
+                            Refresh
+                          </PlusButton>
+                        </div>
+
+                        {icnMessage && (
+                          <div
+                            className={[
+                              "rounded-2xl border px-3 py-2 text-xs",
+                              icnMessage.type === "success"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                : icnMessage.type === "error"
+                                  ? "border-red-200 bg-red-50 text-red-800"
+                                  : "border-blue-200 bg-blue-50 text-blue-800",
+                            ].join(" ")}
+                          >
+                            {icnMessage.text}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-xl border border-border px-3 py-2">
+                            <div className="text-muted">Node</div>
+                            <div className="mt-1 font-medium text-foreground truncate">
+                              {icnHealth?.nodeName || "—"}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border px-3 py-2">
+                            <div className="text-muted">Cookies</div>
+                            <div className="mt-1 font-medium text-foreground">
+                              {typeof icnSession?.cookieCount === "number"
+                                ? icnSession.cookieCount
+                                : "—"}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border px-3 py-2">
+                            <div className="text-muted">Browser</div>
+                            <div className="mt-1 font-medium text-foreground truncate">
+                              {icnHealth?.browserReady
+                                ? icnHealth.browserChannel || "Ready"
+                                : "Not launched yet"}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-border px-3 py-2">
+                            <div className="text-muted">Providers seen</div>
+                            <div className="mt-1 font-medium text-foreground truncate">
+                              {icnSession?.providerHints?.length
+                                ? icnSession.providerHints.join(", ")
+                                : "—"}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-xs font-medium text-foreground">
+                            Login provider
+                          </div>
+                          <select
+                            className="md3-input mt-2 w-full rounded-2xl"
+                            value={loginProvider}
+                            onChange={(e) =>
+                              setLoginProvider(
+                                e.target.value as InstitutionalProvider,
+                              )
+                            }
+                          >
+                            <option value="pressreader">PressReader</option>
+                            <option value="proquest">ProQuest</option>
+                            <option value="nexis">Nexis Uni</option>
+                            <option value="openathens">
+                              OpenAthens / library SSO
+                            </option>
+                            <option value="custom">
+                              Custom IIT/library URL
+                            </option>
+                          </select>
+                        </div>
+
+                        {loginProvider === "custom" && (
+                          <div className="bg-landing-gradient rounded-2xl p-[1px]">
+                            <input
+                              className="md3-input w-full rounded-2xl"
+                              value={customLoginUrl}
+                              onChange={(e) =>
+                                setCustomLoginUrl(e.target.value)
+                              }
+                              placeholder="Paste the exact IIT/library entry URL"
+                            />
+                          </div>
+                        )}
+
+                        <div className="flex items-start gap-2">
+                          <PlusButton
+                            type="button"
+                            variant="solid"
+                            loading={icnBusy}
+                            disabled={icnStatusLoading}
+                            onClick={() => void handleOpenInstitutionalLogin()}
+                          >
+                            Open login window
+                          </PlusButton>
+
+                          <div className="text-xs text-muted pt-2">
+                            This opens the dedicated institutional capture
+                            browser, not your normal everyday browser.
+                          </div>
+                        </div>
+
+                        {!institutionalReady && (
+                          <div className="text-xs text-amber-700">
+                            Complete the IIT/library sign-in and refresh the
+                            status before saving through the institutional lane.
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
             </div>
@@ -563,7 +873,14 @@ const FolderPickerModal: React.FC<Props> = ({
                       accessMode,
                     })
                   }
-                  disabled={!fileName.trim() || infoLoading || loading}
+                  disabled={
+                    !fileName.trim() ||
+                    infoLoading ||
+                    loading ||
+                    (showInstitutionalToggle &&
+                      accessMode === "institutional" &&
+                      !institutionalReady)
+                  }
                 >
                   Save
                 </PlusButton>

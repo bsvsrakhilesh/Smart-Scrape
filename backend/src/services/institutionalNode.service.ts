@@ -1,66 +1,35 @@
 import axios from "axios";
 import { env } from "../config/env";
 
-export type InstitutionalLoginProvider =
-  | "openathens"
-  | "proquest"
-  | "nexis"
-  | "pressreader"
-  | "custom";
-
-type UpstreamHealth = {
-  ok?: boolean;
-  nodeName?: string | null;
-  headlessDefault?: boolean | null;
-  browserReady?: boolean | null;
-  lastLaunchAt?: string | null;
-  lastCaptureAt?: string | null;
-  lastLoginOpenedAt?: string | null;
-  browserChannel?: string | null;
-  message?: string | null;
-};
-
-type UpstreamSessionStatus = {
-  ok?: boolean;
-  nodeName?: string | null;
-  pages?: number | null;
-  cookieCount?: number | null;
-  headless?: boolean | null;
-  lastLaunchAt?: string | null;
-  lastCaptureAt?: string | null;
-  lastLoginOpenedAt?: string | null;
-  providerHints?: string[] | null;
-  message?: string | null;
-};
-
-export type InstitutionalNodeHealth = {
+export type InstitutionalArticleInspection = {
   ok: true;
   enabled: boolean;
   reachable: boolean;
   nodeName: string | null;
-  browserReady: boolean;
-  headlessDefault: boolean | null;
-  lastLaunchAt: string | null;
-  lastCaptureAt: string | null;
-  lastLoginOpenedAt: string | null;
-  browserChannel: string | null;
+  provider: string | null;
+  finalUrl: string | null;
+  sourceHost: string | null;
+  sourceName: string | null;
+  title: string | null;
+  h1: string | null;
+  canonicalUrl: string | null;
+  author: string | null;
+  publishedAt: string | null;
+  snippet: string | null;
+  textPreview: string | null;
+  textLength: number;
+  paywallDetected: boolean;
+  paywallSignals: string[];
+  isLikelyArticle: boolean;
+  extractionConfidence: "high" | "medium" | "low";
+  contentType: string | null;
+  note: string | null;
   message: string | null;
 };
 
-export type InstitutionalSessionStatus = {
-  ok: true;
-  enabled: boolean;
-  reachable: boolean;
-  authenticated: boolean;
-  nodeName: string | null;
-  pages: number;
-  cookieCount: number;
-  headless: boolean | null;
-  providerHints: string[];
-  lastLaunchAt: string | null;
-  lastCaptureAt: string | null;
-  lastLoginOpenedAt: string | null;
-  message: string | null;
+type UpstreamInspection = Partial<InstitutionalArticleInspection> & {
+  ok?: boolean;
+  message?: string | null;
 };
 
 function icnBaseUrl(): string {
@@ -84,155 +53,41 @@ function upstreamErrorMessage(error: any, fallback: string): string {
   return error?.response?.data?.message || error?.message || fallback;
 }
 
-export async function getInstitutionalNodeHealthProxy(): Promise<InstitutionalNodeHealth> {
+export async function inspectInstitutionalArticleProxy(input: {
+  url: string;
+}): Promise<InstitutionalArticleInspection> {
   if (!env.ICN_ENABLED) {
     return {
       ok: true,
       enabled: false,
       reachable: false,
       nodeName: null,
-      browserReady: false,
-      headlessDefault: null,
-      lastLaunchAt: null,
-      lastCaptureAt: null,
-      lastLoginOpenedAt: null,
-      browserChannel: null,
+      provider: null,
+      finalUrl: null,
+      sourceHost: null,
+      sourceName: null,
+      title: null,
+      h1: null,
+      canonicalUrl: null,
+      author: null,
+      publishedAt: null,
+      snippet: null,
+      textPreview: null,
+      textLength: 0,
+      paywallDetected: false,
+      paywallSignals: [],
+      isLikelyArticle: false,
+      extractionConfidence: "low",
+      contentType: null,
+      note: null,
       message: "Institutional capture is disabled on the backend.",
     };
   }
 
   try {
-    const res = await axios.get<UpstreamHealth>(`${icnBaseUrl()}/health`, {
-      timeout: env.ICN_TIMEOUT_MS,
-      headers: icnHeaders(),
-    });
-
-    const data = res.data || {};
-
-    return {
-      ok: true,
-      enabled: true,
-      reachable: true,
-      nodeName: data.nodeName ?? null,
-      browserReady: Boolean(data.browserReady),
-      headlessDefault:
-        typeof data.headlessDefault === "boolean" ? data.headlessDefault : null,
-      lastLaunchAt: data.lastLaunchAt ?? null,
-      lastCaptureAt: data.lastCaptureAt ?? null,
-      lastLoginOpenedAt: data.lastLoginOpenedAt ?? null,
-      browserChannel: data.browserChannel ?? null,
-      message: data.message ?? null,
-    };
-  } catch (error: any) {
-    return {
-      ok: true,
-      enabled: true,
-      reachable: false,
-      nodeName: null,
-      browserReady: false,
-      headlessDefault: null,
-      lastLaunchAt: null,
-      lastCaptureAt: null,
-      lastLoginOpenedAt: null,
-      browserChannel: null,
-      message: upstreamErrorMessage(
-        error,
-        "Could not reach the institutional capture node.",
-      ),
-    };
-  }
-}
-
-export async function getInstitutionalSessionStatusProxy(): Promise<InstitutionalSessionStatus> {
-  if (!env.ICN_ENABLED) {
-    return {
-      ok: true,
-      enabled: false,
-      reachable: false,
-      authenticated: false,
-      nodeName: null,
-      pages: 0,
-      cookieCount: 0,
-      headless: null,
-      providerHints: [],
-      lastLaunchAt: null,
-      lastCaptureAt: null,
-      lastLoginOpenedAt: null,
-      message: "Institutional capture is disabled on the backend.",
-    };
-  }
-
-  try {
-    const res = await axios.get<UpstreamSessionStatus>(
-      `${icnBaseUrl()}/session/status`,
-      {
-        timeout: env.ICN_TIMEOUT_MS,
-        headers: icnHeaders(),
-      },
-    );
-
-    const data = res.data || {};
-    const cookieCount =
-      typeof data.cookieCount === "number" ? data.cookieCount : 0;
-
-    return {
-      ok: true,
-      enabled: true,
-      reachable: true,
-      authenticated: cookieCount > 0,
-      nodeName: data.nodeName ?? null,
-      pages: typeof data.pages === "number" ? data.pages : 0,
-      cookieCount,
-      headless: typeof data.headless === "boolean" ? data.headless : null,
-      providerHints: Array.isArray(data.providerHints)
-        ? data.providerHints.filter(Boolean)
-        : [],
-      lastLaunchAt: data.lastLaunchAt ?? null,
-      lastCaptureAt: data.lastCaptureAt ?? null,
-      lastLoginOpenedAt: data.lastLoginOpenedAt ?? null,
-      message: data.message ?? null,
-    };
-  } catch (error: any) {
-    return {
-      ok: true,
-      enabled: true,
-      reachable: false,
-      authenticated: false,
-      nodeName: null,
-      pages: 0,
-      cookieCount: 0,
-      headless: null,
-      providerHints: [],
-      lastLaunchAt: null,
-      lastCaptureAt: null,
-      lastLoginOpenedAt: null,
-      message: upstreamErrorMessage(
-        error,
-        "Could not read the institutional session state.",
-      ),
-    };
-  }
-}
-
-export async function openInstitutionalLoginProxy(input: {
-  provider?: InstitutionalLoginProvider;
-  url?: string | null;
-}) {
-  if (!env.ICN_ENABLED) {
-    const err: any = new Error(
-      "Institutional capture is disabled on the backend.",
-    );
-    err.status = 503;
-    throw err;
-  }
-
-  try {
-    const res = await axios.post(
-      `${icnBaseUrl()}/session/open-login`,
-      {
-        provider: input.provider ?? undefined,
-        url: input.url ?? null,
-      },
+    const res = await axios.post<UpstreamInspection>(
+      `${icnBaseUrl()}/inspect/article`,
+      { url: input.url },
       {
         timeout: env.ICN_TIMEOUT_MS,
         headers: {
@@ -242,15 +97,68 @@ export async function openInstitutionalLoginProxy(input: {
       },
     );
 
-    return res.data;
+    const data = res.data || {};
+
+    return {
+      ok: true,
+      enabled: true,
+      reachable: true,
+      nodeName: data.nodeName ?? null,
+      provider: data.provider ?? null,
+      finalUrl: data.finalUrl ?? null,
+      sourceHost: data.sourceHost ?? null,
+      sourceName: data.sourceName ?? null,
+      title: data.title ?? null,
+      h1: data.h1 ?? null,
+      canonicalUrl: data.canonicalUrl ?? null,
+      author: data.author ?? null,
+      publishedAt: data.publishedAt ?? null,
+      snippet: data.snippet ?? null,
+      textPreview: data.textPreview ?? null,
+      textLength: typeof data.textLength === "number" ? data.textLength : 0,
+      paywallDetected: Boolean(data.paywallDetected),
+      paywallSignals: Array.isArray(data.paywallSignals)
+        ? data.paywallSignals.filter(Boolean)
+        : [],
+      isLikelyArticle: Boolean(data.isLikelyArticle),
+      extractionConfidence:
+        data.extractionConfidence === "high" ||
+        data.extractionConfidence === "medium" ||
+        data.extractionConfidence === "low"
+          ? data.extractionConfidence
+          : "low",
+      contentType: data.contentType ?? null,
+      note: data.note ?? null,
+      message: data.message ?? null,
+    };
   } catch (error: any) {
-    const err: any = new Error(
-      upstreamErrorMessage(
+    return {
+      ok: true,
+      enabled: true,
+      reachable: false,
+      nodeName: null,
+      provider: null,
+      finalUrl: null,
+      sourceHost: null,
+      sourceName: null,
+      title: null,
+      h1: null,
+      canonicalUrl: null,
+      author: null,
+      publishedAt: null,
+      snippet: null,
+      textPreview: null,
+      textLength: 0,
+      paywallDetected: false,
+      paywallSignals: [],
+      isLikelyArticle: false,
+      extractionConfidence: "low",
+      contentType: null,
+      note: null,
+      message: upstreamErrorMessage(
         error,
-        "Could not open the institutional login window.",
+        "Could not inspect the article through the institutional node.",
       ),
-    );
-    err.status = error?.response?.status || 502;
-    throw err;
+    };
   }
 }

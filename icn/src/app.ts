@@ -80,6 +80,10 @@ type CaptureRequestBody = {
   fileName?: string | null;
 };
 
+type InspectArticleRequestBody = {
+  url?: string;
+};
+
 type OpenLoginRequestBody = {
   url?: string | null;
   provider?: "openathens" | "proquest" | "nexis" | "pressreader" | "custom";
@@ -178,6 +182,370 @@ function parseContentDispositionFileName(
   if (plain?.[1]) return plain[1].replace(/\.[A-Za-z0-9]{1,6}$/, "");
 
   return null;
+}
+
+function normalizeWhitespace(input: string | null | undefined): string {
+  return String(input || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstNonEmpty(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    const cleaned = normalizeWhitespace(value);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function firstMetaContent(doc: Document, selectors: string[]): string | null {
+  for (const selector of selectors) {
+    const el = doc.querySelector(selector);
+    const content = el?.getAttribute("content") || el?.getAttribute("href");
+    const cleaned = normalizeWhitespace(content);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function resolveMaybeUrl(
+  baseUrl: string,
+  raw: string | null | undefined,
+): string | null {
+  const cleaned = normalizeWhitespace(raw);
+  if (!cleaned) return null;
+
+  try {
+    return new URL(cleaned, baseUrl).toString();
+  } catch {
+    return cleaned;
+  }
+}
+
+function safeJsonParse<T = unknown>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function flattenJsonLd(input: unknown): any[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return input.flatMap(flattenJsonLd);
+  if (typeof input !== "object") return [];
+
+  const obj = input as Record<string, unknown>;
+  const graph = Array.isArray(obj["@graph"])
+    ? (obj["@graph"] as unknown[])
+    : [];
+
+  return [obj, ...graph.flatMap(flattenJsonLd)];
+}
+
+function collectJsonLdRecords(doc: Document): any[] {
+  return Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))
+    .map((el) => safeJsonParse(el.textContent || ""))
+    .flatMap(flattenJsonLd);
+}
+
+function extractJsonLdArticleRecord(records: any[]): any | null {
+  const preferred = records.find((record) => {
+    const type = record?.["@type"];
+    const types = Array.isArray(type) ? type : [type];
+    return types.some((entry) =>
+      typeof entry === "string"
+        ? [
+            "NewsArticle",
+            "Article",
+            "ReportageNewsArticle",
+            "AnalysisNewsArticle",
+            "BlogPosting",
+          ].includes(entry)
+        : false,
+    );
+  });
+
+  return preferred || records[0] || null;
+}
+
+function extractBylineFromDom(doc: Document): string | null {
+  const selectors = [
+    '[rel="author"]',
+    '[itemprop="author"]',
+    ".byline",
+    ".article-byline",
+    ".author-name",
+    '[class*="byline"]',
+    '[class*="author"]',
+  ];
+
+  for (const selector of selectors) {
+    const el = doc.querySelector(selector);
+    const cleaned = normalizeWhitespace(el?.textContent);
+    if (cleaned) return cleaned.replace(/^by\s+/i, "");
+  }
+
+  return null;
+}
+
+function buildTextPreview(text: string, maxLength = 420): string | null {
+  const cleaned = normalizeWhitespace(text);
+  if (!cleaned) return null;
+  return cleaned.length > maxLength
+    ? `${cleaned.slice(0, maxLength).trim()}…`
+    : cleaned;
+}
+
+function detectPaywallSignals(doc: Document, pageText: string): string[] {
+  const signals = new Set<string>();
+
+  const selectorHits = [
+    '[class*="paywall"]',
+    '[id*="paywall"]',
+    '[data-test*="paywall"]',
+    '[data-testid*="paywall"]',
+    '[class*="gateway"]',
+    '[id*="gateway"]',
+    '[class*="subscribe"]',
+    '[class*="subscriber"]',
+    '[class*="premium"]',
+    '[class*="metered"]',
+  ];
+
+  selectorHits.forEach((selector) => {
+    if (doc.querySelector(selector)) signals.add(`dom:${selector}`);
+  });
+
+  const lowered = pageText.toLowerCase();
+  const textIndicators = [
+    "subscribe to continue reading",
+    "subscribe to read more",
+    "subscriber only",
+    "subscription required",
+    "already a subscriber",
+    "sign in to continue reading",
+    "register to keep reading",
+    "to continue reading",
+    "this is a premium article",
+    "purchase a subscription",
+    "you have reached your limit",
+    "exclusive for subscribers",
+    "members only",
+  ];
+
+  textIndicators.forEach((needle) => {
+    if (lowered.includes(needle)) signals.add(`text:${needle}`);
+  });
+
+  const restrictedMeta = firstMetaContent(doc, [
+    'meta[property="article:content_tier"]',
+    'meta[name="content_tier"]',
+    'meta[name="cxenseParse:paywall"]',
+    'meta[name="article:premium"]',
+  ]);
+
+  if (
+    restrictedMeta &&
+    /(paid|premium|subscriber|metered|register)/i.test(restrictedMeta)
+  ) {
+    signals.add(`meta:${restrictedMeta}`);
+  }
+
+  return Array.from(signals);
+}
+
+function inspectArticleFromHtml(input: {
+  html: string;
+  pageUrl: string;
+  contentType: string | null;
+}) {
+  const dom = new JSDOM(input.html, { url: input.pageUrl });
+  const doc = dom.window.document;
+  const jsonLdRecords = collectJsonLdRecords(doc);
+  const articleRecord = extractJsonLdArticleRecord(jsonLdRecords);
+
+  const readability = new Readability(doc.cloneNode(true) as Document).parse();
+  const fullText = normalizeWhitespace(
+    readability?.textContent || doc.body?.textContent || "",
+  );
+
+  const title = firstNonEmpty(
+    firstMetaContent(doc, [
+      'meta[property="og:title"]',
+      'meta[name="twitter:title"]',
+      'meta[name="hdl"]',
+    ]),
+    normalizeWhitespace(articleRecord?.headline),
+    normalizeWhitespace(doc.querySelector("h1")?.textContent),
+    normalizeWhitespace(doc.title),
+  );
+
+  const snippet = firstNonEmpty(
+    firstMetaContent(doc, [
+      'meta[name="description"]',
+      'meta[property="og:description"]',
+      'meta[name="twitter:description"]',
+    ]),
+    normalizeWhitespace(readability?.excerpt),
+    buildTextPreview(fullText, 260),
+  );
+
+  const canonicalUrl = resolveMaybeUrl(
+    input.pageUrl,
+    firstMetaContent(doc, ['link[rel="canonical"]', 'meta[property="og:url"]']),
+  );
+
+  const sourceName = firstNonEmpty(
+    firstMetaContent(doc, [
+      'meta[property="og:site_name"]',
+      'meta[name="application-name"]',
+      'meta[name="publisher"]',
+    ]),
+    normalizeWhitespace(articleRecord?.publisher?.name),
+    providerFromUrl(input.pageUrl),
+  );
+
+  const author = firstNonEmpty(
+    firstMetaContent(doc, [
+      'meta[name="author"]',
+      'meta[property="article:author"]',
+      'meta[name="parsely-author"]',
+    ]),
+    Array.isArray(articleRecord?.author)
+      ? articleRecord.author
+          .map((entry: any) => normalizeWhitespace(entry?.name || entry))
+          .filter(Boolean)
+          .join(", ")
+      : normalizeWhitespace(
+          articleRecord?.author?.name || articleRecord?.author,
+        ),
+    extractBylineFromDom(doc),
+  );
+
+  const publishedAt = firstNonEmpty(
+    firstMetaContent(doc, [
+      'meta[property="article:published_time"]',
+      'meta[name="publication_date"]',
+      'meta[name="pubdate"]',
+      'meta[itemprop="datePublished"]',
+      'meta[name="parsely-pub-date"]',
+    ]),
+    normalizeWhitespace(articleRecord?.datePublished),
+    normalizeWhitespace(articleRecord?.dateCreated),
+  );
+
+  const h1 = firstNonEmpty(
+    normalizeWhitespace(doc.querySelector("h1")?.textContent),
+  );
+  const textPreview = buildTextPreview(fullText, 420);
+  const paywallSignals = detectPaywallSignals(
+    doc,
+    `${snippet || ""} ${fullText}`,
+  );
+  const textLength = fullText.length;
+  const isLikelyArticle = Boolean(
+    title && (snippet || textLength > 280 || articleRecord?.headline),
+  );
+
+  const extractionConfidence: "high" | "medium" | "low" = isLikelyArticle
+    ? textLength > 1200 || Boolean(articleRecord?.headline)
+      ? "high"
+      : "medium"
+    : title || snippet
+      ? "medium"
+      : "low";
+
+  return {
+    provider: providerFromUrl(input.pageUrl),
+    finalUrl: input.pageUrl,
+    sourceHost: new URL(input.pageUrl).hostname.replace(/^www\./, ""),
+    sourceName,
+    title,
+    h1,
+    canonicalUrl,
+    author,
+    publishedAt,
+    snippet,
+    textPreview,
+    textLength,
+    paywallDetected: paywallSignals.length > 0,
+    paywallSignals,
+    isLikelyArticle,
+    extractionConfidence,
+    contentType: input.contentType,
+    note: isLikelyArticle
+      ? "Structured article signals extracted from the page."
+      : "Page opened, but article signals were weak or incomplete.",
+  };
+}
+
+async function inspectArticlePayload(context: BrowserContext, rawUrl: string) {
+  const page = await context.newPage();
+  const pdfHits = attachPdfCollectors(page);
+
+  try {
+    const response = await page.goto(rawUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: env.ICN_NAV_TIMEOUT_MS,
+    });
+
+    await settlePage(page);
+
+    const maybePdf = await pickPdfPayload(response, pdfHits);
+    if (maybePdf) {
+      const parsed = await pdfParse(maybePdf.buffer);
+      const preview = buildTextPreview(parsed.text || "", 420);
+
+      await page.close();
+
+      return {
+        provider: providerFromUrl(maybePdf.finalUrl || rawUrl),
+        finalUrl: maybePdf.finalUrl || rawUrl,
+        sourceHost: new URL(maybePdf.finalUrl || rawUrl).hostname.replace(
+          /^www\./,
+          "",
+        ),
+        sourceName: providerFromUrl(maybePdf.finalUrl || rawUrl),
+        title: null,
+        h1: null,
+        canonicalUrl: maybePdf.finalUrl || rawUrl,
+        author: null,
+        publishedAt: null,
+        snippet: preview,
+        textPreview: preview,
+        textLength: normalizeWhitespace(parsed.text || "").length,
+        paywallDetected: false,
+        paywallSignals: [],
+        isLikelyArticle: Boolean(preview),
+        extractionConfidence: preview ? "medium" : "low",
+        contentType: maybePdf.mimeType || "application/pdf",
+        note: "The target resolved directly to a PDF during article inspection.",
+      } as const;
+    }
+
+    const finalUrl = page.url();
+    const html = await page.content();
+    const contentType = response?.headers()?.["content-type"] || null;
+
+    const inspection = inspectArticleFromHtml({
+      html,
+      pageUrl: finalUrl,
+      contentType,
+    });
+
+    await page.close();
+    return inspection;
+  } catch (error) {
+    try {
+      await page.close();
+    } catch {
+      // ignore
+    }
+    throw error;
+  }
 }
 
 function requireSecret(req: Request, res: Response, next: NextFunction): void {
@@ -583,6 +951,45 @@ app.post(
         message: errorMessage(
           error,
           "Could not open interactive login window.",
+        ),
+      });
+    }
+  },
+);
+
+app.post(
+  "/inspect/article",
+  requireSecret,
+  async (req: Request<{}, {}, InspectArticleRequestBody>, res: Response) => {
+    const rawUrl = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+
+    if (!rawUrl) {
+      res.status(400).json({ ok: false, message: "Body.url is required." });
+      return;
+    }
+
+    try {
+      const context = await runExclusive(() => getContext());
+      const inspection = await runExclusive(() =>
+        inspectArticlePayload(context, rawUrl),
+      );
+
+      res.json({
+        ok: true,
+        nodeName: env.ICN_NODE_NAME,
+        ...inspection,
+      });
+    } catch (error) {
+      log("inspect_article_failed", {
+        url: rawUrl,
+        error: errorMessage(error, "inspect failed"),
+      });
+
+      res.status(500).json({
+        ok: false,
+        message: errorMessage(
+          error,
+          "Institutional article inspection failed.",
         ),
       });
     }

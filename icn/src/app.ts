@@ -89,6 +89,14 @@ type OpenLoginRequestBody = {
   provider?: "openathens" | "proquest" | "nexis" | "pressreader" | "custom";
 };
 
+type FallbackProvider = "pressreader" | "proquest" | "nexis";
+
+type SearchFallbackRequestBody = {
+  url?: string;
+  providerOrder?: FallbackProvider[];
+  maxCandidates?: number;
+};
+
 function log(event: string, meta: Record<string, unknown> = {}): void {
   console.log(
     JSON.stringify({
@@ -155,9 +163,9 @@ function resolveLoginTarget(input?: OpenLoginRequestBody): string {
     case "proquest":
       return "https://www.proquest.com/";
     case "nexis":
-      return "https://www.lexisnexis.com/";
+      return "https://advance.lexis.com/";
     case "pressreader":
-      return "https://www.pressreader.com/";
+      return "https://www.pressreader.com/catalog";
     case "openathens":
       return env.ICN_DEFAULT_LOGIN_URL || "https://login.openathens.net/";
     default:
@@ -546,6 +554,452 @@ async function inspectArticlePayload(context: BrowserContext, rawUrl: string) {
     }
     throw error;
   }
+}
+
+type FallbackArticleInspection = Awaited<
+  ReturnType<typeof inspectArticlePayload>
+>;
+
+type FallbackCandidate = {
+  provider: FallbackProvider;
+  query: string;
+  rank: number;
+  title: string | null;
+  url: string | null;
+  snippet: string | null;
+  sourceName: string | null;
+  publishedAt: string | null;
+  score: number;
+  scoreBreakdown: {
+    title: number;
+    source: number;
+    date: number;
+    snippet: number;
+  };
+  matchedBy: string[];
+};
+
+type FallbackSearchPayload = {
+  originalUrl: string;
+  inspection: FallbackArticleInspection;
+  searchedProviders: FallbackProvider[];
+  queryVariants: string[];
+  candidates: FallbackCandidate[];
+  bestCandidate: FallbackCandidate | null;
+  note: string | null;
+};
+
+const FALLBACK_PROVIDER_START_URLS: Record<FallbackProvider, string> = {
+  pressreader: "https://www.pressreader.com/catalog",
+  proquest: "https://www.proquest.com/",
+  nexis: "https://advance.lexis.com/",
+};
+
+const FB_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "of",
+  "for",
+  "to",
+  "in",
+  "on",
+  "with",
+  "at",
+  "by",
+  "from",
+  "how",
+  "what",
+  "why",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "this",
+  "that",
+]);
+
+function fbClean(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fbNormalizeForMatch(value: string | null | undefined): string {
+  return fbClean(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ");
+}
+
+function fbTokens(value: string | null | undefined): string[] {
+  return fbNormalizeForMatch(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !FB_STOPWORDS.has(token));
+}
+
+function fbOverlapScore(
+  targetTokens: string[],
+  candidateTokens: string[],
+): number {
+  if (!targetTokens.length || !candidateTokens.length) return 0;
+  const candidateSet = new Set(candidateTokens);
+  const overlap = targetTokens.filter((token) =>
+    candidateSet.has(token),
+  ).length;
+  return overlap / targetTokens.length;
+}
+
+function fbScoreTitle(
+  targetTitle: string | null,
+  candidateTitle: string | null,
+): number {
+  const targetNorm = fbNormalizeForMatch(targetTitle);
+  const candidateNorm = fbNormalizeForMatch(candidateTitle);
+
+  if (!targetNorm || !candidateNorm) return 0;
+  if (targetNorm === candidateNorm) return 1;
+  if (
+    candidateNorm.includes(targetNorm) ||
+    targetNorm.includes(candidateNorm)
+  ) {
+    return 0.92;
+  }
+
+  return fbOverlapScore(fbTokens(targetTitle), fbTokens(candidateTitle));
+}
+
+function fbScoreSource(
+  targetSource: string | null,
+  candidateText: string,
+): number {
+  const targetNorm = fbNormalizeForMatch(targetSource);
+  const candidateNorm = fbNormalizeForMatch(candidateText);
+
+  if (!targetNorm || !candidateNorm) return 0;
+  if (candidateNorm.includes(targetNorm)) return 1;
+
+  return Math.min(
+    0.75,
+    fbOverlapScore(fbTokens(targetSource), fbTokens(candidateText)),
+  );
+}
+
+function fbScoreDate(
+  targetPublishedAt: string | null,
+  candidateText: string,
+): number {
+  if (!targetPublishedAt) return 0;
+
+  const year = targetPublishedAt.slice(0, 4);
+  const day = targetPublishedAt.slice(0, 10);
+  const candidateNorm = fbNormalizeForMatch(candidateText);
+
+  if (day && candidateNorm.includes(day.toLowerCase())) return 1;
+  if (year && candidateNorm.includes(year.toLowerCase())) return 0.55;
+  return 0;
+}
+
+function fbScoreSnippet(
+  targetSnippet: string | null,
+  candidateText: string,
+): number {
+  return fbOverlapScore(fbTokens(targetSnippet), fbTokens(candidateText));
+}
+
+function fbBuildQueryVariants(target: FallbackArticleInspection): string[] {
+  const year = target.publishedAt?.slice(0, 4) || "";
+  const variants = [
+    target.title ? `"${target.title}"` : "",
+    [target.title, target.sourceName].filter(Boolean).join(" "),
+    [target.title, target.sourceName, year].filter(Boolean).join(" "),
+    [target.title, target.author].filter(Boolean).join(" "),
+  ]
+    .map((entry) => fbClean(entry))
+    .filter(Boolean);
+
+  return Array.from(new Set(variants));
+}
+
+type RawProviderCandidate = {
+  title: string | null;
+  url: string | null;
+  snippet: string | null;
+  rawText: string | null;
+};
+
+async function fbTrySubmitSearch(page: Page, query: string): Promise<boolean> {
+  const inputSelectors = [
+    'input[type="search"]',
+    'input[name="q"]',
+    'input[name="query"]',
+    'input[name*="search" i]',
+    'input[placeholder*="Search" i]',
+    'input[aria-label*="Search" i]',
+    'textarea[aria-label*="Search" i]',
+  ];
+
+  for (const selector of inputSelectors) {
+    const loc = page.locator(selector).first();
+    if ((await loc.count()) === 0) continue;
+
+    const visible = await loc.isVisible().catch(() => false);
+    if (!visible) continue;
+
+    try {
+      await loc.click({ timeout: 2000 });
+      await loc.fill("");
+      await loc.fill(query);
+      await loc.press("Enter");
+      return true;
+    } catch {
+      // try next selector
+    }
+  }
+
+  return false;
+}
+
+async function fbExtractSearchCandidates(
+  page: Page,
+): Promise<RawProviderCandidate[]> {
+  return page.evaluate(() => {
+    const clean = (value: unknown) =>
+      String(value ?? "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const candidates: RawProviderCandidate[] = [];
+    const seen = new Set<string>();
+
+    const anchors = Array.from(document.querySelectorAll("a[href]"));
+
+    for (const anchor of anchors) {
+      const href = (anchor as HTMLAnchorElement).href || "";
+      const title = clean(anchor.textContent);
+
+      if (!href || !title || title.length < 18) continue;
+      if (/^(javascript:|mailto:|tel:)/i.test(href)) continue;
+      if (
+        /(signin|sign in|login|register|subscribe|privacy|terms|help|contact)/i.test(
+          title,
+        )
+      ) {
+        continue;
+      }
+
+      const card = anchor.closest("article, li, div, section");
+      const rawText = clean(card?.textContent || "");
+      if (rawText.length < 40) continue;
+
+      const snippetEl = card?.querySelector(
+        "p, [class*='snippet'], [class*='summary'], [class*='description'], [class*='deck']",
+      );
+      const snippet =
+        clean(snippetEl?.textContent || "") || rawText.slice(0, 500);
+
+      const key = `${href}__${title.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      candidates.push({
+        title,
+        url: href,
+        snippet,
+        rawText: rawText.slice(0, 1200),
+      });
+
+      if (candidates.length >= 40) break;
+    }
+
+    return candidates;
+  });
+}
+
+function fbComputeCandidate(
+  provider: FallbackProvider,
+  query: string,
+  target: FallbackArticleInspection,
+  raw: RawProviderCandidate,
+): FallbackCandidate {
+  const combinedText = [raw.title, raw.snippet, raw.rawText]
+    .filter(Boolean)
+    .join(" ");
+
+  const titleScore = fbScoreTitle(target.title, raw.title);
+  const sourceScore = fbScoreSource(target.sourceName, combinedText);
+  const dateScore = fbScoreDate(target.publishedAt, combinedText);
+  const snippetScore = fbScoreSnippet(target.snippet, combinedText);
+
+  const total =
+    titleScore * 0.6 +
+    sourceScore * 0.15 +
+    dateScore * 0.1 +
+    snippetScore * 0.15;
+
+  const matchedBy: string[] = [];
+  if (titleScore >= 0.55) matchedBy.push("title");
+  if (sourceScore >= 0.7) matchedBy.push("source");
+  if (dateScore >= 0.5) matchedBy.push("date");
+  if (snippetScore >= 0.35) matchedBy.push("snippet");
+
+  return {
+    provider,
+    query,
+    rank: 0,
+    title: raw.title,
+    url: raw.url,
+    snippet: raw.snippet,
+    sourceName:
+      sourceScore >= 0.7 && target.sourceName ? target.sourceName : null,
+    publishedAt: null,
+    score: Math.round(total * 1000) / 1000,
+    scoreBreakdown: {
+      title: Math.round(titleScore * 1000) / 1000,
+      source: Math.round(sourceScore * 1000) / 1000,
+      date: Math.round(dateScore * 1000) / 1000,
+      snippet: Math.round(snippetScore * 1000) / 1000,
+    },
+    matchedBy,
+  };
+}
+
+function fbDedupCandidates(
+  candidates: FallbackCandidate[],
+): FallbackCandidate[] {
+  const bestByKey = new Map<string, FallbackCandidate>();
+
+  for (const candidate of candidates) {
+    const key = `${candidate.provider}__${candidate.url || candidate.title || Math.random()}`;
+    const existing = bestByKey.get(key);
+
+    if (!existing || candidate.score > existing.score) {
+      bestByKey.set(key, candidate);
+    }
+  }
+
+  return Array.from(bestByKey.values())
+    .sort((a, b) => b.score - a.score)
+    .map((candidate, idx) => ({
+      ...candidate,
+      rank: idx + 1,
+    }));
+}
+
+async function fbSearchOneProvider(
+  context: BrowserContext,
+  provider: FallbackProvider,
+  target: FallbackArticleInspection,
+  queryVariants: string[],
+  maxCandidates: number,
+): Promise<FallbackCandidate[]> {
+  const page = await context.newPage();
+  const found: FallbackCandidate[] = [];
+
+  try {
+    for (const query of queryVariants) {
+      await page.goto(FALLBACK_PROVIDER_START_URLS[provider], {
+        waitUntil: "domcontentloaded",
+        timeout: env.ICN_NAV_TIMEOUT_MS,
+      });
+
+      await settlePage(page);
+
+      const submitted = await fbTrySubmitSearch(page, query);
+      if (!submitted) continue;
+
+      await page.waitForTimeout(1500);
+      try {
+        await page.waitForLoadState("networkidle", { timeout: 3000 });
+      } catch {
+        // ignore
+      }
+
+      const rawCandidates = await fbExtractSearchCandidates(page);
+      const scored = rawCandidates
+        .map((raw) => fbComputeCandidate(provider, query, target, raw))
+        .filter((candidate) => candidate.score >= 0.28);
+
+      found.push(...scored);
+
+      if (scored.some((candidate) => candidate.score >= 0.88)) break;
+    }
+
+    return fbDedupCandidates(found).slice(0, maxCandidates);
+  } finally {
+    try {
+      await page.close();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function searchFallbackArticlePayload(
+  context: BrowserContext,
+  rawUrl: string,
+  input: SearchFallbackRequestBody,
+): Promise<FallbackSearchPayload> {
+  const inspection = await inspectArticlePayload(context, rawUrl);
+
+  const providerOrder =
+    Array.isArray(input.providerOrder) && input.providerOrder.length
+      ? Array.from(new Set(input.providerOrder)).filter(
+          (provider): provider is FallbackProvider =>
+            provider === "pressreader" ||
+            provider === "proquest" ||
+            provider === "nexis",
+        )
+      : (["pressreader", "proquest", "nexis"] as FallbackProvider[]);
+
+  const queryVariants = fbBuildQueryVariants(inspection);
+  const maxCandidates = Math.min(
+    Math.max(Number(input.maxCandidates || 8), 1),
+    15,
+  );
+
+  if (!queryVariants.length) {
+    return {
+      originalUrl: rawUrl,
+      inspection,
+      searchedProviders: providerOrder,
+      queryVariants: [],
+      candidates: [],
+      bestCandidate: null,
+      note: "The original page did not expose enough article signals to build a reliable fallback search query.",
+    };
+  }
+
+  const allCandidates: FallbackCandidate[] = [];
+
+  for (const provider of providerOrder) {
+    const providerCandidates = await fbSearchOneProvider(
+      context,
+      provider,
+      inspection,
+      queryVariants,
+      maxCandidates,
+    );
+    allCandidates.push(...providerCandidates);
+  }
+
+  const candidates = fbDedupCandidates(allCandidates).slice(0, maxCandidates);
+  const bestCandidate =
+    candidates.length > 0 && candidates[0].score >= 0.55 ? candidates[0] : null;
+
+  return {
+    originalUrl: rawUrl,
+    inspection,
+    searchedProviders: providerOrder,
+    queryVariants,
+    candidates,
+    bestCandidate,
+    note: bestCandidate
+      ? "Fallback search found at least one strong candidate in the institutional sources."
+      : "Fallback search completed, but no candidate cleared the confidence threshold yet.",
+  };
 }
 
 function requireSecret(req: Request, res: Response, next: NextFunction): void {
@@ -991,6 +1445,42 @@ app.post(
           error,
           "Institutional article inspection failed.",
         ),
+      });
+    }
+  },
+);
+
+app.post(
+  "/search/fallback/article",
+  requireSecret,
+  async (req: Request<{}, {}, SearchFallbackRequestBody>, res: Response) => {
+    const rawUrl = typeof req.body?.url === "string" ? req.body.url.trim() : "";
+
+    if (!rawUrl) {
+      res.status(400).json({ ok: false, message: "Body.url is required." });
+      return;
+    }
+
+    try {
+      const context = await runExclusive(() => getContext());
+      const payload = await runExclusive(() =>
+        searchFallbackArticlePayload(context, rawUrl, req.body || {}),
+      );
+
+      res.json({
+        ok: true,
+        nodeName: env.ICN_NODE_NAME,
+        ...payload,
+      });
+    } catch (error) {
+      log("fallback_search_failed", {
+        url: rawUrl,
+        error: errorMessage(error, "fallback search failed"),
+      });
+
+      res.status(500).json({
+        ok: false,
+        message: errorMessage(error, "Institutional fallback search failed."),
       });
     }
   },

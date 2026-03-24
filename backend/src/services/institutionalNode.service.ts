@@ -162,3 +162,131 @@ export async function inspectInstitutionalArticleProxy(input: {
     };
   }
 }
+
+export type InstitutionalFallbackProvider =
+  | "pressreader"
+  | "proquest"
+  | "nexis";
+
+export type InstitutionalFallbackCandidate = {
+  provider: InstitutionalFallbackProvider;
+  query: string;
+  rank: number;
+  title: string | null;
+  url: string | null;
+  snippet: string | null;
+  sourceName: string | null;
+  publishedAt: string | null;
+  score: number;
+  scoreBreakdown: {
+    title: number;
+    source: number;
+    date: number;
+    snippet: number;
+  };
+  matchedBy: string[];
+};
+
+export type InstitutionalFallbackSearchResult = {
+  ok: true;
+  enabled: boolean;
+  reachable: boolean;
+  nodeName: string | null;
+  originalUrl: string;
+  inspection: InstitutionalArticleInspection | null;
+  searchedProviders: InstitutionalFallbackProvider[];
+  queryVariants: string[];
+  candidates: InstitutionalFallbackCandidate[];
+  bestCandidate: InstitutionalFallbackCandidate | null;
+  note: string | null;
+  message: string | null;
+};
+
+type UpstreamFallbackSearch = Partial<InstitutionalFallbackSearchResult> & {
+  ok?: boolean;
+  message?: string | null;
+};
+
+export async function searchInstitutionalArticleFallbackProxy(input: {
+  url: string;
+  providerOrder?: InstitutionalFallbackProvider[];
+  maxCandidates?: number;
+}): Promise<InstitutionalFallbackSearchResult> {
+  if (!env.ICN_ENABLED) {
+    return {
+      ok: true,
+      enabled: false,
+      reachable: false,
+      nodeName: null,
+      originalUrl: input.url,
+      inspection: null,
+      searchedProviders: [],
+      queryVariants: [],
+      candidates: [],
+      bestCandidate: null,
+      note: null,
+      message: "Institutional capture is disabled on the backend.",
+    };
+  }
+
+  try {
+    const res = await axios.post<UpstreamFallbackSearch>(
+      `${icnBaseUrl()}/search/fallback/article`,
+      {
+        url: input.url,
+        providerOrder: input.providerOrder,
+        maxCandidates: input.maxCandidates,
+      },
+      {
+        timeout: env.ICN_TIMEOUT_MS,
+        headers: {
+          ...icnHeaders(),
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    const data = res.data || {};
+
+    return {
+      ok: true,
+      enabled: true,
+      reachable: true,
+      nodeName: data.nodeName ?? null,
+      originalUrl: data.originalUrl ?? input.url,
+      inspection: data.inspection ?? null,
+      searchedProviders: Array.isArray(data.searchedProviders)
+        ? (data.searchedProviders.filter(
+            Boolean,
+          ) as InstitutionalFallbackProvider[])
+        : [],
+      queryVariants: Array.isArray(data.queryVariants)
+        ? data.queryVariants.filter(Boolean)
+        : [],
+      candidates: Array.isArray(data.candidates)
+        ? (data.candidates as InstitutionalFallbackCandidate[])
+        : [],
+      bestCandidate: data.bestCandidate ?? null,
+      note: data.note ?? null,
+      message: data.message ?? null,
+    };
+  } catch (error: any) {
+    return {
+      ok: true,
+      enabled: true,
+      reachable: false,
+      nodeName: null,
+      originalUrl: input.url,
+      inspection: null,
+      searchedProviders: [],
+      queryVariants: [],
+      candidates: [],
+      bestCandidate: null,
+      note: null,
+      message: upstreamErrorMessage(
+        error,
+        "Could not run the institutional fallback search.",
+      ),
+    };
+  }
+}

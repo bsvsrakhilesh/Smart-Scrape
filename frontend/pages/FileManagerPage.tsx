@@ -3086,10 +3086,10 @@ export default function FileManagerPage() {
         >
           <div className="fm-archive-header__row">
             <div className="fm-archive-header__copy">
-              <p className="fm-archive-header__eyebrow">CAQM workspace</p>
+              <p className="fm-archive-header__eyebrow">Workspace</p>
 
               <div className="fm-archive-header__headline">
-                <h1 className="fm-archive-header__title">Evidence Archive</h1>
+                <h1 className="fm-archive-header__title">File Manager</h1>
                 {searchQuery ? (
                   <span className="fm-archive-header__query">
                     Query: “{searchQuery}”

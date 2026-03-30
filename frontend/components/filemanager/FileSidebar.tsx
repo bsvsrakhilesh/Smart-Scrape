@@ -169,7 +169,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   }, []);
 
   const goHome = useCallback(() => {
-    onFolderSelect?.(undefined, "Home");
+    onFolderSelect?.(undefined, "All evidence");
   }, [onFolderSelect]);
 
   const goTrash = useCallback(() => {

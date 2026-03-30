@@ -315,8 +315,9 @@ export default function Breadcrumbs({
                 {!displayPath || displayPath.length === 0 ? (
                   <span className="text-[hsl(var(--fm-muted))]">This PC</span>
                 ) : (
-                  path.map((crumb, idx) => {
-                    const isLast = idx === displayPath.length;
+                  displayPath.map((crumb, idx) => {
+                    const isLast = idx === displayPath.length - 1;
+                    const label = String(crumb.label || "").trim() || "Folder";
                     return (
                       <div
                         key={crumb.id}
@@ -327,11 +328,19 @@ export default function Breadcrumbs({
                           onClick={crumb.onClick}
                           className={`px-2 py-1 rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap ${
                             isLast
-                              ? "bg-[hsl(var(--fm-accent))] text-white shadow-sm"
+                              ? "border border-[hsl(var(--fm-border))] shadow-sm"
                               : "hover:bg-[hsl(var(--surface-elevated))] text-[hsl(var(--fm-text))]"
                           }`}
+                          style={
+                            isLast
+                              ? {
+                                  backgroundColor: "hsl(var(--fm-accent))",
+                                  color: "#ffffff",
+                                }
+                              : undefined
+                          }
                         >
-                          {crumb.label}
+                          {label}
                         </button>
                         {!isLast && (
                           <ChevronRight className="h-3 w-3 text-[hsl(var(--fm-muted))]" />

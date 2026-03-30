@@ -304,7 +304,7 @@ type Props = {
   onRestoreMany?: (ids: string[]) => void;
 
   onOpen?: (f: FileItem) => void;
-  onRename?: (id: string, nextName: string) => void;
+  onRename?: (id: string, nextName?: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void;
   onOpenVirtual?: (ctx: { zipId: string; prefix: string }) => void;
@@ -429,6 +429,31 @@ export default function Details_ListView({
   const sorted = useMemo(() => {
     return files;
   }, [files]);
+
+  const orderedIds = useMemo(
+    () =>
+      sorted.map((f) =>
+        String((f as any).id ?? (f as any).fileId ?? fileDisplayName(f)),
+      ),
+    [sorted],
+  );
+
+  const moveSelection = useCallback(
+    (delta: number) => {
+      if (!orderedIds.length) return;
+
+      const currentIndex = orderedIds.findIndex((id) => selectedIds.has(id));
+      const nextIndex =
+        currentIndex === -1
+          ? delta >= 0
+            ? 0
+            : orderedIds.length - 1
+          : Math.max(0, Math.min(orderedIds.length - 1, currentIndex + delta));
+
+      setSelectedIds(new Set([orderedIds[nextIndex]]));
+    },
+    [orderedIds, selectedIds],
+  );
 
   /** ---- selection helpers ---- */
   const handleRowClick = (file: FileItem, e: React.MouseEvent) => {
@@ -636,12 +661,7 @@ export default function Details_ListView({
           id: "rename",
           label: "Rename",
           shortcut: "F2",
-          onSelect: () => {
-            if (!onRename) return;
-            const current = fileDisplayName(file);
-            const next = window.prompt("Rename to:", current);
-            if (next && next !== current) onRename(id, next);
-          },
+          onSelect: () => onRename?.(id),
         },
         {
           type: "item",
@@ -821,6 +841,16 @@ export default function Details_ListView({
     const isMod = e.ctrlKey || e.metaKey;
     const selIds = Array.from(selectedIds);
 
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      e.preventDefault();
+      moveSelection(1);
+      return;
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      moveSelection(-1);
+      return;
+    }
     if (isMod && e.key.toLowerCase() === "a") {
       e.preventDefault();
       setSelectedIds(
@@ -856,6 +886,10 @@ export default function Details_ListView({
         selectedIds.has(String((x as any).id ?? fileDisplayName(x))),
       );
       if (f) handleRowDoubleClick(f);
+    }
+    if (e.key === "F2" && selIds.length === 1) {
+      e.preventDefault();
+      onRename?.(selIds[0]);
     }
     if (e.altKey && e.key === "Enter" && selIds.length === 1) {
       e.preventDefault();

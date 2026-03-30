@@ -207,7 +207,7 @@ type Props = {
   onDeleteMany?: (ids: string[]) => void;
   onRestore?: (f: FileItem) => void;
   onRestoreMany?: (ids: string[]) => void;
-  onRename?: (id: string, nextName: string) => void;
+  onRename?: (id: string, nextName?: string) => void;
   onPreview?: (f: FileItem, opts?: any) => void;
   onDownload?: (f: FileItem) => void;
   onShowProperties?: (f: FileItem) => void;
@@ -300,6 +300,28 @@ export default function Large_IconView({
     // Parent owns sorting + paging; avoid client re-sort.
     return files;
   }, [files]);
+
+  const orderedIds = useMemo(
+    () => sortedFiles.map((f) => String((f as any).id)),
+    [sortedFiles],
+  );
+
+  const moveSelection = useCallback(
+    (delta: number) => {
+      if (!orderedIds.length) return;
+
+      const currentIndex = orderedIds.findIndex((id) => sel.has(id));
+      const nextIndex =
+        currentIndex === -1
+          ? delta >= 0
+            ? 0
+            : orderedIds.length - 1
+          : Math.max(0, Math.min(orderedIds.length - 1, currentIndex + delta));
+
+      setSel(new Set([orderedIds[nextIndex]]));
+    },
+    [orderedIds, sel, setSel],
+  );
 
   // context menus
   const [rowMenu, setRowMenu] = useState<{
@@ -463,12 +485,7 @@ export default function Large_IconView({
           id: "rename",
           label: "Rename",
           shortcut: "F2",
-          onSelect: async () => {
-            if (!onRename) return;
-            const current = getTitle(file);
-            const next = window.prompt("Rename to:", current);
-            if (next && next !== current) onRename(id, next);
-          },
+          onSelect: () => onRename?.(id),
         },
         {
           type: "item",
@@ -681,11 +698,94 @@ export default function Large_IconView({
     onDragEnd?.();
   }, [onDragEnd]);
 
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isMod = e.ctrlKey || e.metaKey;
+      const selIds = Array.from(sel);
+
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        e.preventDefault();
+        moveSelection(1);
+        return;
+      }
+
+      if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        moveSelection(-1);
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSel(new Set(orderedIds));
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        onCopy?.(selIds);
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        onCut?.(selIds);
+        return;
+      }
+
+      if (isMod && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        onPaste?.();
+        return;
+      }
+
+      if (e.key === "Delete" && selIds.length) {
+        e.preventDefault();
+        if (selIds.length > 1 && onDeleteMany) {
+          onDeleteMany(selIds);
+          return;
+        }
+
+        const file = sortedFiles.find((item) => sel.has(String((item as any).id)));
+        if (file) onDelete?.(file);
+        return;
+      }
+
+      if (e.key === "Enter" && selIds.length === 1) {
+        e.preventDefault();
+        const file = sortedFiles.find((item) => sel.has(String((item as any).id)));
+        if (file) onOpen(file);
+        return;
+      }
+
+      if (e.key === "F2" && selIds.length === 1) {
+        e.preventDefault();
+        onRename?.(selIds[0]);
+      }
+    },
+    [
+      sel,
+      moveSelection,
+      setSel,
+      orderedIds,
+      onCopy,
+      onCut,
+      onPaste,
+      onDeleteMany,
+      sortedFiles,
+      onDelete,
+      onOpen,
+      onRename,
+    ],
+  );
+
   return (
     <div
       ref={rootRef}
       className="fm-canvas wg-grid relative w-full h-full overflow-auto px-2"
       style={{ display: "block" }}
+      tabIndex={0}
+      onKeyDown={onKeyDown}
       onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onContextMenu={(e) => {

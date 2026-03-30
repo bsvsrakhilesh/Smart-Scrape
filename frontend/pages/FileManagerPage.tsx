@@ -80,6 +80,7 @@ type FolderRow = {
 };
 
 const DEFAULT_PAGE_SIZE = 15;
+const ROOT_BREADCRUMB_NAME = "All evidence";
 const getLS = <T,>(k: string, v: T) => {
   try {
     return JSON.parse(localStorage.getItem(k) || "") as T;
@@ -150,6 +151,42 @@ type SavedArchiveView = ArchiveViewSnapshot & {
   name: string;
   builtIn?: boolean;
 };
+
+type TextDialogState =
+  | {
+      kind: "save-view";
+      title: string;
+      description: string;
+      submitLabel: string;
+      value: string;
+      placeholder?: string;
+    }
+  | {
+      kind: "new-folder";
+      title: string;
+      description: string;
+      submitLabel: string;
+      value: string;
+      placeholder?: string;
+    }
+  | {
+      kind: "rename";
+      title: string;
+      description: string;
+      submitLabel: string;
+      value: string;
+      targetId: string;
+      placeholder?: string;
+    }
+  | {
+      kind: "add-tag";
+      title: string;
+      description: string;
+      submitLabel: string;
+      value: string;
+      targetIds: string[];
+      placeholder?: string;
+    };
 
 const archiveViewSignature = (view: ArchiveViewSnapshot) =>
   JSON.stringify({
@@ -332,6 +369,70 @@ const Modal: React.FC<{
   );
 };
 
+const TextEntryModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description: string;
+  value: string;
+  placeholder?: string;
+  submitLabel: string;
+  busy?: boolean;
+  onChange: (value: string) => void;
+  onSubmit: () => void | Promise<void>;
+}> = ({
+  open,
+  onClose,
+  title,
+  description,
+  value,
+  placeholder,
+  submitLabel,
+  busy = false,
+  onChange,
+  onSubmit,
+}) => {
+  if (!open) return null;
+
+  return (
+    <Modal open={open} onClose={busy ? () => {} : onClose} title={title}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void onSubmit();
+        }}
+      >
+        <p className="text-sm text-neutral-600 dark:text-neutral-300">
+          {description}
+        </p>
+
+        <input
+          autoFocus
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-neutral-400 focus:ring-4 focus:ring-black/5 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-neutral-500 dark:focus:ring-white/10"
+        />
+
+        <div className="flex justify-end gap-2">
+          <ToolbarButton variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </ToolbarButton>
+          <ToolbarButton
+            variant="primary"
+            type="submit"
+            disabled={busy || !value.trim()}
+          >
+            {busy ? "Saving..." : submitLabel}
+          </ToolbarButton>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
 function fileHasMissingMetadata(file: FileItem) {
   return (
     !file.sourcePublishedAt || !file.sourceAuthors?.length || !file.tags?.length
@@ -485,16 +586,7 @@ export default function FileManagerPage() {
     setActiveArchiveViewId(view.id);
   }, []);
 
-  const saveCurrentArchiveView = useCallback(() => {
-    const suggestedName =
-      activeArchiveView && !activeArchiveView.builtIn
-        ? activeArchiveView.name
-        : "";
-
-    const raw = window.prompt("Save current archive view as", suggestedName);
-    const name = raw?.trim();
-    if (!name) return;
-
+  const persistArchiveView = useCallback((name: string) => {
     const existing = savedArchiveViews.find(
       (view) => view.name.toLowerCase() === name.toLowerCase(),
     );
@@ -521,7 +613,6 @@ export default function FileManagerPage() {
     setActiveArchiveViewId(nextView.id);
     notify(`Saved view: ${name}`, "success");
   }, [
-    activeArchiveView,
     savedArchiveViews,
     layout,
     sortKey,
@@ -532,6 +623,23 @@ export default function FileManagerPage() {
     activeReviewQueueId,
     notify,
   ]);
+
+  const saveCurrentArchiveView = useCallback(() => {
+    const suggestedName =
+      activeArchiveView && !activeArchiveView.builtIn
+        ? activeArchiveView.name
+        : "";
+
+    setTextDialog({
+      kind: "save-view",
+      title: "Save archive view",
+      description:
+        "Save this layout, sort, search, and filter state as a reusable analyst view.",
+      submitLabel: "Save view",
+      value: suggestedName,
+      placeholder: "Evidence triage",
+    });
+  }, [activeArchiveView]);
 
   const deleteActiveArchiveView = useCallback(() => {
     if (!activeArchiveView || activeArchiveView.builtIn) return;
@@ -622,6 +730,28 @@ export default function FileManagerPage() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+
+      if (!mod || key !== "f") return;
+
+      const searchInput = document.querySelector<HTMLInputElement>(
+        'input[name="q"]',
+      );
+      if (!searchInput) return;
+
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+
   // folders / breadcrumb
   const [currentFolderId, setCurrentFolderId] = useState<string | undefined>(
     undefined,
@@ -648,7 +778,7 @@ export default function FileManagerPage() {
   }, []);
 
   const [breadcrumb, setBreadcrumb] = useState<{ id?: string; name: string }[]>(
-    [{ name: "Home" }],
+    [{ name: ROOT_BREADCRUMB_NAME }],
   );
 
   // navigation history
@@ -665,6 +795,13 @@ export default function FileManagerPage() {
   // properties modal
   const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
   const [showProperties, setShowProperties] = useState<boolean>(false);
+  const [textDialog, setTextDialog] = useState<TextDialogState | null>(null);
+  const [textDialogValue, setTextDialogValue] = useState("");
+  const [textDialogBusy, setTextDialogBusy] = useState(false);
+
+  useEffect(() => {
+    setTextDialogValue(textDialog?.value ?? "");
+  }, [textDialog]);
 
   // ----- Safe destructive actions: confirm + undo -----
   const TRASH_UNDO_MS = 10_000;
@@ -753,7 +890,7 @@ export default function FileManagerPage() {
     if (viewMode === "trash") return "Trash";
     if (viewMode === "favorites") return "Favorites";
     if (virtualZip) return virtualZip.label;
-    return breadcrumb[breadcrumb.length - 1]?.name || "Home";
+    return breadcrumb[breadcrumb.length - 1]?.name || ROOT_BREADCRUMB_NAME;
   }, [viewMode, virtualZip, breadcrumb]);
 
   const activeModeLabel = useMemo(() => {
@@ -960,7 +1097,7 @@ export default function FileManagerPage() {
     [],
   );
 
-  const handleRenameById = async (id: string, nextName: string) => {
+  const handleRenameById = async (id: string, nextName?: string) => {
     const file = allFiles.find((f) => f.id === id);
     if (file) await handleRename(file, nextName);
   };
@@ -1083,7 +1220,7 @@ export default function FileManagerPage() {
       const meta = await getFolder(id); // expected: { id, name, parentId }
       const norm = {
         id,
-        name: meta?.name ?? "Folder",
+        name: String(meta?.name || "").trim() || "Folder",
         parentId: meta?.parentId ?? null,
       };
       folderCache.current.set(id, norm);
@@ -1098,10 +1235,16 @@ export default function FileManagerPage() {
   const buildBreadcrumb = useCallback(
     async (id?: string) => {
       if (id === "trash")
-        return [{ name: "Home" }, { id: "trash", name: "Trash" }];
+        return [
+          { name: ROOT_BREADCRUMB_NAME },
+          { id: "trash", name: "Trash" },
+        ];
 
       if (id === "favorites")
-        return [{ name: "Home" }, { id: "favorites", name: "Favorites" }];
+        return [
+          { name: ROOT_BREADCRUMB_NAME },
+          { id: "favorites", name: "Favorites" },
+        ];
 
       const chain: { id: string; name: string }[] = [];
       const seen = new Set<string>();
@@ -1114,7 +1257,7 @@ export default function FileManagerPage() {
         cur = meta.parentId || undefined;
       }
       chain.reverse();
-      return [{ name: "Home" }, ...chain];
+      return [{ name: ROOT_BREADCRUMB_NAME }, ...chain];
     },
     [fetchFolderMeta],
   );
@@ -1122,7 +1265,7 @@ export default function FileManagerPage() {
   const buildZipBreadcrumb = useCallback(
     (zipId: string, label: string, prefix: string) => {
       const crumbs: { id?: string; name: string }[] = [
-        { name: "Home" },
+        { name: ROOT_BREADCRUMB_NAME },
         { id: makeZipHist(zipId, ""), name: label || "Archive" },
       ];
 
@@ -1663,24 +1806,22 @@ export default function FileManagerPage() {
     }
   };
 
-  const handleNewFolder = async () => {
+  const handleNewFolder = useCallback(() => {
     if (virtualZip || viewMode !== "drive") {
       notify("You can only create folders in Drive.", "info");
       return;
     }
 
-    const name = prompt("New folder name");
-    if (!name) return;
-    try {
-      await createFolder(name, currentFolderId);
-      notify("Folder created", "success");
-      const bc = await buildBreadcrumb(currentFolderId);
-      setBreadcrumb(bc);
-      refresh();
-    } catch (e: any) {
-      notify(e?.message || "Failed to create folder", "error");
-    }
-  };
+    setTextDialog({
+      kind: "new-folder",
+      title: "New folder",
+      description:
+        "Create a new collection folder in the current archive location.",
+      submitLabel: "Create folder",
+      value: "",
+      placeholder: "Quarterly reports",
+    });
+  }, [virtualZip, viewMode, notify]);
 
   const handleUploaded = useCallback(
     (nf: FileItem) => {
@@ -1762,7 +1903,21 @@ export default function FileManagerPage() {
   }, [allFiles, refreshPendingTaggingFiles]);
 
   const handleRename = async (file: FileItem, newName?: string) => {
-    const name = (newName ?? prompt("Rename to", file.title)) || "";
+    if (newName == null) {
+      setTextDialog({
+        kind: "rename",
+        title: "Rename item",
+        description:
+          "Use a clear evidence name so analysts can find it quickly later.",
+        submitLabel: "Rename",
+        value: file.title,
+        targetId: file.id,
+        placeholder: "Enter a new name",
+      });
+      return;
+    }
+
+    const name = newName.trim();
     if (!name || name === file.title) return;
     try {
       if (isFolderItem(file)) {
@@ -2034,7 +2189,7 @@ export default function FileManagerPage() {
       setCurrentFolderId(undefined);
       setPage(1);
       setBreadcrumb([
-        { name: "Home" },
+        { name: ROOT_BREADCRUMB_NAME },
         { id: mode, name: mode === "trash" ? "Trash" : "Favorites" },
       ]);
     },
@@ -2099,7 +2254,7 @@ export default function FileManagerPage() {
       if (id && folderName) {
         folderCache.current.set(id, {
           id,
-          name: folderName,
+          name: String(folderName || "").trim() || "Folder",
           // IMPORTANT: for "open child folder from list", parent is currentFolderId.
           // For breadcrumb navigation, caller will pass the correct parentIdOverride.
           parentId: parentIdOverride ?? currentFolderId ?? null,
@@ -2129,11 +2284,11 @@ export default function FileManagerPage() {
     // Navigation
     cmds.push({
       id: "nav.home",
-      title: "Go to Home",
+      title: `Go to ${ROOT_BREADCRUMB_NAME}`,
       subtitle: "Root folder",
       group: "Navigation",
       keywords: ["home", "root"],
-      run: () => void onFolderSelect(undefined, "Home"),
+      run: () => void onFolderSelect(undefined, ROOT_BREADCRUMB_NAME),
     });
 
     cmds.push({
@@ -2479,7 +2634,7 @@ export default function FileManagerPage() {
     if (entry === "trash" || entry === "favorites") {
       setViewMode(entry);
       setBreadcrumb([
-        { name: "Home" },
+        { name: ROOT_BREADCRUMB_NAME },
         { id: entry, name: entry === "trash" ? "Trash" : "Favorites" },
       ]);
       return;
@@ -2537,7 +2692,7 @@ export default function FileManagerPage() {
     if (entry === "trash" || entry === "favorites") {
       setViewMode(entry);
       setBreadcrumb([
-        { name: "Home" },
+        { name: ROOT_BREADCRUMB_NAME },
         { id: entry, name: entry === "trash" ? "Trash" : "Favorites" },
       ]);
       return;
@@ -2970,6 +3125,66 @@ export default function FileManagerPage() {
     [allFiles, notify, refresh],
   );
 
+  const openAddTagDialog = useCallback((ids: string[]) => {
+    if (!ids.length) return;
+
+    setTextDialog({
+      kind: "add-tag",
+      title: "Add tag",
+      description:
+        "Apply a tag to the selected evidence so it can be filtered and reviewed faster.",
+      submitLabel: "Apply tag",
+      value: "",
+      targetIds: ids,
+      placeholder: "compliance, source-audit, air-quality",
+    });
+  }, []);
+
+  const submitTextDialog = useCallback(async () => {
+    if (!textDialog) return;
+
+    const trimmed = textDialogValue.trim();
+    if (!trimmed) return;
+
+    try {
+      setTextDialogBusy(true);
+
+      if (textDialog.kind === "save-view") {
+        persistArchiveView(trimmed);
+      } else if (textDialog.kind === "new-folder") {
+        await createFolder(trimmed, currentFolderId);
+        notify("Folder created", "success");
+        const bc = await buildBreadcrumb(currentFolderId);
+        setBreadcrumb(bc);
+        refresh();
+      } else if (textDialog.kind === "rename") {
+        const file = allFiles.find((item) => item.id === textDialog.targetId);
+        if (file) {
+          await handleRename(file, trimmed);
+        }
+      } else if (textDialog.kind === "add-tag") {
+        await onAddTagSelected(textDialog.targetIds, trimmed);
+      }
+
+      setTextDialog(null);
+    } catch (e: any) {
+      notify(e?.message || "Action failed", "error");
+    } finally {
+      setTextDialogBusy(false);
+    }
+  }, [
+    textDialog,
+    textDialogValue,
+    persistArchiveView,
+    currentFolderId,
+    notify,
+    buildBreadcrumb,
+    refresh,
+    allFiles,
+    handleRename,
+    onAddTagSelected,
+  ]);
+
   const onFavoriteSelected = useCallback(
     async (ids: string[]) => {
       if (!ids.length) return;
@@ -3261,7 +3476,7 @@ export default function FileManagerPage() {
                   <ExplorerBreadcrumbs
                     path={breadcrumb.map((b, idx) => ({
                       id: b.id ?? `home-${idx}`,
-                      label: idx === 0 ? "Home" : b.name,
+                      label: b.name,
                       onClick: () => onCrumbClick(idx),
                     }))}
                     currentFolderId={
@@ -3333,7 +3548,8 @@ export default function FileManagerPage() {
                       setPage(1);
                     }}
                     isAllSelected={
-                      selected.length === allFiles.length && allFiles.length > 0
+                      selected.length === visibleFiles.length &&
+                      visibleFiles.length > 0
                     }
                     onSelectAll={handleSelectAll}
                     density={density}
@@ -3776,6 +3992,7 @@ export default function FileManagerPage() {
                         viewMode === "trash" ? onRestoreSelected : undefined
                       }
                       onAddTag={onAddTagSelected}
+                      onRequestAddTag={openAddTagDialog}
                       onFavorite={onFavoriteSelected}
                       onExport={onExportSelected}
                       onCopy={(ids) => handleCopy(byIds(ids))}
@@ -3926,7 +4143,7 @@ export default function FileManagerPage() {
                             — {clipboard.files.length} item(s)
                             {currentFolderId
                               ? " into this folder."
-                              : " into Home."}
+                              : ` into ${ROOT_BREADCRUMB_NAME}.`}
                           </span>
                           <div className="flex gap-2">
                             <button className="btn" onClick={handlePaste}>
@@ -4342,6 +4559,21 @@ export default function FileManagerPage() {
           isOpen={isPaletteOpen}
           onClose={() => setIsPaletteOpen(false)}
           commands={paletteCommands}
+        />
+
+        <TextEntryModal
+          open={!!textDialog}
+          onClose={() => {
+            if (!textDialogBusy) setTextDialog(null);
+          }}
+          title={textDialog?.title ?? "Edit value"}
+          description={textDialog?.description ?? ""}
+          value={textDialogValue}
+          placeholder={textDialog?.placeholder}
+          submitLabel={textDialog?.submitLabel ?? "Save"}
+          busy={textDialogBusy}
+          onChange={setTextDialogValue}
+          onSubmit={submitTextDialog}
         />
 
         {/* Preview modal */}

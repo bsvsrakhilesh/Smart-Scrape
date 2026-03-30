@@ -6,6 +6,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   onDelete: (ids: string[]) => void;
   onRestore?: (ids: string[]) => void;
   onAddTag: (ids: string[], tag: string) => void;
+  onRequestAddTag?: (ids: string[]) => void;
   onFavorite: (ids: string[]) => void;
   onExport: (selected: T[]) => void;
   onCopy?: (ids: string[]) => void;
@@ -22,6 +23,7 @@ function BulkActionBar<T extends Selectable>({
   onDelete,
   onRestore,
   onAddTag,
+  onRequestAddTag,
   onFavorite,
   onExport,
   onCopy,
@@ -37,6 +39,10 @@ function BulkActionBar<T extends Selectable>({
   const selectedIds = selected.map((s) => s.id);
 
   const addTag = () => {
+    if (onRequestAddTag) {
+      onRequestAddTag(selectedIds);
+      return;
+    }
     const tag = prompt("Add tag");
     if (tag && tag.trim()) onAddTag(selectedIds, tag.trim());
   };

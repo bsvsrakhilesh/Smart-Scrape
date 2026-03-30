@@ -6,6 +6,16 @@ function clsx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
 }
 
+function uniqueById<T extends { id: string | number }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = String(item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function sendChatPrompt(detail: any) {
   window.dispatchEvent(new CustomEvent("nb:chat-prompt", { detail }));
 }
@@ -43,7 +53,7 @@ export default function RightPanel({
   if (!notebookId)
     return <div className="p-3 text-sm text-gray-500">Select a notebook.</div>;
 
-  const notes = q.data?.notes || [];
+  const notes = useMemo(() => uniqueById(q.data?.notes || []), [q.data?.notes]);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">

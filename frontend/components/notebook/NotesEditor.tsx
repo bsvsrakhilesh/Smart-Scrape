@@ -316,6 +316,7 @@ export default function NotesEditor({
       </div>
 
       <input
+        name="note-title"
         value={title}
         onChange={(e) => {
           setTitle(e.target.value);
@@ -326,6 +327,7 @@ export default function NotesEditor({
         disabled={!notebookId}
       />
       <textarea
+        name="note-content"
         value={content}
         onChange={(e) => {
           setContent(e.target.value);

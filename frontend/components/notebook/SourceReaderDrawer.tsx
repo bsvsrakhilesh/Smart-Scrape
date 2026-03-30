@@ -451,6 +451,7 @@ export default function SourceReaderDrawer({
               <div className="flex-1 min-w-[180px]" />
 
               <input
+                name="reader-query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search within loaded chunks…"
@@ -580,6 +581,7 @@ export default function SourceReaderDrawer({
 
                       <div className="flex items-center gap-2">
                         <input
+                          name="reader-page-jump"
                           value={pageJump}
                           onChange={(e) => setPageJump(e.target.value)}
                           onKeyDown={(e) => {

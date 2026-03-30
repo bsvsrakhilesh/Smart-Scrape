@@ -173,6 +173,7 @@ function RowsListItem({
 
         <div className="shrink-0 pt-0.5">
           <input
+            name="picker-row-select"
             type="checkbox"
             checked={isChecked}
             readOnly
@@ -598,6 +599,7 @@ export default function SourcePicker({
           <div className="mt-2 flex items-center gap-2">
             <input
               ref={inputRef}
+              name="picker-search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={`Search ${kind === "url" ? "URLs" : "Files"}…`}

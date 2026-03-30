@@ -21,6 +21,16 @@ import { useToast } from "../components/providers/Toast";
 function clsx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
 }
+
+function uniqueById<T extends { id: string | number }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = String(item.id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 const ACTIVE_KEY = "nb:lastId";
 const PENDING_ADD_KEY = "nb:pendingAddSource";
 
@@ -71,6 +81,11 @@ export default function NotebookPage() {
   const scopeKey = activeId ? `nb:scope:excluded:${activeId}` : null;
   const [excludedSourceIds, setExcludedSourceIds] = useState<Set<string>>(
     new Set(),
+  );
+
+  const notebookList = useMemo(
+    () => uniqueById((listQ.data || []) as Notebook[]),
+    [listQ.data],
   );
 
   // load scope when switching notebooks
@@ -197,7 +212,7 @@ export default function NotebookPage() {
   useEffect(() => {
     if (listQ.isLoading) return;
 
-    const list = listQ.data || [];
+    const list = notebookList;
 
     // If we have an activeId but it's not in the DB anymore, clear it (and localStorage)
     if (activeId) {
@@ -211,7 +226,7 @@ export default function NotebookPage() {
 
     // No activeId yet → pick the first notebook if any exist
     if (list.length) setActiveId(list[0].id);
-  }, [listQ.isLoading, listQ.data, activeId]);
+  }, [listQ.isLoading, notebookList, activeId]);
 
   // persist active notebook id (and clean up when null)
   useEffect(() => {
@@ -244,7 +259,7 @@ export default function NotebookPage() {
     if (activeId) return;
     if (listQ.isLoading) return;
 
-    const hasAny = (listQ.data?.length || 0) > 0;
+    const hasAny = notebookList.length > 0;
     if (hasAny) return;
 
     autoCreateRef.current = true;
@@ -254,7 +269,7 @@ export default function NotebookPage() {
       description: "Auto-created to start chatting.",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, listQ.isLoading, listQ.data]);
+  }, [activeId, listQ.isLoading, notebookList]);
 
   const updateTitle = useMutation({
     mutationFn: (p: { id: string; title: string }) =>
@@ -580,7 +595,10 @@ export default function NotebookPage() {
   }, []);
 
   // ===== Sources Library computed list =====
-  const sources: NBSource[] = (sourcesQ.data || []) as NBSource[];
+  const sources: NBSource[] = useMemo(
+    () => uniqueById((sourcesQ.data || []) as NBSource[]),
+    [sourcesQ.data],
+  );
 
   const isSourceReady = (s: NBSource) => {
     const ing = s.ingestionJob?.status ?? "NONE";
@@ -760,7 +778,7 @@ export default function NotebookPage() {
 
       qc.setQueryData(["nb:sources", d.notebookId], (prev: any) => {
         const cur = Array.isArray(prev) ? (prev as NBSource[]) : [];
-        return [...d.sources, ...cur];
+        return uniqueById([...d.sources, ...cur]);
       });
     };
 
@@ -793,7 +811,7 @@ export default function NotebookPage() {
           return true;
         });
 
-        return [...real, ...kept];
+        return uniqueById([...real, ...kept]);
       });
 
       qc.invalidateQueries({ queryKey: ["nb:sources", d.notebookId] });
@@ -921,7 +939,7 @@ export default function NotebookPage() {
               {listQ.isLoading ? (
                 <ListSkeleton rows={4} />
               ) : (
-                (listQ.data || []).map((n) => (
+                notebookList.map((n) => (
                   <div key={n.id} className="group relative">
                     <button
                       onClick={() => setActiveId(n.id)}
@@ -1069,6 +1087,7 @@ export default function NotebookPage() {
                 <div className="px-2 pb-2">
                   <div className="relative">
                     <input
+                      name="notebook-source-query"
                       value={sourceQuery}
                       onChange={(e) => setSourceQuery(e.target.value)}
                       placeholder="Search sources…"
@@ -1294,6 +1313,7 @@ export default function NotebookPage() {
               )}
             >
               <input
+                name="notebook-title"
                 value={titleDraft}
                 onChange={(e) => {
                   const next = e.target.value;

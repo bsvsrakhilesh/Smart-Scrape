@@ -910,7 +910,7 @@ export default function ChatPanel({
                       <div className="mt-2 flex flex-wrap gap-1">
                         {m.citations.map((c, idx) => (
                           <CitationBadge
-                            key={c.chunkId}
+                            key={`${m.id}_cit_${c.chunkId}_${idx}`}
                             index={idx + 1}
                             citation={c}
                             onOpenSource={openSource}
@@ -991,6 +991,7 @@ export default function ChatPanel({
               <div className="rounded-3xl border border-slate-200 bg-white shadow-[0_14px_40px_rgba(15,23,42,0.10)] px-3 py-2">
                 <textarea
                   ref={composerRef}
+                  name="chat-composer"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKeyDown}

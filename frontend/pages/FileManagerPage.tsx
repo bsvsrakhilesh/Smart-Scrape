@@ -3479,9 +3479,8 @@ export default function FileManagerPage() {
                   onViewSelect={onViewSelect}
                   currentFolderId={currentFolderId}
                   storageUsedBytes={storageUsedBytes}
-                  storageCapacityBytes={1024 ** 4}
                   viewMode={viewMode}
-                  setViewMode={setViewMode}
+                  refreshKey={refreshToken}
                 />
               </motion.div>
             </aside>

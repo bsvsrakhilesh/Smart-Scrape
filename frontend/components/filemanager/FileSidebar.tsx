@@ -23,9 +23,9 @@ type FileSidebarProps = {
   onViewSelect: (mode: "trash" | "favorites") => void;
   currentFolderId?: string;
   storageUsedBytes?: number;
-  storageCapacityBytes?: number;
+  storageCapacityBytes?: number | null;
   viewMode: "drive" | "trash" | "favorites";
-  setViewMode: (m: "drive" | "trash" | "favorites") => void;
+  refreshKey?: number;
 };
 
 const SectionShell: React.FC<{ children: React.ReactNode }> = ({
@@ -106,24 +106,18 @@ const iconFor = (name: string) => {
   return <FolderIcon className="w-4 h-4 text-amber-500" />;
 };
 
-/** resolve “Libraries”: if you have a real Libraries folder, use it; else use common names at root */
-async function getLibraryFolders(): Promise<FolderNode[]> {
+async function getSidebarCollections(): Promise<FolderNode[]> {
   const roots = await fetchRootFolders();
   const libRoot = roots.find((r) => r.name.toLowerCase().includes("librar"));
-  if (libRoot) return fetchChildren(libRoot.id);
 
-  const COMMON = [
-    "documents",
-    "pictures",
-    "music",
-    "videos",
-    "downloads",
-    "desktop",
-  ];
-  const libs = roots.filter((r) =>
-    COMMON.some((c) => r.name.toLowerCase().includes(c)),
+  if (!libRoot) return roots;
+
+  const libraryChildren = await fetchChildren(libRoot.id);
+  const otherRoots = roots.filter((r) => r.id !== libRoot.id);
+
+  return [...libraryChildren, ...otherRoots].sort((a, b) =>
+    a.name.localeCompare(b.name),
   );
-  return libs.length ? libs : roots;
 }
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = "fm.sidebar.collapsed.v1";
@@ -141,6 +135,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   storageUsedBytes,
   storageCapacityBytes,
   viewMode,
+  refreshKey,
 }) => {
   const [libraryFolders, setLibraryFolders] = useState<FolderNode[] | null>(
     null,
@@ -183,20 +178,23 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
 
   useEffect(() => {
     let alive = true;
+
     (async () => {
       try {
-        const libs = await getLibraryFolders();
+        setError(null);
+        const collections = await getSidebarCollections();
         if (!alive) return;
-        setLibraryFolders(libs);
+        setLibraryFolders(collections);
       } catch (e: any) {
         if (!alive) return;
-        setError(e?.message || "Failed to load libraries");
+        setError(e?.message || "Failed to load collections");
       }
     })();
+
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshKey]);
 
   const goHome = useCallback(() => {
     onFolderSelect?.(undefined, "All evidence");
@@ -241,6 +239,10 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
     return [HOME, FAVORITES, TRASH];
   }, [goHome, goTrash, currentFolderId, onViewSelect, viewMode]);
 
+  const filteredQuickAccess = useMemo(() => {
+    return quickAccess.filter((item) => matchesSidebarQuery(item.label));
+  }, [quickAccess, matchesSidebarQuery]);
+
   const filteredLibraryFolders = useMemo(() => {
     const libs = libraryFolders ?? [];
     return libs.filter((lib) => matchesSidebarQuery(lib.name));
@@ -248,8 +250,15 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
 
   const storageSummary = useMemo(() => {
     const used = storageUsedBytes ?? 0;
-    const cap = storageCapacityBytes ?? 1024 ** 4;
-    const pct = Math.min(100, Math.round((used / cap) * 100 || 0));
+    const cap =
+      typeof storageCapacityBytes === "number" &&
+      Number.isFinite(storageCapacityBytes) &&
+      storageCapacityBytes > 0
+        ? storageCapacityBytes
+        : null;
+
+    const pct =
+      cap !== null ? Math.min(100, Math.round((used / cap) * 100 || 0)) : null;
 
     const fmt = (n: number) => {
       const kb = 1024;
@@ -269,7 +278,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
       cap,
       pct,
       usedLabel: fmt(used),
-      capLabel: fmt(cap),
+      capLabel: cap !== null ? fmt(cap) : null,
     };
   }, [storageUsedBytes, storageCapacityBytes]);
 
@@ -307,7 +316,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
           />
           {!collapsed.quick && (
             <div className="ex-nav-list">
-              {quickAccess.map((x) => (
+              {filteredQuickAccess.map((x) => (
                 <NavItem
                   key={x.label}
                   label={x.label}
@@ -333,9 +342,14 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
                 <span className="ex-nav-pill ex-nav-pill--danger">Error</span>
               ) : (
                 <span className="ex-nav-pill">
-                  {normalizedSidebarQuery
-                    ? `${filteredLibraryFolders.length}/${libraryFolders?.length ?? 0}`
-                    : (libraryFolders?.length ?? 0)}
+                  {normalizedSidebarQuery &&
+                    filteredQuickAccess.length === 0 &&
+                    filteredLibraryFolders.length === 0 &&
+                    !error && (
+                      <div className="ex-nav-empty">
+                        No sidebar items match “{sidebarQuery}”.
+                      </div>
+                    )}
                 </span>
               )
             }
@@ -392,7 +406,9 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
             </span>
 
             <span className="ex-storage-toggle-right">
-              <span className="ex-nav-pill">{storageSummary.pct}%</span>
+              {storageSummary.pct !== null ? (
+                <span className="ex-nav-pill">{storageSummary.pct}%</span>
+              ) : null}
               {collapsed.storage ? (
                 <ChevronRight className="w-4 h-4" />
               ) : (
@@ -405,12 +421,14 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
             <>
               <div className="mt-3 text-xs text-[hsl(var(--muted-foreground))]">
                 <div className="flex items-center justify-between">
-                  <span>
-                    {storageSummary.usedLabel} of {storageSummary.capLabel}
-                  </span>
-                  <span className="font-semibold text-[hsl(var(--foreground))]">
-                    {storageSummary.pct}%
-                  </span>
+                  {storageSummary.pct !== null && (
+                    <div className="mt-3 h-2 w-full rounded-full bg-[hsl(var(--border))]/50 overflow-hidden">
+                      <div
+                        className="h-full w-0 bg-gradient-to-r from-green-500 to-blue-500 transition-[width] duration-700"
+                        style={{ width: `${storageSummary.pct}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

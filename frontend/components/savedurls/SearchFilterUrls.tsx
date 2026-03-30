@@ -83,7 +83,12 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
     <div className="space-y-4">
       {/* Search row */}
       <div className="flex flex-col sm:flex-row gap-3">
+        <label className="sr-only" htmlFor="saved-urls-query">
+          Search saved URLs
+        </label>
         <input
+          id="saved-urls-query"
+          name="saved_urls_query"
           aria-label="Search saved URLs"
           type="text"
           placeholder=" Search by title, URL, tags..."
@@ -169,9 +174,16 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
           <div className="font-semibold mb-2">Other</div>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row gap-2">
-              <div className="flex-1 min-w-0">
-                <label className="block text-xs mb-1">From</label>
+            <div className="flex-1 min-w-0">
+                <label
+                  className="block text-xs mb-1"
+                  htmlFor="saved-urls-date-from"
+                >
+                  From
+                </label>
                 <input
+                  id="saved-urls-date-from"
+                  name="saved_urls_date_from"
                   type="date"
                   value={state.dateFrom || ""}
                   onChange={(e) =>
@@ -181,8 +193,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                 />
               </div>
               <div className="flex-1 min-w-0">
-                <label className="block text-xs mb-1">To</label>
+                <label
+                  className="block text-xs mb-1"
+                  htmlFor="saved-urls-date-to"
+                >
+                  To
+                </label>
                 <input
+                  id="saved-urls-date-to"
+                  name="saved_urls_date_to"
                   type="date"
                   value={state.dateTo || ""}
                   onChange={(e) =>
@@ -195,6 +214,8 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
 
             <label className="inline-flex items-center gap-2">
               <input
+                id="saved-urls-favorites-only"
+                name="saved_urls_favorites_only"
                 type="checkbox"
                 checked={state.favoritesOnly}
                 onChange={(e) =>
@@ -205,8 +226,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
             </label>
 
             <div>
-              <label className="block text-xs mb-1">Snapshots</label>
+              <label
+                className="block text-xs mb-1"
+                htmlFor="saved-urls-snapshot-status"
+              >
+                Snapshots
+              </label>
               <select
+                id="saved-urls-snapshot-status"
+                name="saved_urls_snapshot_status"
                 value={state.snapshotStatus || "all"}
                 onChange={(e) =>
                   setState((s) => ({
@@ -224,8 +252,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs mb-1">AI tagging</label>
+              <label
+                className="block text-xs mb-1"
+                htmlFor="saved-urls-tagging-status"
+              >
+                AI tagging
+              </label>
               <select
+                id="saved-urls-tagging-status"
+                name="saved_urls_tagging_status"
                 value={state.taggingStatus || "all"}
                 onChange={(e) =>
                   setState((s) => ({
@@ -246,8 +281,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs mb-1">Metadata</label>
+              <label
+                className="block text-xs mb-1"
+                htmlFor="saved-urls-metadata-state"
+              >
+                Metadata
+              </label>
               <select
+                id="saved-urls-metadata-state"
+                name="saved_urls_metadata_state"
                 value={state.metadataState || "all"}
                 onChange={(e) =>
                   setState((s) => ({
@@ -265,8 +307,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs mb-1">Visibility</label>
+              <label
+                className="block text-xs mb-1"
+                htmlFor="saved-urls-visibility"
+              >
+                Visibility
+              </label>
               <select
+                id="saved-urls-visibility"
+                name="saved_urls_visibility"
                 value={state.visibility}
                 onChange={(e) =>
                   setState((s) => ({

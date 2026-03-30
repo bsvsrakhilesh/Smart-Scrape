@@ -3369,6 +3369,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Capture</span>
                         <select
+                          name="archive-capture-kind"
                           className="fm-filter-select"
                           value={archiveFilters.captureKind}
                           onChange={(e) => {
@@ -3388,6 +3389,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Visibility</span>
                         <select
+                          name="archive-visibility"
                           className="fm-filter-select"
                           value={archiveFilters.visibility}
                           onChange={(e) => {
@@ -3410,6 +3412,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Integrity</span>
                         <select
+                          name="archive-integrity"
                           className="fm-filter-select"
                           value={archiveFilters.integrity}
                           onChange={(e) => {
@@ -3430,6 +3433,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Revision</span>
                         <select
+                          name="archive-revision"
                           className="fm-filter-select"
                           value={archiveFilters.revision}
                           onChange={(e) => {
@@ -3449,6 +3453,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Source domain</span>
                         <input
+                          name="archive-source-domain"
                           className="fm-filter-input"
                           type="search"
                           placeholder="caqm.nic.in or nytimes.com"
@@ -3466,6 +3471,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>AI tagging</span>
                         <select
+                          name="archive-tagging-status"
                           className="fm-filter-select"
                           value={archiveFilters.taggingStatus}
                           onChange={(e) => {
@@ -3489,6 +3495,7 @@ export default function FileManagerPage() {
                       <label className="fm-filter-field">
                         <span>Metadata</span>
                         <select
+                          name="archive-metadata-state"
                           className="fm-filter-select"
                           value={archiveFilters.metadataState}
                           onChange={(e) => {
@@ -4278,6 +4285,7 @@ export default function FileManagerPage() {
 
                       <div className="ex-status-right">
                         <select
+                          name="archive-page-size"
                           className="ex-page-size"
                           value={pageSize}
                           onChange={(e) => {

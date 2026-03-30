@@ -161,6 +161,7 @@ export default function CommandPalette({ isOpen, onClose, commands }: Props) {
             <Search className="w-4 h-4 text-neutral-500" />
             <input
               ref={inputRef}
+              name="command-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Type a command…"

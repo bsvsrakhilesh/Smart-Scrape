@@ -303,6 +303,7 @@ export default function Breadcrumbs({
             {editing ? (
               <input
                 ref={inputRef}
+                name="folder-path"
                 value={pathText}
                 onChange={(e) => setPathText(e.target.value)}
                 onKeyDown={handleAddressKeyDown}

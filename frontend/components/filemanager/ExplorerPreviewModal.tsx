@@ -581,6 +581,7 @@ export default function ExplorerPreviewModal(props: Props) {
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <input
                   ref={tagInputRef}
+                  name="preview-add-tag"
                   type="text"
                   placeholder="Add tag"
                   value={newTagInput}

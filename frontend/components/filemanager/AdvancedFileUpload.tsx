@@ -642,6 +642,7 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
             >
               <input
                 ref={inputRef}
+                name="compact-upload-files"
                 type="file"
                 multiple
                 accept={FILE_INPUT_ACCEPT}
@@ -749,6 +750,7 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
         <button className="btn-primary px-4 py-2">Select</button>
         <input
           ref={inputRef}
+          name="upload-files"
           type="file"
           multiple
           accept={FILE_INPUT_ACCEPT}

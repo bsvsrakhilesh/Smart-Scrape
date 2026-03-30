@@ -980,6 +980,7 @@ export default function Details_ListView({
             <div className="fm-evidence-main">
               {showCheckCol && (
                 <input
+                  name="details-row-select"
                   type="checkbox"
                   className="fm-check"
                   checked={isSel}
@@ -1134,6 +1135,7 @@ export default function Details_ListView({
           <div className="fm-list-item__left">
             {showCheckCol && (
               <input
+                name="list-row-select"
                 type="checkbox"
                 className="fm-check"
                 checked={isSel}

@@ -83,11 +83,6 @@ export default function NotebookPage() {
     new Set(),
   );
 
-  const notebookList = useMemo(
-    () => uniqueById((listQ.data || []) as Notebook[]),
-    [listQ.data],
-  );
-
   // load scope when switching notebooks
   useEffect(() => {
     if (!scopeKey) return;
@@ -145,6 +140,11 @@ export default function NotebookPage() {
     },
     refetchIntervalInBackground: true,
   });
+
+  const notebookList = useMemo(
+    () => uniqueById((listQ.data || []) as Notebook[]),
+    [listQ.data],
+  );
 
   // If another page sent a FILE revision here, add it as a source automatically.
   useEffect(() => {

@@ -8,6 +8,7 @@ type Crumb = { id: string; label: string; onClick: () => void };
 
 type Props = {
   path: Crumb[];
+  rootLabel?: string;
 
   currentFolderId?: string | null;
   onBack?: () => void;
@@ -26,6 +27,7 @@ type Props = {
 
 export default function Breadcrumbs({
   path,
+  rootLabel = "Root",
   currentFolderId = null,
   onBack,
   onForward,
@@ -39,30 +41,12 @@ export default function Breadcrumbs({
 }: Props) {
   // Ensure the breadcrumbs actually include & end at the current folder
   const displayPath = useMemo(() => {
-    if (!path || path.length === 0) return path;
+    const safePath = Array.isArray(path) ? path.filter(Boolean) : [];
 
-    // If we know the current folder ID, make sure the chain ends on it
-    if (currentFolderId) {
-      const idx = path.findIndex((c) => c.id === currentFolderId);
+    if (!currentFolderId) return safePath;
 
-      if (idx >= 0) {
-        // Trim any extra crumbs AFTER the current folder
-        return path.slice(0, idx + 1);
-      } else {
-        // No crumb for current folder – append one using last label as fallback
-        const last = path[path.length - 1];
-        return [
-          ...path,
-          {
-            ...last,
-            id: currentFolderId,
-          },
-        ];
-      }
-    }
-
-    // No explicit currentFolderId – just use path as given
-    return path;
+    const idx = safePath.findIndex((c) => c.id === currentFolderId);
+    return idx >= 0 ? safePath.slice(0, idx + 1) : safePath;
   }, [path, currentFolderId]);
 
   // --- Derived path string (for address editing) ---
@@ -103,7 +87,7 @@ export default function Breadcrumbs({
     requestAnimationFrame(() => {
       el.scrollLeft = el.scrollWidth;
     });
-  }, [path]);
+  }, [displayPath]);
 
   // --- Internal back/forward history when parent doesn't provide handlers ---
   const [backStack, setBackStack] = useState<(string | null)[]>([]);
@@ -184,7 +168,7 @@ export default function Breadcrumbs({
   const resolveAndNavigate = useCallback(async () => {
     const text = pathText.trim();
 
-    if (!text) {
+    if (!text || text.toLowerCase() === rootLabel.toLowerCase()) {
       runNavigate(null);
       setEditing(false);
       return;
@@ -199,7 +183,6 @@ export default function Breadcrumbs({
       }
     }
 
-    // Fallback: try to match by last segment label
     if (resolved === null) {
       const segments = text.split(/[\\/]/).map((s) => s.trim());
       const last = segments.filter(Boolean).pop()?.toLowerCase();
@@ -209,9 +192,13 @@ export default function Breadcrumbs({
       }
     }
 
-    if (resolved !== null) runNavigate(resolved);
+    if (resolved === null) {
+      return;
+    }
+
+    runNavigate(resolved);
     setEditing(false);
-  }, [pathText, onResolvePathText, path, runNavigate]);
+  }, [pathText, rootLabel, onResolvePathText, displayPath, runNavigate]);
 
   const handleAddressKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -228,6 +215,16 @@ export default function Breadcrumbs({
     if (!searchInputRef.current) return;
     searchInputRef.current.focus();
     searchInputRef.current.select();
+  }, []);
+
+  const shortcutLabel = useMemo(() => {
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.platform.toLowerCase().includes("mac")
+    ) {
+      return "⌘F";
+    }
+    return "Ctrl+F";
   }, []);
 
   // --- Search box (right side) ---
@@ -249,8 +246,10 @@ export default function Breadcrumbs({
 
       <input
         ref={searchInputRef}
+        id="file-manager-search"
+        data-file-manager-search="true"
         type="search"
-        name="q"
+        name="file-manager-search"
         value={search}
         onChange={(e) => {
           const v = e.target.value;
@@ -289,7 +288,7 @@ export default function Breadcrumbs({
           aria-label="Focus search with keyboard shortcut"
           title="Focus search"
         >
-          Ctrl+F
+          {shortcutLabel}
         </button>
       )}
     </div>
@@ -298,6 +297,7 @@ export default function Breadcrumbs({
   // --- Render ---
   return (
     <motion.nav
+      aria-label="Folder navigation"
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
@@ -378,6 +378,7 @@ export default function Breadcrumbs({
                         <button
                           type="button"
                           onClick={crumb.onClick}
+                          aria-current={isLast ? "page" : undefined}
                           className={`px-2 py-1 rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap ${
                             isLast
                               ? "border border-[hsl(var(--fm-border))] bg-[hsl(var(--fm-bg-elev))] text-[hsl(var(--foreground))] shadow-sm"

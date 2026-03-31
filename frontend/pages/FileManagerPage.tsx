@@ -20,6 +20,8 @@ import { FileItem, FileDetail } from "../lib/types";
 import {
   createFolder,
   getFolder,
+  getFolderAncestors,
+  resolveFolderPath,
   moveFolder,
   moveFolderToTrash,
   moveFileToTrash,
@@ -745,8 +747,9 @@ export default function FileManagerPage() {
 
       if (!mod || key !== "f") return;
 
-      const searchInput =
-        document.querySelector<HTMLInputElement>('input[name="q"]');
+      const searchInput = document.querySelector<HTMLInputElement>(
+        '[data-file-manager-search="true"]',
+      );
       if (!searchInput) return;
 
       e.preventDefault();
@@ -1240,27 +1243,54 @@ export default function FileManagerPage() {
 
   const buildBreadcrumb = useCallback(
     async (id?: string) => {
-      if (id === "trash")
+      if (id === "trash") {
         return [{ name: ROOT_BREADCRUMB_NAME }, { id: "trash", name: "Trash" }];
+      }
 
-      if (id === "favorites")
+      if (id === "favorites") {
         return [
           { name: ROOT_BREADCRUMB_NAME },
           { id: "favorites", name: "Favorites" },
         ];
-
-      const chain: { id: string; name: string }[] = [];
-      const seen = new Set<string>();
-      let cur: string | undefined = id;
-
-      for (let i = 0; i < 50 && cur && !seen.has(cur); i++) {
-        seen.add(cur);
-        const meta = await fetchFolderMeta(cur);
-        chain.push({ id: meta.id, name: meta.name });
-        cur = meta.parentId || undefined;
       }
-      chain.reverse();
-      return [{ name: ROOT_BREADCRUMB_NAME }, ...chain];
+
+      if (!id) {
+        return [{ name: ROOT_BREADCRUMB_NAME }];
+      }
+
+      try {
+        const chain = await getFolderAncestors(id);
+
+        for (const node of chain) {
+          folderCache.current.set(node.id, {
+            id: node.id,
+            name: String(node.name || "").trim() || "Folder",
+            parentId: node.parentId ?? null,
+          });
+        }
+
+        return [
+          { name: ROOT_BREADCRUMB_NAME },
+          ...chain.map((node) => ({
+            id: node.id,
+            name: String(node.name || "").trim() || "Folder",
+          })),
+        ];
+      } catch {
+        const chain: { id: string; name: string }[] = [];
+        const seen = new Set<string>();
+        let cur: string | undefined = id;
+
+        for (let i = 0; i < 50 && cur && !seen.has(cur); i++) {
+          seen.add(cur);
+          const meta = await fetchFolderMeta(cur);
+          chain.push({ id: meta.id, name: meta.name });
+          cur = meta.parentId || undefined;
+        }
+
+        chain.reverse();
+        return [{ name: ROOT_BREADCRUMB_NAME }, ...chain];
+      }
     },
     [fetchFolderMeta],
   );
@@ -3493,6 +3523,7 @@ export default function FileManagerPage() {
               <div className="ex-sticky-top">
                 <div className="ex-addressbar">
                   <ExplorerBreadcrumbs
+                    rootLabel={ROOT_BREADCRUMB_NAME}
                     path={breadcrumb.map((b, idx) => ({
                       id: b.id ?? `home-${idx}`,
                       label: b.name,
@@ -3506,15 +3537,22 @@ export default function FileManagerPage() {
                     backEnabled={historyIndex > 0}
                     forwardEnabled={historyIndex < history.length - 1}
                     onResolvePathText={async (text) => {
-                      const parts = text
-                        .split(/[\\/]+/)
-                        .map((s) => s.trim())
-                        .filter(Boolean);
-                      const last = parts[parts.length - 1]?.toLowerCase();
-                      const match = [...breadcrumb]
-                        .reverse()
-                        .find((c) => (c.name || "").toLowerCase() === last);
-                      return match?.id ?? null;
+                      const cleaned = text.trim();
+
+                      if (!cleaned) return null;
+                      if (
+                        cleaned.toLowerCase() ===
+                        ROOT_BREADCRUMB_NAME.toLowerCase()
+                      ) {
+                        return null;
+                      }
+
+                      try {
+                        const resolved = await resolveFolderPath(cleaned);
+                        return resolved.folderId ?? null;
+                      } catch {
+                        return null;
+                      }
                     }}
                     onNavigate={async (folderId) => {
                       await onFolderSelect(folderId ?? undefined);

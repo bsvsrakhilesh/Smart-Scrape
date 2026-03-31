@@ -1726,6 +1726,58 @@ r.get("/folders", async (req, res, next) => {
   }
 });
 
+type FolderPathRow = {
+  id: string;
+  name: string;
+  parentId: string | null;
+};
+
+type FolderAncestorRow = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  deletedAt: Date | null;
+};
+
+r.get("/folders/:id/ancestors", async (req, res, next) => {
+  try {
+    if (!prismaSupportsFolders()) {
+      return res.status(501).json({
+        message:
+          "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
+      });
+    }
+
+    const startId = String(req.params.id);
+    let cur: string | null = startId;
+    const chain: FolderPathRow[] = [];
+
+    for (let i = 0; i < 200 && cur; i++) {
+      const folder: FolderAncestorRow | null = await prisma.folder.findUnique({
+        where: { id: cur },
+        select: { id: true, name: true, parentId: true, deletedAt: true },
+      });
+
+      if (!folder || folder.deletedAt) {
+        return res.status(404).json({ message: "Folder not found" });
+      }
+
+      chain.push({
+        id: folder.id,
+        name: folder.name,
+        parentId: folder.parentId,
+      });
+
+      cur = folder.parentId;
+    }
+
+    chain.reverse();
+    return res.json(chain);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/folders/:id - get folder info
 r.get("/folders/:id", async (req, res, next) => {
   try {

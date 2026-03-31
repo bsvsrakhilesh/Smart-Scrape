@@ -753,6 +753,28 @@ export async function getFolder(id: string): Promise<BackendFolder> {
   return res.data;
 }
 
+export type FolderPathNode = {
+  id: string;
+  name: string;
+  parentId?: string | null;
+};
+
+export async function getFolderAncestors(
+  id: string,
+): Promise<FolderPathNode[]> {
+  const res = await api.get(`/api/folders/${id}/ancestors`);
+  return res.data;
+}
+
+export async function resolveFolderPath(
+  pathText: string,
+): Promise<{ folderId: string | null; chain: FolderPathNode[] }> {
+  const res = await api.get("/api/folders/resolve", {
+    params: { path: pathText },
+  });
+  return res.data;
+}
+
 export async function renameFolder(
   id: string,
   name: string,

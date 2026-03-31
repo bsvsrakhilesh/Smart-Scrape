@@ -1100,6 +1100,71 @@ export default function FileManagerPage() {
     return { zipId, path };
   };
 
+  const isVirtualArchiveItemId = (id: string) =>
+    isZipDirId(id) || isZipFileId(id);
+
+  const isRealPersistedFileItem = (item: FileItem) => {
+    const id = String((item as any)?.id ?? "");
+    return !!id && !isFolderItem(item) && !isVirtualArchiveItemId(id);
+  };
+
+  const visibleFilesById = useMemo(() => {
+    const map = new Map<string, FileItem>();
+    for (const file of visibleFiles) {
+      map.set(String(file.id), file);
+    }
+    return map;
+  }, [visibleFiles]);
+
+  const selectionCapabilities = useMemo(() => {
+    const realFileCount = selected.filter(isRealPersistedFileItem).length;
+    const inArchive = !!virtualZip;
+    const inTrash = viewMode === "trash";
+    const inDrive = viewMode === "drive";
+
+    return {
+      canAutoTag: !inArchive && !inTrash && realFileCount > 0,
+      canAddTag: !inArchive && !inTrash && realFileCount > 0,
+      canFavorite: !inArchive && !inTrash && realFileCount > 0,
+      showCopy: !inArchive && !inTrash,
+      showCut: !inArchive && !inTrash,
+      showPaste: !inArchive && inDrive,
+      canPaste: !inArchive && inDrive && !!clipboard,
+      showDelete: !inArchive,
+      showRestore: inTrash,
+    };
+  }, [clipboard, selected, viewMode, virtualZip]);
+
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev.length) return prev;
+
+      const next = prev
+        .map((item) => visibleFilesById.get(String(item.id)))
+        .filter(Boolean) as FileItem[];
+
+      if (
+        next.length === prev.length &&
+        next.every((item, index) => item === prev[index])
+      ) {
+        return prev;
+      }
+
+      return next;
+    });
+  }, [visibleFilesById]);
+
+  useEffect(() => {
+    if (propertiesFile && !visibleFilesById.has(String(propertiesFile.id))) {
+      setShowProperties(false);
+      setPropertiesFile(null);
+    }
+
+    if (selectedPreview && !visibleFilesById.has(String(selectedPreview.id))) {
+      setSelectedPreview(null);
+    }
+  }, [propertiesFile, selectedPreview, visibleFilesById]);
+
   const selectedBytes = useMemo(() => {
     return selected.reduce((acc, f) => {
       const isFolder =
@@ -2807,91 +2872,119 @@ export default function FileManagerPage() {
     // -------------------------
     if (selectedSingle) {
       const isFolder = isFolderItem(selectedSingle);
+      const selectedId = String((selectedSingle as any)?.id ?? "");
+      const selectedIsZipDir = isZipDirId(selectedId);
+      const selectedIsZipFile = isZipFileId(selectedId);
+      const selectedIsVirtualArchiveItem =
+        selectedIsZipDir || selectedIsZipFile;
 
-      cmds.push({
-        id: "sel.preview",
-        title: "Open Preview",
-        subtitle: "Preview selected file",
-        group: "Selection",
-        keywords: ["open", "preview", "view"],
-        run: async () => {
-          if (isFolder) return;
+      const canPreviewSelected = !isFolder && !selectedIsVirtualArchiveItem;
 
-          try {
-            setPreviewFocusTags(false);
+      const canTagSelected =
+        !isFolder && !selectedIsVirtualArchiveItem && viewMode !== "trash";
 
-            const hasDetail =
-              !!(selectedSingle as any).mimeType &&
-              typeof (selectedSingle as any).size === "number";
+      const canDownloadSelected = !isFolder;
 
-            if (hasDetail) {
-              handleOpenPreview(selectedSingle as any);
+      const canFavoriteSelected =
+        !isFolder && !selectedIsVirtualArchiveItem && viewMode !== "trash";
+
+      if (canPreviewSelected) {
+        cmds.push({
+          id: "sel.preview",
+          title: "Open Preview",
+          subtitle: "Preview selected file",
+          group: "Selection",
+          keywords: ["open", "preview", "view"],
+          run: async () => {
+            try {
+              setPreviewFocusTags(false);
+
+              const hasDetail =
+                !!(selectedSingle as any).mimeType &&
+                typeof (selectedSingle as any).size === "number";
+
+              if (hasDetail) {
+                handleOpenPreview(selectedSingle as any);
+                return;
+              }
+
+              const detail = await getFileById(String(selectedSingle.id));
+              handleOpenPreview(normalizeFileDetail(detail as any));
+            } catch (e) {
+              console.error(e);
+              notify("Couldn't open preview for the selected file.", "error");
+            }
+          },
+        });
+      }
+
+      if (canTagSelected) {
+        cmds.push({
+          id: "sel.tags",
+          title: "Tag selected",
+          subtitle: "Open preview focused on tags",
+          group: "Selection",
+          keywords: ["tag", "labels", "ai tag"],
+          run: async () => {
+            try {
+              setPreviewFocusTags(true);
+
+              const hasDetail =
+                !!(selectedSingle as any).mimeType &&
+                typeof (selectedSingle as any).size === "number";
+
+              if (hasDetail) {
+                handleOpenPreview(selectedSingle as any);
+                return;
+              }
+
+              const detail = await getFileById(String(selectedSingle.id));
+              handleOpenPreview(normalizeFileDetail(detail as any));
+            } catch (e) {
+              console.error(e);
+              notify("Couldn't open tagging for the selected file.", "error");
+            }
+          },
+        });
+      }
+
+      if (canDownloadSelected) {
+        cmds.push({
+          id: "sel.download",
+          title: "Download selected",
+          subtitle: "Download selected file",
+          group: "Selection",
+          keywords: ["download", "export", "save"],
+          run: () => {
+            if (selectedIsZipFile) {
+              const { zipId, path } = parseZipItemId(selectedId);
+              window.open(
+                streamZipFile(zipId, path),
+                "_blank",
+                "noopener,noreferrer",
+              );
               return;
             }
 
-            const detail = await getFileById(String(selectedSingle.id));
-            handleOpenPreview(normalizeFileDetail(detail as any));
-          } catch (e) {
-            console.error(e);
-            notify("Couldn't open preview for the selected file.", "error");
-          }
-        },
-      });
+            handleDownload(selectedSingle as any);
+          },
+        });
+      }
 
-      cmds.push({
-        id: "sel.tags",
-        title: "Tag selected",
-        subtitle: "Open preview focused on tags",
-        group: "Selection",
-        keywords: ["tag", "labels", "ai tag"],
-        run: async () => {
-          if (isFolder) return;
-
-          try {
-            setPreviewFocusTags(true);
-
-            const hasDetail =
-              !!(selectedSingle as any).mimeType &&
-              typeof (selectedSingle as any).size === "number";
-
-            if (hasDetail) {
-              handleOpenPreview(selectedSingle as any);
-              return;
-            }
-
-            const detail = await getFileById(String(selectedSingle.id));
-            handleOpenPreview(normalizeFileDetail(detail as any));
-          } catch (e) {
-            console.error(e);
-            notify("Couldn't open tagging for the selected file.", "error");
-          }
-        },
-      });
-
-      cmds.push({
-        id: "sel.download",
-        title: "Download selected",
-        subtitle: "Download selected file",
-        group: "Selection",
-        keywords: ["download", "export", "save"],
-        run: () => {
-          if (isFolder) return;
-          handleDownload(selectedSingle as any);
-        },
-      });
-
-      cmds.push({
-        id: "sel.favorite",
-        title: (selectedSingle as any).isFavorited
-          ? "Unfavorite selected"
-          : "Favorite selected",
-        subtitle: "Toggle favorite",
-        group: "Selection",
-        keywords: ["favorite", "star", "like"],
-        run: () => {
-          handleToggleFavorite(selectedSingle as any);
-        },
-      });
+      if (canFavoriteSelected) {
+        cmds.push({
+          id: "sel.favorite",
+          title: (selectedSingle as any).isFavorited
+            ? "Unfavorite selected"
+            : "Favorite selected",
+          subtitle: "Toggle favorite",
+          group: "Selection",
+          keywords: ["favorite", "star", "like"],
+          run: () => {
+            handleToggleFavorite(selectedSingle as any);
+          },
+        });
+      }
     }
 
     return cmds;
@@ -4315,34 +4408,65 @@ export default function FileManagerPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                   >
-                    <ToolbarButton
-                      variant="primary"
-                      onClick={() =>
-                        onAutoTagSelected(selected.map((s) => s.id))
-                      }
-                      title="Run AI auto-tag on selected files"
-                      className="mr-2 mb-2"
-                    >
-                      AI Auto-Tag selected
-                    </ToolbarButton>
+                    {selectionCapabilities.canAutoTag && (
+                      <ToolbarButton
+                        variant="primary"
+                        onClick={() =>
+                          onAutoTagSelected(selected.map((s) => s.id))
+                        }
+                        title="Run AI auto-tag on selected files"
+                        className="mr-2 mb-2"
+                      >
+                        AI Auto-Tag selected
+                      </ToolbarButton>
+                    )}
+
                     <BulkActionBar
                       selected={selected}
                       onDelete={
-                        viewMode === "trash"
-                          ? onPermanentDeleteSelected
-                          : onDeleteSelected
+                        selectionCapabilities.showDelete
+                          ? viewMode === "trash"
+                            ? onPermanentDeleteSelected
+                            : onDeleteSelected
+                          : undefined
                       }
                       onRestore={
-                        viewMode === "trash" ? onRestoreSelected : undefined
+                        selectionCapabilities.showRestore
+                          ? onRestoreSelected
+                          : undefined
                       }
-                      onAddTag={onAddTagSelected}
-                      onRequestAddTag={openAddTagDialog}
-                      onFavorite={onFavoriteSelected}
+                      onAddTag={
+                        selectionCapabilities.canAddTag
+                          ? onAddTagSelected
+                          : undefined
+                      }
+                      onRequestAddTag={
+                        selectionCapabilities.canAddTag
+                          ? openAddTagDialog
+                          : undefined
+                      }
+                      onFavorite={
+                        selectionCapabilities.canFavorite
+                          ? onFavoriteSelected
+                          : undefined
+                      }
                       onExport={onExportSelected}
-                      onCopy={(ids) => handleCopy(byIds(ids))}
-                      onCut={(ids) => handleCut(byIds(ids))}
-                      onPaste={handlePaste}
-                      canPaste={!!clipboard}
+                      onCopy={
+                        selectionCapabilities.showCopy
+                          ? (ids) => handleCopy(byIds(ids))
+                          : undefined
+                      }
+                      onCut={
+                        selectionCapabilities.showCut
+                          ? (ids) => handleCut(byIds(ids))
+                          : undefined
+                      }
+                      onPaste={
+                        selectionCapabilities.showPaste
+                          ? handlePaste
+                          : undefined
+                      }
+                      canPaste={selectionCapabilities.canPaste}
                       deleteLabel={
                         viewMode === "trash" ? "Delete permanently" : "Delete"
                       }
@@ -4481,16 +4605,29 @@ export default function FileManagerPage() {
                       {clipboard && (
                         <div className="mb-3 rounded-lg border bg-amber-50 dark:bg-amber-900/30 p-3 text-sm flex items-center justify-between">
                           <span>
-                            {clipboard.mode === "copy"
-                              ? "Ready to paste copy"
-                              : "Ready to move"}{" "}
-                            — {clipboard.files.length} item(s)
-                            {currentFolderId
-                              ? " into this folder."
-                              : ` into ${ROOT_BREADCRUMB_NAME}.`}
+                            {virtualZip || viewMode !== "drive"
+                              ? `Clipboard has ${clipboard.files.length} item(s). Open a Drive folder to paste.`
+                              : `${
+                                  clipboard.mode === "copy"
+                                    ? "Ready to paste copy"
+                                    : "Ready to move"
+                                } — ${clipboard.files.length} item(s)${
+                                  currentFolderId
+                                    ? " into this folder."
+                                    : ` into ${ROOT_BREADCRUMB_NAME}.`
+                                }`}
                           </span>
                           <div className="flex gap-2">
-                            <button className="btn" onClick={handlePaste}>
+                            <button
+                              className="btn disabled:opacity-50"
+                              onClick={handlePaste}
+                              disabled={!!virtualZip || viewMode !== "drive"}
+                              title={
+                                virtualZip || viewMode !== "drive"
+                                  ? "Open a Drive folder to paste"
+                                  : "Paste here"
+                              }
+                            >
                               Paste here
                             </button>
                             <button
@@ -4588,9 +4725,13 @@ export default function FileManagerPage() {
                               onShowProperties={(f: FileItem) => {
                                 void openProperties(f);
                               }}
-                              onRetryAiTag={(f: FileItem) => {
-                                void handleRetryAiTag(f);
-                              }}
+                              onRetryAiTag={
+                                virtualZip || viewMode === "trash"
+                                  ? undefined
+                                  : (f: FileItem) => {
+                                      void handleRetryAiTag(f);
+                                    }
+                              }
                               onDownload={(f) => {
                                 const id = String((f as any).id);
                                 if (isZipFileId(id)) {
@@ -4634,15 +4775,17 @@ export default function FileManagerPage() {
                                   : handlePaste
                               }
                               onRename={
-                                virtualZip ? undefined : handleRenameById
+                                virtualZip || viewMode === "trash"
+                                  ? undefined
+                                  : handleRenameById
                               }
                               onCopy={
-                                virtualZip
+                                virtualZip || viewMode === "trash"
                                   ? undefined
                                   : (ids: string[]) => handleCopy(byIds(ids))
                               }
                               onCut={
-                                virtualZip
+                                virtualZip || viewMode === "trash"
                                   ? undefined
                                   : (ids: string[]) => handleCut(byIds(ids))
                               }
@@ -4738,9 +4881,12 @@ export default function FileManagerPage() {
                                   void openProperties(f);
                                 },
 
-                                onRetryAiTag: (f: FileItem) => {
-                                  void handleRetryAiTag(f);
-                                },
+                                onRetryAiTag:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : (f: FileItem) => {
+                                        void handleRetryAiTag(f);
+                                      },
 
                                 onDownload: (f: any) => {
                                   const id = String(f?.id ?? "");
@@ -4784,18 +4930,27 @@ export default function FileManagerPage() {
                                   virtualZip || viewMode !== "drive"
                                     ? undefined
                                     : handlePaste,
-                                onUpdateTags: handleUpdateTags,
-                                onEditTags: handleEditTagsInPreview,
+                                onUpdateTags:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : handleUpdateTags,
+                                onEditTags:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : handleEditTagsInPreview,
                                 onSelectionChange: handleSelectionChangeByIds,
-                                onRename: virtualZip
-                                  ? undefined
-                                  : handleRenameById,
-                                onCopy: virtualZip
-                                  ? undefined
-                                  : (ids: string[]) => handleCopy(byIds(ids)),
-                                onCut: virtualZip
-                                  ? undefined
-                                  : (ids: string[]) => handleCut(byIds(ids)),
+                                onRename:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : handleRenameById,
+                                onCopy:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : (ids: string[]) => handleCopy(byIds(ids)),
+                                onCut:
+                                  virtualZip || viewMode === "trash"
+                                    ? undefined
+                                    : (ids: string[]) => handleCut(byIds(ids)),
                                 onDragStart: handleDragStart,
                                 onDragEnd: handleDragEnd,
                                 onDrop:
@@ -4930,21 +5085,29 @@ export default function FileManagerPage() {
               setPreviewFocusTags(false);
             }}
             onDownload={(f) => handleDownload(f)}
-            onToggleFavorite={handleToggleFavorite}
-            onTagUpdate={(fileId, newTags) => {
-              handleUpdateTags(fileId, newTags);
+            onToggleFavorite={
+              virtualZip || viewMode === "trash"
+                ? undefined
+                : handleToggleFavorite
+            }
+            onTagUpdate={
+              virtualZip || viewMode === "trash"
+                ? undefined
+                : (fileId, newTags) => {
+                    handleUpdateTags(fileId, newTags);
 
-              patchFileEverywhere(String(fileId), { tags: newTags });
+                    patchFileEverywhere(String(fileId), { tags: newTags });
 
-              (async () => {
-                try {
-                  const fresh = await getFileById(String(fileId));
-                  applyLatestFileEverywhere(fresh);
-                } catch {
-                  // ignore; tags already updated
-                }
-              })();
-            }}
+                    (async () => {
+                      try {
+                        const fresh = await getFileById(String(fileId));
+                        applyLatestFileEverywhere(fresh);
+                      } catch {
+                        // ignore; tags already updated
+                      }
+                    })();
+                  }
+            }
             autoFocusTags={previewFocusTags}
           />
         )}

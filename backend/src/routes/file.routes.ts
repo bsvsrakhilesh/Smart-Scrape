@@ -922,6 +922,12 @@ r.patch("/files/:id/trash", async (req, res) => {
   // Optional: prevent double-delete
   const existing = await prisma.storedFile.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ message: "Not found" });
+  if (existing.deletedAt) {
+    return res.status(409).json({
+      message:
+        "Trashed folders are read-only. Restore the folder before renaming or moving it.",
+    });
+  }
   if (existing.deletedAt)
     return res.status(409).json({ message: "Already in trash" });
 
@@ -937,6 +943,12 @@ r.patch("/files/:id/restore", async (req, res) => {
   const id = String(req.params.id);
   const existing = await prisma.storedFile.findUnique({ where: { id } });
   if (!existing) return res.status(404).json({ message: "Not found" });
+  if (existing.deletedAt) {
+    return res.status(409).json({
+      message:
+        "Trashed files are read-only. Restore the file before editing metadata or moving it.",
+    });
+  }
   if (!existing.deletedAt)
     return res.status(409).json({ message: "Not in trash" });
 

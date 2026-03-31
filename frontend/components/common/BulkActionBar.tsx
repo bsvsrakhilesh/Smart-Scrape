@@ -3,11 +3,11 @@ type Selectable = { id: string };
 interface BulkActionBarProps<T extends Selectable = Selectable> {
   selected: T[];
 
-  onDelete: (ids: string[]) => void;
+  onDelete?: (ids: string[]) => void;
   onRestore?: (ids: string[]) => void;
-  onAddTag: (ids: string[], tag: string) => void;
+  onAddTag?: (ids: string[], tag: string) => void;
   onRequestAddTag?: (ids: string[]) => void;
-  onFavorite: (ids: string[]) => void;
+  onFavorite?: (ids: string[]) => void;
   onExport: (selected: T[]) => void;
   onCopy?: (ids: string[]) => void;
   onCut?: (ids: string[]) => void;
@@ -43,9 +43,20 @@ function BulkActionBar<T extends Selectable>({
       onRequestAddTag(selectedIds);
       return;
     }
+    if (!onAddTag) return;
+
     const tag = prompt("Add tag");
     if (tag && tag.trim()) onAddTag(selectedIds, tag.trim());
   };
+
+  const hasPrimaryActions =
+    !!onFavorite ||
+    !!onAddTag ||
+    !!onRequestAddTag ||
+    !!onMoveTo ||
+    !!onCopy ||
+    !!onCut ||
+    !!onPaste;
 
   // Button base classes add a subtle scale + translate on active (click) for tactile feedback.
   // Adjust these if your Tailwind build doesn't include translate-y-1; use translate-y-0.5 or remove as needed.
@@ -56,21 +67,25 @@ function BulkActionBar<T extends Selectable>({
     <div className="card p-2 flex flex-wrap items-center gap-2">
       <div className="text-sm">{selected.length} selected</div>
 
-      <button
-        onClick={() => onFavorite(selectedIds)}
-        className={baseBtn}
-        title="Mark as favorite"
-      >
-        Favorite
-      </button>
+      {onFavorite && (
+        <button
+          onClick={() => onFavorite(selectedIds)}
+          className={baseBtn}
+          title="Mark as favorite"
+        >
+          Favorite
+        </button>
+      )}
 
-      <button
-        onClick={addTag}
-        className={baseBtn}
-        title="Add a tag to all selected"
-      >
-        + Tag
-      </button>
+      {(onAddTag || onRequestAddTag) && (
+        <button
+          onClick={addTag}
+          className={baseBtn}
+          title="Add a tag to all selected"
+        >
+          + Tag
+        </button>
+      )}
 
       {onMoveTo && (
         <button
@@ -113,7 +128,7 @@ function BulkActionBar<T extends Selectable>({
         </button>
       )}
 
-      <span className="mx-1 opacity-30">|</span>
+      {hasPrimaryActions && <span className="mx-1 opacity-30">|</span>}
 
       <button
         onClick={() => onExport(selected)}
@@ -133,13 +148,15 @@ function BulkActionBar<T extends Selectable>({
         </button>
       )}
 
-      <button
-        onClick={() => onDelete(selectedIds)}
-        className={`${baseBtn} text-red-600 hover:bg-red-100 active:bg-red-200`}
-        title={deleteLabel}
-      >
-        {deleteLabel}
-      </button>
+      {onDelete && (
+        <button
+          onClick={() => onDelete(selectedIds)}
+          className={`${baseBtn} text-red-600 hover:bg-red-100 active:bg-red-200`}
+          title={deleteLabel}
+        >
+          {deleteLabel}
+        </button>
+      )}
     </div>
   );
 }

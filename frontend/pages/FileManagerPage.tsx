@@ -202,6 +202,111 @@ const archiveViewSignature = (view: ArchiveViewSnapshot) =>
     reviewQueueId: view.reviewQueueId ?? "all",
   });
 
+type ExplorerWindow = {
+  start: number;
+  end: number;
+  fileOffset: number;
+  fileLimit: number;
+};
+
+function sortFolderItemsForExplorer(
+  folders: FileItem[],
+  sortKey: SortKey,
+  sortDir: SortDir,
+): FileItem[] {
+  const dir = sortDir === "asc" ? 1 : -1;
+
+  const safeTime = (value?: string) => {
+    const t = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const compareName = (a: FileItem, b: FileItem) =>
+    String(a.title ?? "").localeCompare(String(b.title ?? ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+
+  return [...folders].sort((a, b) => {
+    let cmp = 0;
+
+    if (sortKey === "date") {
+      cmp = safeTime(a.uploadDate) - safeTime(b.uploadDate);
+    } else if (sortKey === "name") {
+      cmp = compareName(a, b);
+    } else {
+      // For folders, type/size don't provide meaningful differentiation.
+      // Keep them stable and human-friendly.
+      cmp = compareName(a, b);
+    }
+
+    if (cmp === 0) cmp = compareName(a, b);
+    return cmp * dir;
+  });
+}
+
+function getExplorerWindow(
+  folderCount: number,
+  page: number,
+  pageSize: number,
+): ExplorerWindow {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, pageSize);
+
+  const start = (safePage - 1) * safePageSize;
+  const end = start + safePageSize;
+
+  const fileOffset = Math.max(0, start - folderCount);
+  const fileLimit = Math.max(0, end - Math.max(start, folderCount));
+
+  return { start, end, fileOffset, fileLimit };
+}
+
+function sortZipFileItemsForExplorer(
+  files: FileItem[],
+  sortKey: SortKey,
+  sortDir: SortDir,
+): FileItem[] {
+  const dir = sortDir === "asc" ? 1 : -1;
+
+  const safeTime = (value?: string) => {
+    const t = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const fileExt = (item: FileItem) => {
+    const title = String(item.title ?? "");
+    const idx = title.lastIndexOf(".");
+    return idx > 0 ? title.slice(idx + 1).toLowerCase() : "";
+  };
+
+  const compareName = (a: FileItem, b: FileItem) =>
+    String(a.title ?? "").localeCompare(String(b.title ?? ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+
+  return [...files].sort((a, b) => {
+    let cmp = 0;
+
+    if (sortKey === "date") {
+      cmp = safeTime(a.uploadDate) - safeTime(b.uploadDate);
+    } else if (sortKey === "size") {
+      cmp = Number(a.size ?? 0) - Number(b.size ?? 0);
+    } else if (sortKey === "type") {
+      cmp = fileExt(a).localeCompare(fileExt(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    } else {
+      cmp = compareName(a, b);
+    }
+
+    if (cmp === 0) cmp = compareName(a, b);
+    return cmp * dir;
+  });
+}
+
 const BUILTIN_ARCHIVE_VIEWS: SavedArchiveView[] = [
   {
     id: "all-evidence",
@@ -1440,27 +1545,209 @@ export default function FileManagerPage() {
                 )
               : fileItems;
 
-          // Keep folders pinned on page 1, paginate files in the remaining slots.
-          const folderCount = filteredFolderItems.length;
-          const fileSlotsPage1 = Math.max(0, pageSize - folderCount);
+          const sortedFolderItems = sortFolderItemsForExplorer(
+            filteredFolderItems,
+            sortKey,
+            sortDir,
+          );
 
-          const pageFiles =
-            page === 1
-              ? filteredFileItems.slice(0, fileSlotsPage1)
-              : filteredFileItems.slice(
-                  fileSlotsPage1 + (page - 2) * pageSize,
-                  fileSlotsPage1 + (page - 2) * pageSize + pageSize,
-                );
+          const sortedFileItems = sortZipFileItemsForExplorer(
+            filteredFileItems,
+            sortKey,
+            sortDir,
+          );
 
-          const items =
-            page === 1 ? [...filteredFolderItems, ...pageFiles] : pageFiles;
+          const window = getExplorerWindow(
+            sortedFolderItems.length,
+            page,
+            pageSize,
+          );
+
+          const pageFolders = sortedFolderItems.slice(window.start, window.end);
+          const pageFiles = sortedFileItems.slice(
+            window.fileOffset,
+            window.fileOffset + window.fileLimit,
+          );
+
+          const items = [...pageFolders, ...pageFiles];
 
           if (!cancelled) {
             setAllFiles(items);
-            setTotal(filteredFileItems.length);
+            setTotal(sortedFolderItems.length + sortedFileItems.length);
             setTotalBytes(
-              filteredFileItems.reduce((acc, it) => acc + (it.size || 0), 0),
+              sortedFileItems.reduce((acc, it) => acc + (it.size || 0), 0),
             );
+          }
+
+          return;
+        }
+
+        if (!inTrash && !inFavorites) {
+          const folderRows = await listFolders(currentFolderId ?? "root");
+
+          const folderItems: FileItem[] = (folderRows as FolderRow[]).map(
+            (fr) => ({
+              id: `folder:${fr.id}`,
+              title: fr.name,
+              description: "",
+              uploader: { id: "system", name: "—" },
+              uploadDate: String(fr.createdAt ?? new Date().toISOString()),
+              size: 0,
+              mimeType: "folder",
+              tags: [],
+              visibility: "private",
+            }),
+          );
+
+          const q = searchQuery.trim().toLowerCase();
+          const filteredFolderItems =
+            q.length > 0
+              ? folderItems.filter((f) =>
+                  String(f.title || "")
+                    .toLowerCase()
+                    .includes(q),
+                )
+              : folderItems;
+
+          const sortedFolderItems = sortFolderItemsForExplorer(
+            filteredFolderItems,
+            sortKey,
+            sortDir,
+          );
+
+          const window = getExplorerWindow(
+            sortedFolderItems.length,
+            page,
+            pageSize,
+          );
+
+          const fileData = await queryFiles({
+            ...Object.fromEntries(params.entries()),
+            offset: window.fileOffset,
+            limit: window.fileLimit,
+          });
+
+          const fileRows: BackendStoredFile[] = Array.isArray(fileData)
+            ? (fileData as any)
+            : Array.isArray((fileData as any).items)
+              ? (fileData as any).items
+              : [];
+
+          const fileItems: FileItem[] = fileRows.map(toFileItem);
+          const pageFolders = sortedFolderItems.slice(window.start, window.end);
+          const items = [...pageFolders, ...fileItems];
+
+          if (!cancelled) {
+            setAllFiles(items);
+
+            const totalFileCount =
+              typeof (fileData as any)?.total === "number"
+                ? (fileData as any).total
+                : fileItems.length;
+
+            setTotal(sortedFolderItems.length + totalFileCount);
+
+            const bytes =
+              typeof (fileData as any)?.totalBytes === "number"
+                ? (fileData as any).totalBytes
+                : fileItems.reduce(
+                    (acc, f) => acc + (typeof f.size === "number" ? f.size : 0),
+                    0,
+                  );
+
+            setTotalBytes(bytes);
+          }
+
+          return;
+        }
+
+        if (inTrash) {
+          const trashMeta = await listTrashFiles({
+            ...Object.fromEntries(params.entries()),
+            offset: 0,
+            limit: 0,
+          });
+
+          const trashFolderRows = Array.isArray((trashMeta as any)?.folders)
+            ? (trashMeta as any).folders
+            : [];
+
+          const folderItems: FileItem[] = (trashFolderRows as FolderRow[]).map(
+            (fr) => ({
+              id: `folder:${fr.id}`,
+              title: fr.name,
+              description: "",
+              uploader: { id: "system", name: "—" },
+              uploadDate: String(
+                fr.deletedAt ?? fr.createdAt ?? new Date().toISOString(),
+              ),
+              size: 0,
+              mimeType: "folder",
+              tags: [],
+              visibility: "private",
+            }),
+          );
+
+          const q = searchQuery.trim().toLowerCase();
+          const filteredFolderItems =
+            q.length > 0
+              ? folderItems.filter((f) =>
+                  String(f.title || "")
+                    .toLowerCase()
+                    .includes(q),
+                )
+              : folderItems;
+
+          const sortedFolderItems = sortFolderItemsForExplorer(
+            filteredFolderItems,
+            sortKey,
+            sortDir,
+          );
+
+          const window = getExplorerWindow(
+            sortedFolderItems.length,
+            page,
+            pageSize,
+          );
+
+          const trashData =
+            window.fileLimit > 0
+              ? await listTrashFiles({
+                  ...Object.fromEntries(params.entries()),
+                  offset: window.fileOffset,
+                  limit: window.fileLimit,
+                })
+              : trashMeta;
+
+          const fileRows: BackendStoredFile[] = Array.isArray(
+            (trashData as any)?.files,
+          )
+            ? (trashData as any).files
+            : [];
+
+          const fileItems: FileItem[] = fileRows.map(toFileItem);
+          const pageFolders = sortedFolderItems.slice(window.start, window.end);
+          const items = [...pageFolders, ...fileItems];
+
+          if (!cancelled) {
+            setAllFiles(items);
+
+            const totalFileCount =
+              typeof (trashMeta as any)?.total === "number"
+                ? (trashMeta as any).total
+                : fileItems.length;
+
+            setTotal(sortedFolderItems.length + totalFileCount);
+
+            const bytes =
+              typeof (trashMeta as any)?.totalBytes === "number"
+                ? (trashMeta as any).totalBytes
+                : fileItems.reduce(
+                    (acc, f) => acc + (typeof f.size === "number" ? f.size : 0),
+                    0,
+                  );
+
+            setTotalBytes(bytes);
           }
 
           return;

@@ -443,6 +443,239 @@ async function requireZipFileOr400(id: string) {
   return { ok: true as const, file: f };
 }
 
+type ArchiveIndexEntry = {
+  path: string;
+  size: number;
+  compressedSize: number;
+  modified: string | null;
+  isDirectory: boolean;
+};
+
+type ArchiveDirectoryListing = {
+  folders: string[];
+  files: Array<{
+    name: string;
+    size: number;
+    compressedSize: number;
+    modified: string | null;
+  }>;
+};
+
+type ArchiveIndex = {
+  cacheKey: string;
+  builtAt: number;
+  truncated: boolean;
+  entries: ArchiveIndexEntry[];
+  entryByPath: Map<string, ArchiveIndexEntry>;
+  childrenByPrefix: Map<string, ArchiveDirectoryListing>;
+};
+
+const ARCHIVE_INDEX_TTL_MS = (() => {
+  const n = Number(process.env.ARCHIVE_INDEX_TTL_MS);
+  return Number.isFinite(n) && n > 0 ? n : 5 * 60 * 1000;
+})();
+
+const MAX_ARCHIVE_INDEX_ITEMS = (() => {
+  const n = Number(process.env.MAX_ARCHIVE_INDEX_ITEMS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 16;
+})();
+
+const archiveIndexCache = new Map<string, ArchiveIndex>();
+
+function normalizeArchiveEntryPath(input: string): string {
+  return String(input || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/{2,}/g, "/")
+    .trim();
+}
+
+function normalizeArchivePrefix(input: string): string {
+  const normalized = normalizeArchiveEntryPath(input);
+  if (!normalized) return "";
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+function archiveNameCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function safeArchiveModifiedIso(value: unknown): string | null {
+  if (!value) return null;
+  const d = new Date(value as any);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+}
+
+function makeArchiveCacheKey(zipPath: string): string {
+  const stat = fs.statSync(zipPath);
+  return `${zipPath}:${stat.size}:${Math.floor(stat.mtimeMs)}`;
+}
+
+function touchArchiveIndexCache(key: string, value: ArchiveIndex) {
+  archiveIndexCache.delete(key);
+  archiveIndexCache.set(key, value);
+
+  while (archiveIndexCache.size > MAX_ARCHIVE_INDEX_ITEMS) {
+    const oldestKey = archiveIndexCache.keys().next().value;
+    if (!oldestKey) break;
+    archiveIndexCache.delete(oldestKey);
+  }
+}
+
+async function buildArchiveIndex(zipPath: string): Promise<ArchiveIndex> {
+  const zip = await unzipper.Open.file(zipPath);
+
+  const entries: ArchiveIndexEntry[] = [];
+  const entryByPath = new Map<string, ArchiveIndexEntry>();
+
+  const listingState = new Map<
+    string,
+    {
+      folders: Set<string>;
+      files: ArchiveDirectoryListing["files"];
+    }
+  >();
+
+  const ensureListingState = (prefix: string) => {
+    const key = normalizeArchivePrefix(prefix);
+    let current = listingState.get(key);
+    if (!current) {
+      current = { folders: new Set<string>(), files: [] };
+      listingState.set(key, current);
+    }
+    return current;
+  };
+
+  ensureListingState("");
+
+  let scanned = 0;
+  let truncated = false;
+
+  for (const raw of zip.files) {
+    scanned += 1;
+    if (scanned > MAX_ARCHIVE_ENTRIES_SCAN) {
+      truncated = true;
+      break;
+    }
+
+    const rawPath = normalizeArchiveEntryPath(String((raw as any)?.path || ""));
+    if (!rawPath) continue;
+
+    const rawType = String((raw as any)?.type || "").toLowerCase();
+    const isDirectory = rawType === "directory" || rawPath.endsWith("/");
+
+    const normalizedPath = isDirectory
+      ? `${rawPath.replace(/\/+$/, "")}/`
+      : rawPath;
+
+    const safePath = isDirectory
+      ? normalizedPath.replace(/\/+$/, "")
+      : normalizedPath;
+
+    if (!safePath || !isSafeArchivePath(safePath)) continue;
+
+    const barePath = isDirectory
+      ? normalizedPath.replace(/\/+$/, "")
+      : normalizedPath;
+
+    const segments = barePath.split("/").filter(Boolean);
+    if (segments.length === 0) continue;
+
+    for (let i = 0; i < segments.length - 1; i += 1) {
+      const parentPrefix = i === 0 ? "" : `${segments.slice(0, i).join("/")}/`;
+      const childFolderName = segments[i];
+
+      ensureListingState(parentPrefix).folders.add(childFolderName);
+      ensureListingState(`${segments.slice(0, i + 1).join("/")}/`);
+    }
+
+    const entry: ArchiveIndexEntry = {
+      path: normalizedPath,
+      size: Number(
+        (raw as any)?.uncompressedSize ||
+          (raw as any)?.vars?.uncompressedSize ||
+          0,
+      ),
+      compressedSize: Number(
+        (raw as any)?.compressedSize || (raw as any)?.vars?.compressedSize || 0,
+      ),
+      modified: safeArchiveModifiedIso(
+        (raw as any)?.props?.lastModifiedDateTime ||
+          (raw as any)?.props?.lastModifiedDate ||
+          (raw as any)?.vars?.lastModifiedDate ||
+          null,
+      ),
+      isDirectory,
+    };
+
+    entries.push(entry);
+    entryByPath.set(entry.path, entry);
+
+    if (isDirectory) {
+      const parentPrefix =
+        segments.length === 1 ? "" : `${segments.slice(0, -1).join("/")}/`;
+      const folderName = segments[segments.length - 1];
+
+      ensureListingState(parentPrefix).folders.add(folderName);
+      ensureListingState(`${barePath}/`);
+    } else {
+      const parentPrefix =
+        segments.length === 1 ? "" : `${segments.slice(0, -1).join("/")}/`;
+      const fileName = segments[segments.length - 1];
+
+      ensureListingState(parentPrefix).files.push({
+        name: fileName,
+        size: entry.size,
+        compressedSize: entry.compressedSize,
+        modified: entry.modified,
+      });
+    }
+  }
+
+  const childrenByPrefix = new Map<string, ArchiveDirectoryListing>();
+
+  for (const [prefix, state] of listingState.entries()) {
+    childrenByPrefix.set(prefix, {
+      folders: [...state.folders].sort(archiveNameCompare),
+      files: [...state.files].sort((a, b) =>
+        archiveNameCompare(a.name, b.name),
+      ),
+    });
+  }
+
+  return {
+    cacheKey: makeArchiveCacheKey(zipPath),
+    builtAt: Date.now(),
+    truncated,
+    entries,
+    entryByPath,
+    childrenByPrefix,
+  };
+}
+
+async function getArchiveIndex(zipPath: string): Promise<ArchiveIndex> {
+  const cacheKey = makeArchiveCacheKey(zipPath);
+  const cached = archiveIndexCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.builtAt <= ARCHIVE_INDEX_TTL_MS) {
+    touchArchiveIndexCache(cacheKey, cached);
+    return cached;
+  }
+
+  for (const existingKey of [...archiveIndexCache.keys()]) {
+    if (existingKey.startsWith(`${zipPath}:`) && existingKey !== cacheKey) {
+      archiveIndexCache.delete(existingKey);
+    }
+  }
+
+  const fresh = await buildArchiveIndex(zipPath);
+  touchArchiveIndexCache(cacheKey, fresh);
+  return fresh;
+}
+
 function prismaSupportsFolders(): boolean {
   // When Prisma client hasn't been regenerated, `prisma.folder` may be undefined
   return typeof (prisma as any).folder?.findMany === "function";
@@ -723,6 +956,8 @@ r.get("/trash", async (req, res, next) => {
       sortOrder = "desc",
       page,
       pageSize,
+      offset,
+      limit,
     } = req.query as Record<string, string>;
 
     const where: any = { deletedAt: { not: null } };
@@ -751,16 +986,33 @@ r.get("/trash", async (req, res, next) => {
         })
       : [];
 
-    const hasPagination =
+    const hasOffsetPagination =
+      Number.isInteger(Number(offset)) && Number.isInteger(Number(limit));
+    const hasPagePagination =
       Number.isInteger(Number(page)) && Number.isInteger(Number(pageSize));
 
-    if (hasPagination) {
-      const p = Math.max(1, Number(page));
-      const ps = Math.min(100, Math.max(1, Number(pageSize)));
-      const skip = (p - 1) * ps;
+    if (hasOffsetPagination || hasPagePagination) {
+      const skip = hasOffsetPagination
+        ? Math.max(0, Number(offset))
+        : (Math.max(1, Number(page)) - 1) *
+          Math.min(100, Math.max(1, Number(pageSize)));
+
+      const take = hasOffsetPagination
+        ? Math.min(100, Math.max(0, Number(limit)))
+        : Math.min(100, Math.max(1, Number(pageSize)));
+
+      const responsePage = hasPagePagination
+        ? Math.max(1, Number(page))
+        : Math.floor(skip / Math.max(1, take || 1)) + 1;
+
+      const responsePageSize = hasPagePagination
+        ? Math.min(100, Math.max(1, Number(pageSize)))
+        : take;
 
       const [files, total, sum] = await Promise.all([
-        prisma.storedFile.findMany({ where, orderBy, skip, take: ps }),
+        take === 0
+          ? Promise.resolve([] as any[])
+          : prisma.storedFile.findMany({ where, orderBy, skip, take }),
         prisma.storedFile.count({ where }),
         prisma.storedFile.aggregate({ where, _sum: { size: true } }),
       ]);
@@ -771,8 +1023,8 @@ r.get("/trash", async (req, res, next) => {
         folders,
         total,
         totalBytes,
-        page: p,
-        pageSize: ps,
+        page: responsePage,
+        pageSize: responsePageSize,
       });
     }
 
@@ -991,6 +1243,8 @@ r.get("/files", async (req, res, next) => {
       sortOrder = "desc",
       page,
       pageSize,
+      offset,
+      limit,
       folderId,
     } = req.query as Record<string, string>;
 
@@ -1181,39 +1435,66 @@ r.get("/files", async (req, res, next) => {
       },
     };
 
-    const hasPagination =
+    const hasOffsetPagination =
+      Number.isInteger(Number(offset)) && Number.isInteger(Number(limit));
+    const hasPagePagination =
       Number.isInteger(Number(page)) && Number.isInteger(Number(pageSize));
-    if (hasPagination) {
-      const p = Math.max(1, Number(page));
-      const ps = Math.min(100, Math.max(1, Number(pageSize)));
-      const skip = (p - 1) * ps;
+
+    if (hasOffsetPagination || hasPagePagination) {
+      const skip = hasOffsetPagination
+        ? Math.max(0, Number(offset))
+        : (Math.max(1, Number(page)) - 1) *
+          Math.min(100, Math.max(1, Number(pageSize)));
+
+      const take = hasOffsetPagination
+        ? Math.min(100, Math.max(0, Number(limit)))
+        : Math.min(100, Math.max(1, Number(pageSize)));
+
+      const responsePage = hasPagePagination
+        ? Math.max(1, Number(page))
+        : Math.floor(skip / Math.max(1, take || 1)) + 1;
+
+      const responsePageSize = hasPagePagination
+        ? Math.min(100, Math.max(1, Number(pageSize)))
+        : take;
+
       try {
         const [items, total, sum] = await Promise.all([
-          prisma.storedFile.findMany({
-            where,
-            orderBy,
-            skip,
-            take: ps,
-            include: fileInclude,
-          }),
+          take === 0
+            ? Promise.resolve([] as any[])
+            : prisma.storedFile.findMany({
+                where,
+                orderBy,
+                skip,
+                take,
+                include: fileInclude,
+              }),
           prisma.storedFile.count({ where }),
           prisma.storedFile.aggregate({ where, _sum: { size: true } }),
         ]);
 
         const totalBytes = sum?._sum?.size ?? 0;
-        return res.json({ items, total, totalBytes, page: p, pageSize: ps });
+        return res.json({
+          items,
+          total,
+          totalBytes,
+          page: responsePage,
+          pageSize: responsePageSize,
+        });
       } catch (e: any) {
-        // Fallback when older Prisma client doesn't know folderId
         if (String(e?.message || "").includes("Unknown argument `folderId`")) {
           const { folderId: _omit, ...whereNoFolder } = where;
+
           const [items, total, sum] = await Promise.all([
-            prisma.storedFile.findMany({
-              where: whereNoFolder,
-              orderBy,
-              skip,
-              take: ps,
-              include: fileInclude,
-            }),
+            take === 0
+              ? Promise.resolve([] as any[])
+              : prisma.storedFile.findMany({
+                  where: whereNoFolder,
+                  orderBy,
+                  skip,
+                  take,
+                  include: fileInclude,
+                }),
             prisma.storedFile.count({ where: whereNoFolder }),
             prisma.storedFile.aggregate({
               where: whereNoFolder,
@@ -1222,8 +1503,15 @@ r.get("/files", async (req, res, next) => {
           ]);
 
           const totalBytes = sum?._sum?.size ?? 0;
-          return res.json({ items, total, totalBytes, page: p, pageSize: ps });
+          return res.json({
+            items,
+            total,
+            totalBytes,
+            page: responsePage,
+            pageSize: responsePageSize,
+          });
         }
+
         throw e;
       }
     }
@@ -1732,12 +2020,92 @@ type FolderPathRow = {
   parentId: string | null;
 };
 
+type FolderResolveRow = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  deletedAt: Date | null;
+};
+
 type FolderAncestorRow = {
   id: string;
   name: string;
   parentId: string | null;
   deletedAt: Date | null;
 };
+
+r.get("/folders/resolve", async (req, res, next) => {
+  try {
+    if (!prismaSupportsFolders()) {
+      return res.status(501).json({
+        message:
+          "Folders not yet available. Please run Prisma migrate/generate and restart the server.",
+      });
+    }
+
+    const rawPath = String(
+      (req.query as Record<string, string>)?.path || "",
+    ).trim();
+    if (!rawPath) {
+      return res.json({ folderId: null, chain: [] });
+    }
+
+    const segments = rawPath
+      .split(/[\\/]+/)
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .filter((segment, index) => {
+        if (index !== 0) return true;
+        const rootish = segment.toLowerCase();
+        return !["all evidence", "root", "this pc"].includes(rootish);
+      });
+
+    if (segments.length === 0) {
+      return res.json({ folderId: null, chain: [] });
+    }
+
+    let parentId: string | null = null;
+    const chain: FolderPathRow[] = [];
+
+    for (const name of segments) {
+      const folder: FolderResolveRow | null = await prisma.folder.findFirst({
+        where: {
+          parentId,
+          deletedAt: null,
+          name: {
+            equals: name,
+            mode: "insensitive",
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          parentId: true,
+          deletedAt: true,
+        },
+        orderBy: { name: "asc" },
+      });
+
+      if (!folder) {
+        return res.json({ folderId: null, chain: [] });
+      }
+
+      chain.push({
+        id: folder.id,
+        name: folder.name,
+        parentId: folder.parentId,
+      });
+      parentId = folder.id;
+    }
+
+    return res.json({
+      folderId: chain[chain.length - 1]?.id ?? null,
+      chain,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 r.get("/folders/:id/ancestors", async (req, res, next) => {
   try {
@@ -2135,53 +2503,50 @@ r.post("/files/:id/duplicate", async (req, res, next) => {
 });
 
 // GET /api/files/:id/archive/list?prefix=dir1/
-r.get("/files/:id/archive/list", async (req, res) => {
-  const id = String(req.params.id);
-  const prefix = String(req.query.prefix || "");
-  const f = await prisma.storedFile.findUnique({ where: { id } });
-  if (!f || !f.storagePath || !f.fileName.toLowerCase().endsWith(".zip"))
-    return res.status(404).json({ message: "Not a zip" });
+r.get("/files/:id/archive/list", async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const prefix = normalizeArchivePrefix(String(req.query.prefix || ""));
 
-  const s = fs
-    .createReadStream(f.storagePath)
-    .on("error", (err) =>
-      res.status(500).json({ message: "Read error", error: String(err) }),
-    )
-    .pipe(unzipper.Parse({ forceStream: true }))
-    .on("error", (err: any) =>
-      res.status(500).json({ message: "Zip parse error", error: String(err) }),
-    );
-  const dirs = new Set<string>();
-  const files: any[] = [];
-  s.on("entry", (entry: any) => {
-    const p = String(entry.path).replace(/\\/g, "/");
-    if (!p.startsWith(prefix)) {
-      entry.autodrain();
-      return;
+    if (prefix && !isSafeArchivePath(prefix.slice(0, -1))) {
+      return res.status(400).json({ message: "Invalid archive prefix" });
     }
-    const rest = p.slice(prefix.length);
-    const slash = rest.indexOf("/");
-    if (slash >= 0) {
-      dirs.add(rest.slice(0, slash));
-      entry.autodrain();
-    } else {
-      files.push({
-        name: rest,
-        size: entry.vars.uncompressedSize,
-        modified: entry.vars.lastModifiedDate,
-      });
-      entry.autodrain();
+
+    const chk = await requireZipFileOr400(id);
+    if (!chk.ok)
+      return res.status(chk.res.status).json({ message: chk.res.message });
+
+    const zipPath = chk.file.storagePath;
+    if (!zipPath || !fs.existsSync(zipPath)) {
+      return res.status(404).json({ message: "Archive missing on disk" });
     }
-  });
-  s.on("close", () => res.json({ prefix, folders: [...dirs], files }));
+
+    const index = await getArchiveIndex(zipPath);
+    const listing = index.childrenByPrefix.get(prefix) || {
+      folders: [],
+      files: [],
+    };
+
+    return res.json({
+      prefix,
+      folders: listing.folders,
+      files: listing.files,
+      truncated: index.truncated,
+      indexedAt: index.builtAt,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 r.get("/files/:id/archive/stream", async (req, res, next) => {
   try {
     const id = String(req.params.id);
-    const p = String(req.query.path || "");
+    const requestedPath = normalizeArchiveEntryPath(
+      String(req.query.path || ""),
+    );
 
-    if (!isSafeArchivePath(p)) {
+    if (!requestedPath || !isSafeArchivePath(requestedPath)) {
       return res.status(400).json({ message: "Invalid archive path" });
     }
 
@@ -2190,25 +2555,22 @@ r.get("/files/:id/archive/stream", async (req, res, next) => {
       return res.status(chk.res.status).json({ message: chk.res.message });
 
     const zipPath = chk.file.storagePath;
-    if (!fs.existsSync(zipPath))
+    if (!zipPath || !fs.existsSync(zipPath)) {
       return res.status(404).json({ message: "Archive missing on disk" });
+    }
 
-    const stream = fs.createReadStream(zipPath);
-    const zip = await unzipper.Open.stream(stream);
+    const index = await getArchiveIndex(zipPath);
+    const meta = index.entryByPath.get(requestedPath);
 
-    // Find entry safely, cap work
-    let scanned = 0;
-    const entry = zip.files.find((e: any) => {
-      scanned++;
-      return scanned <= MAX_ARCHIVE_ENTRIES_SCAN && e.path === p;
-    });
-
-    if (!entry)
+    if (!meta) {
       return res.status(404).json({ message: "Path not found in archive" });
+    }
 
-    // Cap streaming size (uncompressed)
-    const size = Number(entry.uncompressedSize || 0);
-    if (size > MAX_ARCHIVE_ENTRY_STREAM_BYTES) {
+    if (meta.isDirectory) {
+      return res.status(400).json({ message: "Archive path is a directory" });
+    }
+
+    if (meta.size > MAX_ARCHIVE_ENTRY_STREAM_BYTES) {
       return res
         .status(413)
         .json({ message: "Archive entry too large to stream" });
@@ -2217,11 +2579,21 @@ r.get("/files/:id/archive/stream", async (req, res, next) => {
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="${path.basename(p)}"`,
+      `inline; filename="${path.basename(requestedPath)}"`,
     );
 
-    // Stream entry
-    entry.stream().pipe(res);
+    const zip = await unzipper.Open.file(zipPath);
+    const entry = zip.files.find(
+      (e: any) =>
+        normalizeArchiveEntryPath(String(e.path || "")).replace(/\/+$/, "") ===
+        requestedPath,
+    );
+
+    if (!entry) {
+      return res.status(404).json({ message: "Path not found in archive" });
+    }
+
+    entry.stream().on("error", next).pipe(res);
   } catch (err) {
     next(err);
   }
@@ -2234,6 +2606,7 @@ r.get("/files/:id/archive/search", async (req, res, next) => {
     const q = String(req.query.q || "")
       .toLowerCase()
       .trim();
+
     if (!q) return res.json({ results: [] });
 
     const chk = await requireZipFileOr400(id);
@@ -2241,42 +2614,41 @@ r.get("/files/:id/archive/search", async (req, res, next) => {
       return res.status(chk.res.status).json({ message: chk.res.message });
 
     const zipPath = chk.file.storagePath;
-    if (!fs.existsSync(zipPath))
+    if (!zipPath || !fs.existsSync(zipPath))
       return res.status(404).json({ message: "Archive missing on disk" });
 
-    const stream = fs.createReadStream(zipPath);
-    const zip = await unzipper.Open.stream(stream);
+    const index = await getArchiveIndex(zipPath);
 
     const results: any[] = [];
-    let scanned = 0;
     let approxBytes = 0;
 
-    for (const e of zip.files) {
-      scanned++;
-      if (scanned > MAX_ARCHIVE_ENTRIES_SCAN) break;
+    for (const entry of index.entries) {
+      if (!entry.path.toLowerCase().includes(q)) continue;
 
-      const ep = String(e.path || "");
-      if (!ep) continue;
-      if (!isSafeArchivePath(ep)) continue;
+      const item = {
+        path: entry.path,
+        size: entry.size,
+        compressedSize: entry.compressedSize,
+        isDirectory: entry.isDirectory,
+      };
 
-      if (ep.toLowerCase().includes(q)) {
-        const item = {
-          path: ep,
-          size: Number(e.uncompressedSize || 0),
-          compressedSize: Number((e as any).compressedSize || 0),
-          isDirectory: !!e.type && String(e.type).toLowerCase() === "directory",
-        };
-        results.push(item);
-        approxBytes += JSON.stringify(item).length;
-        if (approxBytes > MAX_ARCHIVE_LIST_BYTES) break;
+      const nextBytes = approxBytes + JSON.stringify(item).length;
+      if (nextBytes > MAX_ARCHIVE_LIST_BYTES) {
+        return res.json({
+          results,
+          truncated: true,
+          indexedAt: index.builtAt,
+        });
       }
+
+      results.push(item);
+      approxBytes = nextBytes;
     }
 
     return res.json({
       results,
-      truncated:
-        scanned > MAX_ARCHIVE_ENTRIES_SCAN ||
-        approxBytes > MAX_ARCHIVE_LIST_BYTES,
+      truncated: index.truncated,
+      indexedAt: index.builtAt,
     });
   } catch (err) {
     next(err);

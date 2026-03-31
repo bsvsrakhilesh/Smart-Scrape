@@ -64,6 +64,7 @@ export default function Breadcrumbs({
 
   // --- Search state (controlled input mirroring parent) ---
   const [search, setSearch] = useState(initialSearch);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   useEffect(() => {
     setSearch(initialSearch ?? "");
@@ -78,6 +79,7 @@ export default function Breadcrumbs({
       inputRef.current.focus();
       inputRef.current.select();
     }
+    if (!editing) setResolveError(null);
   }, [editing]);
 
   // Always scroll crumbs to the end when path changes
@@ -167,6 +169,7 @@ export default function Breadcrumbs({
   // --- Address resolution (Enter in text mode) ---
   const resolveAndNavigate = useCallback(async () => {
     const text = pathText.trim();
+    setResolveError(null);
 
     if (!text || text.toLowerCase() === rootLabel.toLowerCase()) {
       runNavigate(null);
@@ -193,6 +196,7 @@ export default function Breadcrumbs({
     }
 
     if (resolved === null) {
+      setResolveError("Path not found");
       return;
     }
 
@@ -216,6 +220,30 @@ export default function Breadcrumbs({
     searchInputRef.current.focus();
     searchInputRef.current.select();
   }, []);
+
+  useEffect(() => {
+    if (!onSearchSubmit) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isShortcut =
+        (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f";
+      if (!isShortcut) return;
+
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        !!target?.closest('[contenteditable="true"]');
+
+      if (isTypingTarget && target !== searchInputRef.current) return;
+
+      event.preventDefault();
+      focusSearch();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [focusSearch, onSearchSubmit]);
 
   const shortcutLabel = useMemo(() => {
     if (
@@ -338,7 +366,10 @@ export default function Breadcrumbs({
         </div>
 
         {/* Address / breadcrumbs pill */}
-        <div className="flex-1 rounded-2xl shadow-sm px-3 py-1.5 flex items-center gap-2 min-w-0">
+        <div
+          className={`flex-1 rounded-2xl shadow-sm px-3 py-1.5 flex items-center gap-2 min-w-0 ${resolveError ? "ring-1 ring-rose-400/70 dark:ring-rose-400/60" : ""}`}
+          data-invalid={resolveError ? "true" : "false"}
+        >
           {/* Home icon bubble */}
           <button
             type="button"
@@ -357,10 +388,15 @@ export default function Breadcrumbs({
                 ref={inputRef}
                 name="folder-path"
                 value={pathText}
-                onChange={(e) => setPathText(e.target.value)}
+                onChange={(e) => {
+                  setPathText(e.target.value);
+                  if (resolveError) setResolveError(null);
+                }}
                 onKeyDown={handleAddressKeyDown}
                 className="w-full bg-transparent text-sm outline-none"
                 spellCheck={false}
+                aria-invalid={resolveError ? "true" : undefined}
+                aria-describedby={resolveError ? "folder-path-error" : undefined}
               />
             ) : (
               <div className="flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-transparent">
@@ -402,6 +438,15 @@ export default function Breadcrumbs({
 
       {/* Right-side actions: Edit toggle + Search */}
       <div className="flex items-center gap-2 w-full lg:w-auto">
+        {resolveError ? (
+          <p
+            id="folder-path-error"
+            role="status"
+            className="mr-auto text-xs text-rose-600 dark:text-rose-300"
+          >
+            {resolveError}
+          </p>
+        ) : null}
         <button
           type="button"
           className="h-9 shrink-0 px-3 rounded-xl border border-[hsl(var(--fm-border))] bg-[hsl(var(--fm-bg-elev))] text-xs md:text-sm hover:bg-[hsl(var(--surface-elevated))] transition-colors"

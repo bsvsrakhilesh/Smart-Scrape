@@ -2,6 +2,7 @@
 import { TaggingStatus } from "../generated/prisma/client";
 import prisma from "../config/database";
 import { createJobFromFile, createJobFromUrl, getJob } from "./pyTaggerClient";
+import { syncGovernanceForUrlTx } from "./governanceGraphSync.service";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
@@ -116,37 +117,45 @@ export async function runAiTagForUrl(
 
       const merged = mergeUnique(latest?.tags, tags);
 
-      await prisma.url.update({
-        where: { id: urlId },
-        data: {
-          tags: { set: merged },
-          contentHash: data?.hash ?? null,
-          taggerVersion: data?.tagger_version ?? null,
-          tagsMeta: {
-            ...((latest?.tagsMeta as any) || {}),
-            tagger: {
-              phrases,
-              unigrams,
-              structured,
-              governance,
-              topk: TOPK,
-              use_llm: USE_LLM,
-              jobId,
-              updatedAt: new Date().toISOString(),
-              normalizedTextSha256: data?.hash ?? null,
-              normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
-              structuredLlmUsed: data?.structured_llm_used ?? false,
-              structuredLlmModel: data?.structured_llm_model ?? null,
-              governanceLlmUsed: data?.governance_llm_used ?? false,
-              governanceLlmModel: data?.governance_llm_model ?? null,
-            },
+      await prisma.$transaction(async (tx) => {
+        await tx.url.update({
+          where: { id: urlId },
+          data: {
+            tags: { set: merged },
+            contentHash: data?.hash ?? null,
+            taggerVersion: data?.tagger_version ?? null,
+            tagsMeta: {
+              ...((latest?.tagsMeta as any) || {}),
+              tagger: {
+                phrases,
+                unigrams,
+                structured,
+                governance,
+                topk: TOPK,
+                use_llm: USE_LLM,
+                jobId,
+                updatedAt: new Date().toISOString(),
+                normalizedTextSha256: data?.hash ?? null,
+                normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
+                structuredLlmUsed: data?.structured_llm_used ?? false,
+                structuredLlmModel: data?.structured_llm_model ?? null,
+                governanceLlmUsed: data?.governance_llm_used ?? false,
+                governanceLlmModel: data?.governance_llm_model ?? null,
+              },
 
-            aiTagger: { phrases, unigrams, governance },
-          } as any,
-          taggingStatus: TaggingStatus.SUCCESS,
-          taggingJobId: null,
-          taggingError: null,
-        },
+              aiTagger: { phrases, unigrams, governance },
+            } as any,
+            taggingStatus: TaggingStatus.SUCCESS,
+            taggingJobId: null,
+            taggingError: null,
+          },
+        });
+
+        await syncGovernanceForUrlTx(tx, urlId, {
+          governance,
+          taggerVersion: data?.tagger_version ?? null,
+          llmModel: data?.governance_llm_model ?? null,
+        });
       });
 
       return { skipped: false as const, jobId, tags: merged };

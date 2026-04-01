@@ -1,6 +1,7 @@
 import { TaggingStatus } from "../generated/prisma/client";
 import prisma from "../config/database";
 import { createJobFromFile, getJob } from "./pyTaggerClient";
+import { syncGovernanceForStoredFileTx } from "./governanceGraphSync.service";
 import {
   getAiTaggingUnavailableMessage,
   getFileCapability,
@@ -164,8 +165,8 @@ export async function runAiTagForFile(
       const merged = mergeUnique(latest?.tags, tags);
       const structuredPublishedAt = derivePublishedAtFromAiTaggerPayload(data);
 
-      await prisma.$transaction([
-        prisma.storedFile.update({
+      await prisma.$transaction(async (tx) => {
+        await tx.storedFile.update({
           where: { id: String(fileId) },
           data: {
             tags: { set: merged },
@@ -202,14 +203,21 @@ export async function runAiTagForFile(
             taggingJobId: null,
             taggingError: null,
           },
-        }),
-        prisma.documentRevision.updateMany({
+        });
+
+        await tx.documentRevision.updateMany({
           where: { storedFileId: String(fileId) },
           data: {
             contentHash: data?.hash ?? null,
           },
-        }),
-      ]);
+        });
+
+        await syncGovernanceForStoredFileTx(tx, String(fileId), {
+          governance,
+          taggerVersion: data?.tagger_version ?? null,
+          llmModel: data?.governance_llm_model ?? null,
+        });
+      });
 
       return { skipped: false as const, jobId, tags: merged };
     }

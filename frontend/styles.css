@@ -3602,6 +3602,50 @@ body,
   white-space: nowrap;
 }
 
+.fm-toolbar-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fm-toolbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: #f8fafc;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fm-toolbar-status[data-tone="success"] {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.18);
+  color: #166534;
+}
+
+.fm-toolbar-status[data-tone="accent"] {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.18);
+  color: #1d4ed8;
+}
+
+.fm-toolbar-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.8;
+}
+
 .fm-toolbar-btn,
 .fm-toolbar-chip,
 .fm-toolbar-segment {
@@ -3635,6 +3679,15 @@ body,
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
 }
 
+.fm-toolbar-btn:focus-visible,
+.fm-toolbar-chip:focus-visible,
+.fm-toolbar-segment:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.18),
+    0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
 .fm-toolbar-btn:disabled,
 .fm-toolbar-chip:disabled,
 .fm-toolbar-segment:disabled {
@@ -3642,6 +3695,25 @@ body,
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+.fm-toolbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1.5px solid #94a3b8;
+  background: #fff;
+  color: #fff;
+  flex: 0 0 auto;
+}
+
+.fm-toolbar-checkbox[data-state="checked"],
+.fm-toolbar-checkbox[data-state="mixed"] {
+  border-color: #14b8a6;
+  background: #14b8a6;
 }
 
 .fm-toolbar-btn--primary {
@@ -3676,6 +3748,167 @@ body,
   background: #f8fafc;
 }
 
+.fm-toolbar-segment-wrap--tight {
+  gap: 6px;
+}
+
+.fm-toolbar-keybtn {
+  min-width: 68px;
+}
+
+.fm-toolbar-shell {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.05fr) minmax(520px, 1.35fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.fm-toolbar-shell--refined {
+  align-items: start;
+}
+
+.fm-toolbar-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.dark .fm-toolbar-panel {
+  background: rgba(15, 23, 42, 0.36);
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+.fm-toolbar-panel--compact {
+  padding: 12px 12px 10px;
+}
+
+.fm-toolbar-panel-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fm-toolbar-utility-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.fm-toolbar-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fm-toolbar-cluster--options {
+  align-items: flex-start;
+}
+
+.fm-toolbar-panel-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fm-toolbar-panel-body--inline {
+  justify-content: space-between;
+}
+
+.fm-toolbar-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fm-toolbar-actions-row > .fm-toolbar-btn--primary {
+  margin-left: auto;
+}
+
+.fm-toolbar-controls {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.fm-toolbar-controls--compact {
+  gap: 12px;
+  align-items: end;
+}
+
+.fm-toolbar-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 110px;
+}
+
+.fm-toolbar-field--inline {
+  min-width: 132px;
+}
+
+.fm-toolbar-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+}
+
+.fm-toolbar-select {
+  height: 40px;
+  min-width: 110px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #fff;
+  color: hsl(var(--foreground));
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 36px 0 12px;
+  outline: none;
+}
+
+.dark .fm-toolbar-select {
+  background: rgba(15, 23, 42, 0.75);
+  color: hsl(var(--foreground));
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.fm-toolbar-select:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.18),
+    0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+.fm-toolbar-panel--options .fm-toolbar-chip {
+  height: 40px;
+  align-self: end;
+}
+
+.fm-toolbar-panel--utility .fm-toolbar-chip,
+.fm-toolbar-panel--utility .fm-toolbar-select {
+  height: 40px;
+}
+
+.fm-toolbar-panel--utility .fm-toolbar-segment {
+  min-width: 92px;
+}
+
 .fm-toolbar-divider {
   width: 1px;
   height: 24px;
@@ -3684,26 +3917,39 @@ body,
 }
 
 @media (max-width: 1180px) {
-  .fm-toolbar-row {
+  .fm-toolbar-shell {
     grid-template-columns: 1fr;
   }
 
-  .fm-toolbar-group,
-  .fm-toolbar-group--center,
-  .fm-toolbar-group--right {
-    justify-content: flex-start;
-    align-self: stretch;
+  .fm-toolbar-utility-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+}
+
+@media (max-width: 860px) {
+  .fm-toolbar-actions-row > .fm-toolbar-btn--primary {
+    margin-left: 0;
   }
 
-  .fm-toolbar-group > .fm-toolbar-label,
-  .fm-toolbar-group--center > .fm-toolbar-label,
-  .fm-toolbar-group--right > .fm-toolbar-label {
-    flex: 0 0 100%;
-    margin-bottom: 2px;
+  .fm-toolbar-controls,
+  .fm-toolbar-controls--compact {
+    align-items: stretch;
   }
 
-  .fm-toolbar-group--center .fm-toolbar-segment-wrap {
-    justify-content: flex-start;
+  .fm-toolbar-field,
+  .fm-toolbar-field--inline {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .fm-toolbar-select {
+    width: 100%;
+  }
+
+  .fm-toolbar-segment-wrap {
+    width: 100%;
   }
 }
 
@@ -3717,8 +3963,23 @@ body,
   }
 
   .fm-toolbar-segment-wrap {
-    width: 100%;
-    overflow-x: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .fm-toolbar-panel--view .fm-toolbar-segment {
+    min-width: 92px;
+  }
+
+  .fm-toolbar-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .fm-toolbar-btn--push {
+    margin-left: 0;
   }
 }
 
@@ -5233,5 +5494,467 @@ body,
 
   .ei-timeline__time {
     white-space: normal;
+  }
+}
+
+/* ==========================================
+   Command bar v2
+   Cleaner hierarchy, stronger affordances,
+   better responsive behavior and dark mode.
+   ========================================== */
+
+.fm-toolbar {
+  padding: 12px;
+}
+
+.cmdbar-surface {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid hsl(var(--border) / 0.82);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, hsl(var(--surface)) 92%, white 8%) 0%,
+    color-mix(in oklab, hsl(var(--surface)) 98%, transparent) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.cmdbar-top,
+.cmdbar-bottom {
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+.cmdbar-top {
+  grid-template-columns: minmax(0, 1.45fr) auto;
+}
+
+.cmdbar-bottom {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.cmdbar-context,
+.cmdbar-actions,
+.cmdbar-control-block {
+  min-width: 0;
+  border-radius: 16px;
+  border: 1px solid hsl(var(--border) / 0.72);
+  background: color-mix(in oklab, hsl(var(--surface)) 94%, white 6%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.cmdbar-context {
+  padding: 14px 16px;
+}
+
+.cmdbar-actions,
+.cmdbar-control-block {
+  padding: 10px;
+}
+
+.cmdbar-eyebrow,
+.cmdbar-block-label {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+.cmdbar-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.cmdbar-heading-wrap {
+  min-width: 0;
+}
+
+.cmdbar-heading {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: 19px;
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.cmdbar-summary {
+  margin: 8px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.cmdbar-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cmdbar-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border) / 0.82);
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 90%, transparent);
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.cmdbar-badge[data-tone="success"] {
+  border-color: rgba(34, 197, 94, 0.22);
+  background: rgba(34, 197, 94, 0.08);
+  color: #166534;
+}
+
+.cmdbar-badge[data-tone="muted"] {
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 90%, transparent);
+  color: hsl(var(--muted-foreground));
+}
+
+.cmdbar-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.86;
+}
+
+.cmdbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cmdbar-button,
+.cmdbar-chip,
+.cmdbar-segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border) / 0.9);
+  background: color-mix(in oklab, hsl(var(--surface)) 96%, white 4%);
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.cmdbar-button:hover,
+.cmdbar-chip:hover,
+.cmdbar-segment:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--foreground) / 0.18);
+  background: color-mix(in oklab, hsl(var(--surface-elev)) 82%, white 18%);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.cmdbar-button:focus-visible,
+.cmdbar-chip:focus-visible,
+.cmdbar-segment:focus-visible,
+.cmdbar-select:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px hsl(var(--ring) / 0.18),
+    0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.cmdbar-button:disabled,
+.cmdbar-chip:disabled,
+.cmdbar-segment:disabled,
+.cmdbar-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.cmdbar-button--secondary[data-active="true"],
+.cmdbar-chip[data-active="true"],
+.cmdbar-segment[data-active="true"] {
+  border-color: hsl(var(--accent) / 0.34);
+  background: color-mix(in oklab, hsl(var(--accent) / 0.1) 72%, white 28%);
+  color: hsl(var(--foreground));
+  box-shadow: inset 0 0 0 1px hsl(var(--accent) / 0.14);
+}
+
+.cmdbar-button--primary {
+  border-color: #16a34a;
+  background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 24px rgba(22, 163, 74, 0.22);
+}
+
+.cmdbar-button--primary:hover {
+  border-color: #15803d;
+  background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+  color: #fff;
+}
+
+.cmdbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  border: 1.5px solid #94a3b8;
+  background: #fff;
+  color: #fff;
+}
+
+.cmdbar-checkbox[data-state="checked"],
+.cmdbar-checkbox[data-state="mixed"] {
+  border-color: #14b8a6;
+  background: #14b8a6;
+}
+
+.cmdbar-control-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+}
+
+.cmdbar-control-block--utility {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.cmdbar-block-head {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-width: 78px;
+  padding-inline: 4px;
+}
+
+.cmdbar-segmented,
+.cmdbar-density {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cmdbar-segmented {
+  flex: 1 1 auto;
+}
+
+.cmdbar-segment {
+  min-width: 88px;
+}
+
+.cmdbar-select-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cmdbar-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border) / 0.9);
+  background: color-mix(in oklab, hsl(var(--surface)) 96%, white 4%);
+  color: hsl(var(--muted-foreground));
+}
+
+.cmdbar-select {
+  height: 38px;
+  min-width: 110px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0;
+  outline: none;
+}
+
+.cmdbar-chip {
+  min-width: 110px;
+}
+
+.dark .cmdbar-surface {
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.82) 0%,
+    rgba(15, 23, 42, 0.7) 100%
+  );
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 12px 28px rgba(2, 6, 23, 0.32);
+}
+
+.dark .cmdbar-context,
+.dark .cmdbar-actions,
+.dark .cmdbar-control-block {
+  background: rgba(15, 23, 42, 0.64);
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.dark .cmdbar-badge,
+.dark .cmdbar-button,
+.dark .cmdbar-chip,
+.dark .cmdbar-segment,
+.dark .cmdbar-select-wrap {
+  background: rgba(15, 23, 42, 0.78);
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+.dark .cmdbar-button:hover,
+.dark .cmdbar-chip:hover,
+.dark .cmdbar-segment:hover {
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.dark .cmdbar-button--secondary[data-active="true"],
+.dark .cmdbar-chip[data-active="true"],
+.dark .cmdbar-segment[data-active="true"] {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(96, 165, 250, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
+}
+
+.dark .cmdbar-select {
+  color: hsl(var(--foreground));
+}
+
+@media (max-width: 1180px) {
+  .cmdbar-top,
+  .cmdbar-bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .cmdbar-actions,
+  .cmdbar-control-block--utility {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 860px) {
+  .fm-toolbar {
+    padding: 10px;
+  }
+
+  .cmdbar-surface {
+    padding: 12px;
+  }
+
+  .cmdbar-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cmdbar-badges {
+    justify-content: flex-start;
+  }
+
+  .cmdbar-control-block {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cmdbar-block-head {
+    min-width: 0;
+  }
+
+  .cmdbar-segmented,
+  .cmdbar-density {
+    width: 100%;
+  }
+
+  .cmdbar-segment,
+  .cmdbar-chip,
+  .cmdbar-button {
+    flex: 1 1 auto;
+  }
+
+  .cmdbar-select-field {
+    width: 100%;
+  }
+
+  .cmdbar-select-wrap {
+    width: 100%;
+  }
+
+  .cmdbar-select {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .cmdbar-heading {
+    font-size: 17px;
+  }
+
+  .cmdbar-summary {
+    font-size: 12px;
+  }
+
+  .cmdbar-actions,
+  .cmdbar-density,
+  .cmdbar-segmented {
+    gap: 8px;
+  }
+
+  .cmdbar-button,
+  .cmdbar-chip,
+  .cmdbar-segment {
+    min-height: 38px;
+    padding-inline: 12px;
+    font-size: 12px;
+  }
+
+  .cmdbar-segment {
+    min-width: calc(50% - 4px);
+  }
+
+  .cmdbar-chip,
+  .cmdbar-button {
+    min-width: calc(50% - 4px);
   }
 }

@@ -55,7 +55,7 @@ import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
 import Details_ListView from "../components/filemanager/Details_ListView";
 import Large_IconView from "../components/filemanager/Large_IconView";
 import AdvancedFileUpload from "../components/filemanager/AdvancedFileUpload";
-import ExplorerCommandBar from "../components/filemanager/CommandBar";
+import CommandBar from "../components/filemanager/CommandBar";
 import Breadcrumbs from "../components/filemanager/Breadcrumbs";
 import ExplorerPreviewModal from "../components/filemanager/ExplorerPreviewModal";
 import PropertiesModal from "../components/filemanager/PropertiesModal";
@@ -1240,11 +1240,21 @@ export default function FileManagerPage() {
   }, [selected]);
 
   // ---- Select-all helper (shim) ----
-  const handleSelectAll = () => {
-    if (selected.length === visibleFiles.length && visibleFiles.length > 0) {
-      handleSelectionChangeByIds([]); // clear
+  const handleSelectAll = (checked?: boolean) => {
+    if (!visibleFiles.length) {
+      handleSelectionChangeByIds([]);
+      return;
+    }
+
+    const shouldSelect =
+      typeof checked === "boolean"
+        ? checked
+        : !(selected.length === visibleFiles.length && visibleFiles.length > 0);
+
+    if (shouldSelect) {
+      handleSelectionChangeByIds(visibleFiles.map((f) => f.id));
     } else {
-      handleSelectionChangeByIds(visibleFiles.map((f) => f.id)); // select all visible
+      handleSelectionChangeByIds([]);
     }
   };
 
@@ -4046,13 +4056,17 @@ export default function FileManagerPage() {
                 </div>
 
                 <div className="ex-commandbar">
-                  <ExplorerCommandBar
+                  <CommandBar
                     layout={layout as any}
                     onLayoutChange={(next) => {
                       setLayout(next as Layout);
                       setPage(1);
                     }}
-                    onNew={handleNewFolder}
+                    onNew={
+                      virtualZip || viewMode !== "drive"
+                        ? undefined
+                        : handleNewFolder
+                    }
                     onUpload={
                       virtualZip || viewMode !== "drive"
                         ? undefined
@@ -4073,6 +4087,11 @@ export default function FileManagerPage() {
                       visibleFiles.length > 0
                     }
                     onSelectAll={handleSelectAll}
+                    selectedCount={selected.length}
+                    visibleCount={visibleFiles.length}
+                    totalCount={total}
+                    readOnly={!!virtualZip || viewMode !== "drive"}
+                    scopeLabel={activeLocationLabel}
                     density={density}
                     onDensityChange={(d) => setDensity(d)}
                   />

@@ -37,6 +37,85 @@ enum NotebookChatRunStatus {
   FAILED
 }
 
+enum AgencyCategory {
+  REGULATOR
+  JUDICIARY
+  MINISTRY
+  EXECUTIVE
+  LOCAL_BODY
+  RESEARCH_BODY
+  CIVIL_SOCIETY
+  PRIVATE_SECTOR
+  OTHER
+}
+
+enum GovernanceIssueKind {
+  GOVERNANCE_ISSUE
+  CASE_FILE
+}
+
+enum GovernanceIssueStatus {
+  OPEN
+  MONITORING
+  RESOLVED
+  CLOSED
+  ARCHIVED
+}
+
+enum MandateType {
+  STATUTORY
+  REGULATORY
+  ADVISORY
+  ENFORCEMENT
+  OPERATIONAL
+  COORDINATION
+  REPORTING
+  MONITORING
+  OTHER
+}
+
+enum PositionPolarity {
+  SUPPORT
+  OPPOSE
+  NEUTRAL
+  MIXED
+  UNKNOWN
+}
+
+enum GovernanceGapType {
+  OVERLAP
+  AMBIGUITY
+  ACCOUNTABILITY
+  COORDINATION
+  ENFORCEMENT
+  DATA
+  EVIDENCE
+  COVERAGE
+  OTHER
+}
+
+enum DocumentRelationType {
+  CONTRADICTION
+  TENSION
+  OVERRIDE
+  REINFORCEMENT
+  ALIGNMENT
+  DUPLICATION
+  REFERENCE
+  SUPERSEDES
+  OTHER
+}
+
+enum EventDatePrecision {
+  EXACT
+  DAY
+  MONTH
+  YEAR
+  RANGE
+  APPROXIMATE
+  UNKNOWN
+}
+
 model Url {
   id            Int      @id @default(autoincrement())
   url           String   
@@ -212,6 +291,8 @@ model SourceRevision {
   chunks SourceChunk[]
   pages  SourcePage[]
 
+  extractionTraces ExtractionTrace[]
+
   @@unique([sourceId, ordinal])
   @@index([documentRevisionId])
   @@index([pipelineConfigId])
@@ -366,6 +447,7 @@ model Document {
   primaryFile   StoredFile? @relation(fields: [primaryFileId], references: [id], onDelete: Cascade)
 
   revisions DocumentRevision[]
+  extractionTraces ExtractionTrace[]
 }
 
 model DocumentRevision {
@@ -388,8 +470,331 @@ model DocumentRevision {
   sourceRevisions SourceRevision[]
   captureEvent    CaptureEvent?
 
+  extractionTraces ExtractionTrace[]
+
   @@unique([documentId, ordinal])
   @@index([documentId])
+}
+
+model ExtractionTrace {
+  id String @id @default(cuid())
+
+  sourceDocumentId String
+  sourceDocument   Document @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+
+  documentRevisionId String?
+  documentRevision   DocumentRevision? @relation(fields: [documentRevisionId], references: [id], onDelete: SetNull)
+
+  sourceRevisionId String?
+  sourceRevision   SourceRevision? @relation(fields: [sourceRevisionId], references: [id], onDelete: SetNull)
+
+  pipelineConfigId String?
+  pipelineConfig   PipelineConfig? @relation(fields: [pipelineConfigId], references: [id], onDelete: SetNull)
+
+  chunkIds        String[] @default([])
+  pageNumbers     Int[]    @default([])
+  charStart       Int?
+  charEnd         Int?
+  evidenceText    String?
+  evidenceLocator Json?
+
+  confidence        Float?
+  extractionModel   String?
+  extractionVersion String?
+  rawPayload        Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  agencies         Agency[]          @relation("AgencyOrigin")
+  issues           GovernanceIssue[] @relation("IssueOrigin")
+  mandates         Mandate[]
+  claims           DocumentClaim[]
+  events           DocumentEvent[]
+  positions        ActorPosition[]
+  gaps             GovernanceGap[]
+  relations        DocumentRelation[]
+  timelineEntries  IssueTimelineEntry[]
+  evidenceClusters EvidenceCluster[]
+
+  @@index([sourceDocumentId, createdAt])
+  @@index([documentRevisionId])
+  @@index([sourceRevisionId])
+  @@index([pipelineConfigId])
+}
+
+model Agency {
+  id           String @id @default(cuid())
+  slug         String @unique
+  name         String
+  shortName    String?
+  category     AgencyCategory?
+  jurisdiction String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  originTraceId String?
+  originTrace   ExtractionTrace? @relation("AgencyOrigin", fields: [originTraceId], references: [id], onDelete: SetNull)
+
+  mandates           Mandate[]
+  positions          ActorPosition[]
+  primaryGapLinks    GovernanceGap[]       @relation("PrimaryGapAgency")
+  secondaryGapLinks  GovernanceGap[]       @relation("SecondaryGapAgency")
+  eventActors        DocumentEvent[]       @relation("EventActorAgency")
+  outgoingRelations  DocumentRelation[]    @relation("RelationFromAgency")
+  incomingRelations  DocumentRelation[]    @relation("RelationToAgency")
+  issueLinks         GovernanceIssueAgency[]
+  subjectClaims      DocumentClaim[]       @relation("ClaimSubjectAgency")
+  timelineEntries    IssueTimelineEntry[]  @relation("TimelineActorAgency")
+
+  @@index([name])
+  @@index([category])
+}
+
+model GovernanceIssue {
+  id        String @id @default(cuid())
+  slug      String @unique
+  title     String
+  summary   String?
+  kind      GovernanceIssueKind   @default(GOVERNANCE_ISSUE)
+  status    GovernanceIssueStatus @default(OPEN)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  originTraceId String?
+  originTrace   ExtractionTrace? @relation("IssueOrigin", fields: [originTraceId], references: [id], onDelete: SetNull)
+
+  agencies         GovernanceIssueAgency[]
+  mandates         Mandate[]
+  claims           DocumentClaim[]
+  events           DocumentEvent[]
+  positions        ActorPosition[]
+  gaps             GovernanceGap[]
+  relations        DocumentRelation[]
+  timelineEntries  IssueTimelineEntry[]
+  evidenceClusters EvidenceCluster[]
+
+  @@index([kind, status])
+  @@index([title])
+}
+
+model GovernanceIssueAgency {
+  issueId   String
+  agencyId  String
+  roleLabel String?
+  createdAt DateTime @default(now())
+
+  issue  GovernanceIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  agency Agency          @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, agencyId])
+  @@index([agencyId])
+}
+
+model Mandate {
+  id            String @id @default(cuid())
+  agencyId      String
+  issueId       String?
+  traceId       String
+  title         String
+  description   String?
+  mandateType   MandateType @default(OTHER)
+  effectiveFrom DateTime?
+  effectiveTo   DateTime?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agency Agency           @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  issue  GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  trace  ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId, mandateType])
+  @@index([issueId])
+  @@index([traceId])
+}
+
+model DocumentClaim {
+  id              String @id @default(cuid())
+  issueId         String?
+  traceId         String
+  claimText       String
+  claimSummary    String?
+  subjectAgencyId String?
+  polarity        PositionPolarity @default(UNKNOWN)
+  scopeText       String?
+  normalizedKey   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  issue            GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  trace            ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+  subjectAgency    Agency?          @relation("ClaimSubjectAgency", fields: [subjectAgencyId], references: [id], onDelete: SetNull)
+  positions        ActorPosition[]
+  outgoingRelations DocumentRelation[] @relation("FromClaim")
+  incomingRelations DocumentRelation[] @relation("ToClaim")
+
+  @@index([issueId])
+  @@index([traceId])
+  @@index([subjectAgencyId])
+  @@index([normalizedKey])
+}
+
+model DocumentEvent {
+  id                       String @id @default(cuid())
+  issueId                  String?
+  actorAgencyId            String?
+  traceId                  String
+  title                    String
+  summary                  String?
+  eventDate                DateTime?
+  eventDateText            String?
+  eventDatePrecision       EventDatePrecision @default(UNKNOWN)
+  sortDate                 DateTime?
+  sortDateEnd              DateTime?
+  usedDocumentDateFallback Boolean @default(false)
+  metadata                 Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  issue           GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  actorAgency     Agency?          @relation("EventActorAgency", fields: [actorAgencyId], references: [id], onDelete: SetNull)
+  trace           ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+  timelineEntries IssueTimelineEntry[]
+
+  @@index([issueId, sortDate])
+  @@index([actorAgencyId])
+  @@index([traceId])
+}
+
+model ActorPosition {
+  id                     String @id @default(cuid())
+  issueId                String
+  agencyId               String
+  claimId                String?
+  traceId                String
+  stanceText             String
+  stanceSummary          String?
+  polarity               PositionPolarity @default(UNKNOWN)
+  effectiveDate          DateTime?
+  effectiveDateText      String?
+  effectiveDatePrecision EventDatePrecision @default(UNKNOWN)
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  issue           GovernanceIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  agency          Agency          @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  claim           DocumentClaim?  @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  trace           ExtractionTrace @relation(fields: [traceId], references: [id], onDelete: Cascade)
+  timelineEntries IssueTimelineEntry[]
+
+  @@index([issueId, agencyId])
+  @@index([claimId])
+  @@index([traceId])
+}
+
+model GovernanceGap {
+  id                String @id @default(cuid())
+  issueId           String?
+  primaryAgencyId   String?
+  secondaryAgencyId String?
+  traceId           String
+  gapType           GovernanceGapType @default(OTHER)
+  summary           String
+  severity          Float?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  issue           GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  primaryAgency   Agency?          @relation("PrimaryGapAgency", fields: [primaryAgencyId], references: [id], onDelete: SetNull)
+  secondaryAgency Agency?          @relation("SecondaryGapAgency", fields: [secondaryAgencyId], references: [id], onDelete: SetNull)
+  trace           ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@index([issueId, gapType])
+  @@index([primaryAgencyId])
+  @@index([secondaryAgencyId])
+  @@index([traceId])
+}
+
+model DocumentRelation {
+  id           String @id @default(cuid())
+  issueId      String?
+  fromClaimId  String?
+  toClaimId    String?
+  fromAgencyId String?
+  toAgencyId   String?
+  traceId      String
+  relationType DocumentRelationType
+  confidence   Float?
+  rationale    String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  issue      GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  fromClaim  DocumentClaim?   @relation("FromClaim", fields: [fromClaimId], references: [id], onDelete: SetNull)
+  toClaim    DocumentClaim?   @relation("ToClaim", fields: [toClaimId], references: [id], onDelete: SetNull)
+  fromAgency Agency?          @relation("RelationFromAgency", fields: [fromAgencyId], references: [id], onDelete: SetNull)
+  toAgency   Agency?          @relation("RelationToAgency", fields: [toAgencyId], references: [id], onDelete: SetNull)
+  trace      ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@index([issueId, relationType])
+  @@index([fromClaimId])
+  @@index([toClaimId])
+  @@index([fromAgencyId])
+  @@index([toAgencyId])
+  @@index([traceId])
+}
+
+model IssueTimelineEntry {
+  id            String @id @default(cuid())
+  issueId       String
+  eventId       String?
+  positionId    String?
+  traceId       String
+  label         String
+  summary       String?
+  sortDate      DateTime?
+  sortDateEnd   DateTime?
+  sortPrecision EventDatePrecision @default(UNKNOWN)
+  actorAgencyId String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  issue       GovernanceIssue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  event       DocumentEvent?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  position    ActorPosition?  @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  actorAgency Agency?         @relation("TimelineActorAgency", fields: [actorAgencyId], references: [id], onDelete: SetNull)
+  trace       ExtractionTrace @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@index([issueId, sortDate])
+  @@index([eventId])
+  @@index([positionId])
+  @@index([actorAgencyId])
+  @@index([traceId])
+}
+
+model EvidenceCluster {
+  id         String @id @default(cuid())
+  issueId    String?
+  traceId    String
+  clusterKey String?
+  title      String
+  summary    String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  issue GovernanceIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  trace ExtractionTrace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([traceId])
+  @@index([clusterKey])
 }
 
 model PipelineConfig {
@@ -403,6 +808,8 @@ model PipelineConfig {
 
   captureEvents   CaptureEvent[]
   sourceRevisions SourceRevision[]
+
+  extractionTraces ExtractionTrace[]
 
   @@unique([name, version, configHash])
   @@index([name])

@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Heart,
   Search,
+  RefreshCw,
 } from "lucide-react";
 import type { FolderNode } from "../../types/file";
 import { fetchRootFolders, fetchChildren } from "../../lib/folders";
@@ -142,6 +143,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [sidebarQuery, setSidebarQuery] = useState("");
+  const [collectionsRefreshNonce, setCollectionsRefreshNonce] = useState(0);
 
   const [collapsed, setCollapsed] = useState<typeof DEFAULT_COLLAPSED>(() => {
     if (typeof window === "undefined") return DEFAULT_COLLAPSED;
@@ -165,6 +167,10 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
     setCollapsed((s) => ({ ...s, [k]: !s[k] }));
   }, []);
 
+  const retryCollections = useCallback(() => {
+    setCollectionsRefreshNonce((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -182,6 +188,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
     (async () => {
       try {
         setError(null);
+        setLibraryFolders(null);
         const collections = await getSidebarCollections();
         if (!alive) return;
         setLibraryFolders(collections);
@@ -194,7 +201,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
     return () => {
       alive = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, collectionsRefreshNonce]);
 
   const goHome = useCallback(() => {
     onFolderSelect?.(undefined, "All evidence");
@@ -248,6 +255,47 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
     return libs.filter((lib) => matchesSidebarQuery(lib.name));
   }, [libraryFolders, matchesSidebarQuery]);
 
+  const hasSidebarQuery = normalizedSidebarQuery.length > 0;
+  const sidebarHasMatches =
+    filteredQuickAccess.length > 0 || filteredLibraryFolders.length > 0;
+
+  const collectionsMeta = useMemo(() => {
+    if (!libraryFolders && !error) {
+      return <span className="ex-nav-pill">Loading…</span>;
+    }
+
+    if (error) {
+      return (
+        <button
+          type="button"
+          className="ex-nav-pill ex-nav-pill--danger ex-nav-pill--button"
+          onClick={retryCollections}
+          title="Retry loading collections"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </button>
+      );
+    }
+
+    const total = libraryFolders?.length ?? 0;
+    const visible = filteredLibraryFolders.length;
+
+    return (
+      <span className="ex-nav-pill">
+        {hasSidebarQuery
+          ? `${visible} match${visible === 1 ? "" : "es"}`
+          : `${total} total`}
+      </span>
+    );
+  }, [
+    libraryFolders,
+    error,
+    retryCollections,
+    filteredLibraryFolders.length,
+    hasSidebarQuery,
+  ]);
+
   const storageSummary = useMemo(() => {
     const used = storageUsedBytes ?? 0;
     const cap =
@@ -279,6 +327,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
       pct,
       usedLabel: fmt(used),
       capLabel: cap !== null ? fmt(cap) : null,
+      remainingLabel: cap !== null ? fmt(Math.max(cap - used, 0)) : null,
     };
   }, [storageUsedBytes, storageCapacityBytes]);
 
@@ -307,12 +356,26 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
             </button>
           ) : null}
         </div>
+        {hasSidebarQuery && !sidebarHasMatches && !error ? (
+          <div className="ex-nav-empty ex-nav-empty--surface">
+            No sidebar items match “{sidebarQuery}”.
+          </div>
+        ) : null}
         {/* Quick access */}
         <SectionShell>
           <SectionHeader
             title="Views"
             collapsed={collapsed.quick}
             onToggle={() => toggle("quick")}
+            right={
+              <span className="ex-nav-pill">
+                {hasSidebarQuery
+                  ? `${filteredQuickAccess.length} match${
+                      filteredQuickAccess.length === 1 ? "" : "es"
+                    }`
+                  : `${quickAccess.length} total`}
+              </span>
+            }
           />
           {!collapsed.quick && (
             <div className="ex-nav-list">
@@ -335,24 +398,7 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
             title="Collections"
             collapsed={collapsed.libraries}
             onToggle={() => toggle("libraries")}
-            right={
-              !libraryFolders && !error ? (
-                <span className="ex-nav-pill">Loading…</span>
-              ) : error ? (
-                <span className="ex-nav-pill ex-nav-pill--danger">Error</span>
-              ) : (
-                <span className="ex-nav-pill">
-                  {normalizedSidebarQuery &&
-                    filteredQuickAccess.length === 0 &&
-                    filteredLibraryFolders.length === 0 &&
-                    !error && (
-                      <div className="ex-nav-empty">
-                        No sidebar items match “{sidebarQuery}”.
-                      </div>
-                    )}
-                </span>
-              )
-            }
+            right={collectionsMeta}
           />
 
           {!collapsed.libraries && (
@@ -366,7 +412,16 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
               )}
 
               {error && (
-                <div className="px-3 py-2 text-xs text-red-600/80">{error}</div>
+                <div className="ex-nav-error-block">
+                  <div className="ex-nav-error-text">{error}</div>
+                  <button
+                    type="button"
+                    className="ex-nav-inline-action"
+                    onClick={retryCollections}
+                  >
+                    Retry loading collections
+                  </button>
+                </div>
               )}
 
               {filteredLibraryFolders.map((lib) => (
@@ -378,15 +433,6 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
                   active={viewMode === "drive" && currentFolderId === lib.id}
                 />
               ))}
-
-              {normalizedSidebarQuery &&
-                quickAccess.length === 0 &&
-                filteredLibraryFolders.length === 0 &&
-                !error && (
-                  <div className="ex-nav-empty">
-                    No sidebar items match “{sidebarQuery}”.
-                  </div>
-                )}
             </div>
           )}
         </SectionShell>
@@ -418,27 +464,62 @@ const FileSidebar: React.FC<FileSidebarProps> = ({
           </button>
 
           {!collapsed.storage && (
-            <>
-              <div className="mt-3 text-xs text-[hsl(var(--muted-foreground))]">
-                <div className="flex items-center justify-between">
-                  {storageSummary.pct !== null && (
-                    <div className="mt-3 h-2 w-full rounded-full bg-[hsl(var(--border))]/50 overflow-hidden">
-                      <div
-                        className="h-full w-0 bg-gradient-to-r from-green-500 to-blue-500 transition-[width] duration-700"
-                        style={{ width: `${storageSummary.pct}%` }}
-                      />
+            <div className="ex-storage-body">
+              <div className="ex-storage-summary">
+                <div>
+                  <div className="ex-storage-kicker">Used</div>
+                  <div className="ex-storage-value">
+                    {storageSummary.usedLabel}
+                  </div>
+                </div>
+
+                <div className="ex-storage-summary-right">
+                  {storageSummary.capLabel ? (
+                    <>
+                      <div className="ex-storage-kicker">Capacity</div>
+                      <div className="ex-storage-value">
+                        {storageSummary.capLabel}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="ex-storage-note">
+                      Capacity not configured
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="mt-3 h-2 w-full rounded-full bg-[hsl(var(--border))]/50 overflow-hidden">
-                <div
-                  className="h-full w-0 bg-gradient-to-r from-green-500 to-blue-500 transition-[width] duration-700"
-                  style={{ width: `${storageSummary.pct}%` }}
-                />
-              </div>
-            </>
+              {storageSummary.pct !== null ? (
+                <>
+                  <div
+                    className="ex-storage-meter"
+                    role="progressbar"
+                    aria-label="Storage usage"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={storageSummary.pct}
+                  >
+                    <div
+                      className="ex-storage-meter-bar"
+                      style={{ width: `${storageSummary.pct}%` }}
+                    />
+                  </div>
+
+                  <div className="ex-storage-footnote">
+                    <span>
+                      {storageSummary.usedLabel} of {storageSummary.capLabel}{" "}
+                      used
+                    </span>
+                    <span>{storageSummary.remainingLabel} free</span>
+                  </div>
+                </>
+              ) : (
+                <div className="ex-storage-footnote">
+                  Add <code>STORAGE_CAPACITY_BYTES</code> in the backend
+                  environment to enable quota tracking.
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

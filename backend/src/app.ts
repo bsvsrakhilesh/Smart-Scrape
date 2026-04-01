@@ -25,6 +25,7 @@ import chunkRoutes from "./routes/chunk.routes";
 import collectionRoutes from "./routes/collection.routes";
 import faviconRoutes from "./routes/favicon.routes";
 import institutionalNodeRoutes from "./routes/institutionalNode.routes";
+import governanceRoutes from "./routes/governance.routes";
 
 dotenv.config();
 
@@ -199,6 +200,7 @@ app.use("/api/search", searchLimiter, searchRoutes);
 
 app.use("/api", fileRoutes);
 app.use("/api", documentRoutes);
+app.use("/api", governanceRoutes);
 app.use("/api", crawlRoutes);
 app.use("/api", institutionalNodeRoutes);
 app.use("/api", notebookRoutes);

@@ -938,6 +938,9 @@ export default function FileManagerPage() {
   const [total, setTotal] = useState<number>(0);
   const [totalBytes, setTotalBytes] = useState<number>(0);
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
+  const [storageCapacityBytes, setStorageCapacityBytes] = useState<
+    number | null
+  >(null);
   const [viewMode, setViewMode] = useState<"drive" | "trash" | "favorites">(
     "drive",
   );
@@ -964,6 +967,12 @@ export default function FileManagerPage() {
     try {
       const data = await getStorageUsage();
       setStorageUsedBytes(Number(data?.usedBytes ?? 0));
+      setStorageCapacityBytes(
+        typeof data?.capacityBytes === "number" &&
+          Number.isFinite(data.capacityBytes)
+          ? data.capacityBytes
+          : null,
+      );
     } catch {
       // keep the last value (don’t flash 0 / break UI)
     }
@@ -1024,12 +1033,43 @@ export default function FileManagerPage() {
   }, [sortKey, sortDir]);
 
   const storagePercent = useMemo(() => {
-    const capacity = 1024 ** 4;
+    if (typeof storageCapacityBytes !== "number" || storageCapacityBytes <= 0) {
+      return null;
+    }
+
     return Math.min(
       100,
-      Math.round(((storageUsedBytes ?? 0) / capacity || 0) * 100),
+      Math.round(((storageUsedBytes ?? 0) / storageCapacityBytes || 0) * 100),
     );
-  }, [storageUsedBytes]);
+  }, [storageCapacityBytes, storageUsedBytes]);
+
+  const itemsOnPageMeta = useMemo(() => {
+    if (activeReviewQueueId === "updated-since-review") {
+      return "Updated-since-review queue on this page";
+    }
+
+    if (total > visibleFiles.length) {
+      return `${total.toLocaleString()} in current scope`;
+    }
+
+    return "Current page after filters";
+  }, [activeReviewQueueId, total, visibleFiles.length]);
+
+  const storageMetaLabel = useMemo(() => {
+    if (typeof storagePercent === "number") {
+      return `${storagePercent}% of capacity`;
+    }
+
+    return "Capacity not configured";
+  }, [storagePercent]);
+
+  const sortMetaLabel = useMemo(() => {
+    if (virtualZip) return "Archive entries sorted in browser";
+    if (viewMode === "drive" || viewMode === "trash") {
+      return "Folders stable-sorted, files API-sorted";
+    }
+    return "Server-backed ordering";
+  }, [viewMode, virtualZip]);
 
   // Selection + clipboard for cut/copy/paste
   const [selected, setSelected] = useState<FileItem[]>([]);
@@ -1927,10 +1967,21 @@ export default function FileManagerPage() {
     (async () => {
       try {
         const data = await getStorageUsage();
-        if (!cancelled) setStorageUsedBytes(Number(data?.usedBytes ?? 0));
+        if (!cancelled) {
+          setStorageUsedBytes(Number(data?.usedBytes ?? 0));
+          setStorageCapacityBytes(
+            typeof data?.capacityBytes === "number" &&
+              Number.isFinite(data.capacityBytes)
+              ? data.capacityBytes
+              : null,
+          );
+        }
       } catch {
         // graceful fallback (won't be perfect, but avoids showing 0)
-        if (!cancelled) setStorageUsedBytes(totalBytes);
+        if (!cancelled) {
+          setStorageUsedBytes(totalBytes);
+          setStorageCapacityBytes(null);
+        }
       }
     })();
 
@@ -3831,12 +3882,12 @@ export default function FileManagerPage() {
             </div>
 
             <div className="fm-archive-stat-card">
-              <span className="fm-archive-stat-card__label">Visible items</span>
+              <span className="fm-archive-stat-card__label">Items on page</span>
               <strong className="fm-archive-stat-card__value">
                 {visibleFiles.length}
               </strong>
               <small className="fm-archive-stat-card__meta">
-                Filtered result set
+                {itemsOnPageMeta}
               </small>
             </div>
 
@@ -3846,7 +3897,7 @@ export default function FileManagerPage() {
                 {formatBytes(storageUsedBytes)}
               </strong>
               <small className="fm-archive-stat-card__meta">
-                {storagePercent}% of capacity
+                {storageMetaLabel}
               </small>
             </div>
 
@@ -3856,7 +3907,7 @@ export default function FileManagerPage() {
                 {sortSummaryLabel}
               </strong>
               <small className="fm-archive-stat-card__meta">
-                Server-backed ordering
+                {sortMetaLabel}
               </small>
             </div>
 
@@ -3894,6 +3945,7 @@ export default function FileManagerPage() {
                   onViewSelect={onViewSelect}
                   currentFolderId={currentFolderId}
                   storageUsedBytes={storageUsedBytes}
+                  storageCapacityBytes={storageCapacityBytes}
                   viewMode={viewMode}
                   refreshKey={refreshToken}
                 />

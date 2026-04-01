@@ -1073,7 +1073,11 @@ export async function searchZip(fileId: string, q: string) {
 // ---------- Storage ----------
 export async function getStorageUsage() {
   const res = await api.get("/api/storage/usage");
-  return res.data as { usedBytes: number };
+  return res.data as {
+    usedBytes: number;
+    fileCount?: number;
+    capacityBytes?: number | null;
+  };
 }
 
 // ---------- File updates ----------

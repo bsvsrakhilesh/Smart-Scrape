@@ -1561,9 +1561,16 @@ r.get("/storage/usage", async (_req, res, next) => {
       _count: { _all: true },
     });
 
+    const configuredCapacity = Number(process.env.STORAGE_CAPACITY_BYTES ?? "");
+    const capacityBytes =
+      Number.isFinite(configuredCapacity) && configuredCapacity > 0
+        ? configuredCapacity
+        : null;
+
     return res.json({
       usedBytes: agg._sum.size ?? 0,
       fileCount: agg._count._all ?? 0,
+      capacityBytes,
     });
   } catch (err) {
     next(err);

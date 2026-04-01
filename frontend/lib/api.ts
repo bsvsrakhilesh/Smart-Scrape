@@ -1110,4 +1110,430 @@ export async function queryFiles(params: Record<string, any>) {
   return res.data;
 }
 
+export type GovernanceRelationType =
+  | "contradiction"
+  | "tension"
+  | "override"
+  | "reinforcement"
+  | "alignment"
+  | "duplication"
+  | "reference"
+  | "supersedes"
+  | "other";
+
+export type GovernanceProvenance = {
+  id: string;
+  chunkIds: string[];
+  pageNumbers: number[];
+  charStart: number | null;
+  charEnd: number | null;
+  evidenceText: string | null;
+  evidenceLocator: any;
+  confidence: number | null;
+  extractionModel: string | null;
+  extractionVersion: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  sourceDocument: {
+    id: string;
+    kind: "URL" | "FILE";
+    urlId: number | null;
+    primaryFileId: string | null;
+  } | null;
+  documentRevision: {
+    id: string;
+    ordinal: number;
+    captureType: "UPLOAD" | "URL_TEXT" | "URL_PDF";
+    contentHash: string | null;
+    createdAt: string | null;
+    storedFile: {
+      id: string;
+      fileName: string;
+      mimeType: string;
+      size: number;
+      createdAt: string | null;
+      sourceUrl: string | null;
+      urlId: number | null;
+    } | null;
+  } | null;
+  sourceRevision: {
+    id: string;
+  } | null;
+  pipeline: {
+    id: string;
+    name: string;
+    version: string;
+    configHash: string;
+    codeSha: string | null;
+  } | null;
+};
+
+export type GovernanceAgency = {
+  id: string;
+  slug: string;
+  name: string;
+  shortName: string | null;
+  category: string | null;
+  jurisdiction: string | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type GovernanceIssue = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  kind: string | null;
+  status: string | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type GovernanceMandate = {
+  id: string;
+  title: string;
+  description: string | null;
+  mandateType: string;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  agency: GovernanceAgency | null;
+  issue: GovernanceIssue | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceClaim = {
+  id: string;
+  claimText: string;
+  claimSummary: string | null;
+  polarity: string | null;
+  scopeText: string | null;
+  normalizedKey: string | null;
+  subjectAgency: GovernanceAgency | null;
+  issue: GovernanceIssue | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceEvent = {
+  id: string;
+  title: string;
+  summary: string | null;
+  eventDate: string | null;
+  eventDateText: string | null;
+  eventDatePrecision: string | null;
+  sortDate: string | null;
+  sortDateEnd: string | null;
+  usedDocumentDateFallback: boolean;
+  actorAgency: GovernanceAgency | null;
+  issue: GovernanceIssue | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernancePosition = {
+  id: string;
+  stanceText: string;
+  stanceSummary: string | null;
+  polarity: string | null;
+  effectiveDate: string | null;
+  effectiveDateText: string | null;
+  effectiveDatePrecision: string | null;
+  agency: GovernanceAgency | null;
+  issue: GovernanceIssue | null;
+  claim: {
+    id: string;
+    claimText: string;
+    claimSummary: string | null;
+  } | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceGap = {
+  id: string;
+  gapType: string;
+  summary: string;
+  severity: number | null;
+  issue: GovernanceIssue | null;
+  primaryAgency: GovernanceAgency | null;
+  secondaryAgency: GovernanceAgency | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceRelation = {
+  id: string;
+  relationType: GovernanceRelationType;
+  confidence: number | null;
+  rationale: string | null;
+  issue: GovernanceIssue | null;
+  fromAgency: GovernanceAgency | null;
+  toAgency: GovernanceAgency | null;
+  fromClaim: {
+    id: string;
+    claimText: string;
+    claimSummary: string | null;
+  } | null;
+  toClaim: {
+    id: string;
+    claimText: string;
+    claimSummary: string | null;
+  } | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceDocumentOverviewResponse = {
+  document: {
+    id: string;
+    kind: "URL" | "FILE";
+    urlId: number | null;
+    primaryFileId: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+  };
+  summary: {
+    agencyCount: number;
+    issueCount: number;
+    mandateCount: number;
+    claimCount: number;
+    eventCount: number;
+    positionCount: number;
+    gapCount: number;
+    relationCount: number;
+  };
+  agencies: GovernanceAgency[];
+  issues: GovernanceIssue[];
+  mandates: GovernanceMandate[];
+  claims: GovernanceClaim[];
+  events: GovernanceEvent[];
+  positions: GovernancePosition[];
+  gaps: GovernanceGap[];
+  relations: GovernanceRelation[];
+};
+
+export type GovernanceTimelineEntry = {
+  id: string;
+  itemType: "event" | "position" | "entry";
+  label: string;
+  summary: string | null;
+  sortDate: string | null;
+  sortDateEnd: string | null;
+  sortPrecision: string | null;
+  actorAgency: GovernanceAgency | null;
+  metadata: any;
+  createdAt: string | null;
+  updatedAt: string | null;
+  event: {
+    id: string;
+    title: string;
+    summary: string | null;
+    eventDate: string | null;
+    eventDateText: string | null;
+    eventDatePrecision: string | null;
+    sortDate: string | null;
+    sortDateEnd: string | null;
+    usedDocumentDateFallback: boolean;
+  } | null;
+  position: {
+    id: string;
+    stanceText: string;
+    stanceSummary: string | null;
+    polarity: string | null;
+    effectiveDate: string | null;
+    effectiveDateText: string | null;
+    effectiveDatePrecision: string | null;
+    agency: GovernanceAgency | null;
+    claim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+  } | null;
+  provenance: GovernanceProvenance | null;
+};
+
+export type GovernanceIssueTimelineResponse = {
+  issue: GovernanceIssue | null;
+  filters: {
+    actorAgencyId: string | null;
+    dateFrom: string | null;
+    dateTo: string | null;
+    limit: number;
+  };
+  summary: {
+    entryCount: number;
+    eventCount: number;
+    positionCount: number;
+  };
+  entries: GovernanceTimelineEntry[];
+};
+
+export type GovernanceIssueRelationsResponse = {
+  issue: GovernanceIssue | null;
+  filters: {
+    relationType: GovernanceRelationType | null;
+    limit: number;
+  };
+  summary: {
+    relationCount: number;
+    byType: Record<string, number>;
+  };
+  relations: GovernanceRelation[];
+};
+
+export type GovernanceAgencyLandscapeResponse = {
+  agency: GovernanceAgency | null;
+  summary: {
+    issueCount: number;
+    mandateCount: number;
+    positionCount: number;
+    gapCount: number;
+    outgoingRelationCount: number;
+    incomingRelationCount: number;
+  };
+  issueMatrix: Array<{
+    issue: GovernanceIssue;
+    counts: {
+      linked: number;
+      mandates: number;
+      positions: number;
+      gaps: number;
+      outgoingRelations: number;
+      incomingRelations: number;
+    };
+  }>;
+  issueLinks: Array<{
+    issue: GovernanceIssue | null;
+    roleLabel: string | null;
+    createdAt: string | null;
+  }>;
+  mandates: GovernanceMandate[];
+  positions: GovernancePosition[];
+  gaps: GovernanceGap[];
+  outgoingRelations: Array<{
+    id: string;
+    relationType: GovernanceRelationType;
+    confidence: number | null;
+    rationale: string | null;
+    issue: GovernanceIssue | null;
+    otherAgency: GovernanceAgency | null;
+    fromClaim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    toClaim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    metadata: any;
+    createdAt: string | null;
+    updatedAt: string | null;
+    provenance: GovernanceProvenance | null;
+  }>;
+  incomingRelations: Array<{
+    id: string;
+    relationType: GovernanceRelationType;
+    confidence: number | null;
+    rationale: string | null;
+    issue: GovernanceIssue | null;
+    otherAgency: GovernanceAgency | null;
+    fromClaim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    toClaim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    metadata: any;
+    createdAt: string | null;
+    updatedAt: string | null;
+    provenance: GovernanceProvenance | null;
+  }>;
+};
+
+function buildGovernanceQuery(params?: Record<string, unknown>) {
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === null || value === "") continue;
+    query.set(key, String(value));
+  }
+
+  const qs = query.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function getDocumentGovernance(
+  documentId: string,
+  params?: { limit?: number },
+) {
+  return apiGet<GovernanceDocumentOverviewResponse>(
+    `/api/documents/${encodeURIComponent(documentId)}/governance${buildGovernanceQuery(
+      params,
+    )}`,
+  );
+}
+
+export async function getGovernanceIssueTimeline(
+  issueId: string,
+  params?: {
+    actorAgencyId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  },
+) {
+  return apiGet<GovernanceIssueTimelineResponse>(
+    `/api/issues/${encodeURIComponent(issueId)}/timeline${buildGovernanceQuery(
+      params,
+    )}`,
+  );
+}
+
+export async function getGovernanceIssueRelations(
+  issueId: string,
+  params?: {
+    relationType?: GovernanceRelationType;
+    limit?: number;
+  },
+) {
+  return apiGet<GovernanceIssueRelationsResponse>(
+    `/api/issues/${encodeURIComponent(issueId)}/relations${buildGovernanceQuery(
+      params,
+    )}`,
+  );
+}
+
+export async function getGovernanceAgencyLandscape(
+  agencyId: string,
+  params?: { limit?: number },
+) {
+  return apiGet<GovernanceAgencyLandscapeResponse>(
+    `/api/agencies/${encodeURIComponent(agencyId)}/landscape${buildGovernanceQuery(
+      params,
+    )}`,
+  );
+}
+
 export default api;

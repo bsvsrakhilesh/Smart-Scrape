@@ -41,7 +41,12 @@ export interface SearchResult {
   ranking?: SearchResultRanking;
 }
 
-export type Page = "url-collector" | "saved-urls" | "file-manager" | "notebook";
+export type Page =
+  | "url-collector"
+  | "saved-urls"
+  | "file-manager"
+  | "governance-workspace"
+  | "notebook";
 
 // FileItem and related types for the file manager
 export interface FileUploader {

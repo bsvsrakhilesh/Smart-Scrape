@@ -15,6 +15,7 @@ import {
   apiUrl,
   type BackendDocumentRevision,
 } from "../../lib/api";
+import { openGovernanceWorkspace } from "../../lib/governanceWorkspace";
 import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
@@ -243,6 +244,34 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
       return [];
     } finally {
       setSnapshotsLoading(false);
+    }
+  };
+
+  const openGovernanceView = async () => {
+    try {
+      const out = await getUrlRevisions(Number(url.id), 1);
+      const documentId = out.documentId ?? null;
+
+      if (!documentId) {
+        notify({
+          text: "No canonical document revision is available for this URL yet.",
+          kind: "error",
+        });
+        return;
+      }
+
+      openGovernanceWorkspace({
+        documentId,
+        urlId: Number(url.id),
+        title: url.title,
+        sourceLabel: url.url,
+        origin: "saved-urls",
+      });
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Failed to open governance workspace",
+        kind: "error",
+      });
     }
   };
 
@@ -603,12 +632,21 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   </a>
                 </div>
               </div>
-              <button
-                onClick={() => onFavoriteToggle(url)}
-                className="px-3 py-2 border rounded flex items-center gap-1"
-              >
-                {url.isFavorited ? "Unfavorite" : "Favorite"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openGovernanceView}
+                  className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  Open governance
+                </button>
+                <button
+                  onClick={() => onFavoriteToggle(url)}
+                  className="px-3 py-2 border rounded-xl flex items-center gap-1 bg-white shadow-sm"
+                >
+                  {url.isFavorited ? "Unfavorite" : "Favorite"}
+                </button>
+              </div>
             </div>
 
             {/* Notes */}

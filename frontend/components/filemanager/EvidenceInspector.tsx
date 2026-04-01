@@ -7,6 +7,8 @@ import {
   type BackendDocumentRevision,
   apiUrl,
 } from "../../lib/api";
+import { openGovernanceWorkspace } from "../../lib/governanceWorkspace";
+import { useToast } from "../providers/Toast";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
 import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
 
@@ -180,6 +182,39 @@ export default function EvidenceInspector({ file }: Props) {
       }
     })();
   }, [file?.id, file?.mimeType]);
+
+  const { notify } = useToast();
+
+  const openGovernance = React.useCallback(async () => {
+    if (!file) return;
+
+    try {
+      const resolvedDocumentId =
+        file.document?.id ??
+        (await getFileRevisions(file.id, 1)).document?.id ??
+        null;
+
+      if (!resolvedDocumentId) {
+        notify({
+          text: "No canonical document id is available for this file yet.",
+          kind: "error",
+        });
+        return;
+      }
+
+      openGovernanceWorkspace({
+        documentId: resolvedDocumentId,
+        title: file.title,
+        sourceLabel: file.sourceUrl ?? file.captureEvent?.sourceUrl ?? null,
+        origin: "file-manager",
+      });
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Failed to open governance workspace",
+        kind: "error",
+      });
+    }
+  }, [file, notify]);
 
   const tagging = file ? getTaggingSummary(file) : null;
 
@@ -475,6 +510,11 @@ export default function EvidenceInspector({ file }: Props) {
                     },
                   ]
                 : []),
+              {
+                label: "Open governance",
+                onClick: openGovernance,
+                title: "Open Governance Workspace for this evidence",
+              },
               {
                 label: "Use in notebook",
                 onClick: () => useRevisionInNotebook(file.id),

@@ -8,6 +8,7 @@ import Sidebar from "./components/common/Sidebar";
 import UrlCollectorPage from "./pages/UrlCollectorPage";
 import SavedUrlsPage from "./pages/SavedUrlsPage";
 import FileManagerPage from "./pages/FileManagerPage";
+import GovernanceWorkspacePage from "./pages/GovernanceWorkspacePage";
 
 import { Page } from "./lib/types";
 import { ToastProvider } from "./components/providers/Toast";
@@ -30,6 +31,7 @@ const App: React.FC = () => {
       "url-collector",
       "saved-urls",
       "file-manager",
+      "governance-workspace",
     ]);
 
     return allowed.has(h as Page) ? (h as Page) : "url-collector";
@@ -92,6 +94,7 @@ const App: React.FC = () => {
 
       {currentPage === "saved-urls" && <SavedUrlsPage />}
       {currentPage === "file-manager" && <FileManagerPage />}
+      {currentPage === "governance-workspace" && <GovernanceWorkspacePage />}
     </>
   );
 
@@ -99,6 +102,7 @@ const App: React.FC = () => {
     "url-collector",
     "saved-urls",
     "file-manager",
+    "governance-workspace",
   ];
   const isWorkspacePage = workspacePages.includes(currentPage);
 

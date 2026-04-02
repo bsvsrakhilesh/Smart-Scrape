@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import SmartCard from "../components/ui/SmartCard";
+import CaseWorkspacePanel from "../components/governance/CaseWorkspacePanel";
 import {
   apiUrl,
   getDocumentGovernance,
@@ -183,6 +184,7 @@ export default function GovernanceWorkspacePage() {
   const [relationFilter, setRelationFilter] = useState<RelationFilter>("all");
   const [selectedProvenance, setSelectedProvenance] =
     useState<ProvenanceSelection | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<"map" | "case">("map");
 
   useEffect(() => {
     const pending = consumeGovernanceWorkspaceIntent();
@@ -243,6 +245,12 @@ export default function GovernanceWorkspacePage() {
       setSelectedAgencyId(overview.agencies[0]?.id ?? null);
     }
   }, [overview, selectedIssueId, selectedAgencyId]);
+
+  useEffect(() => {
+    if (!selectedIssueId && workspaceMode === "case") {
+      setWorkspaceMode("map");
+    }
+  }, [selectedIssueId, workspaceMode]);
 
   const timelineQuery = useQuery({
     queryKey: ["governance-issue-timeline", selectedIssueId],
@@ -523,581 +531,646 @@ export default function GovernanceWorkspacePage() {
             </SmartCard>
           )}
 
-          <div className="grid gap-6 xl:grid-cols-[300px,minmax(0,1fr),360px]">
-            <div className="space-y-6">
-              <SmartCard
-                className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/80 p-2 shadow-sm">
+            <div className="text-sm text-slate-600">
+              {workspaceMode === "map"
+                ? "Governance Map mode"
+                : "Case Review mode"}
+            </div>
+            <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => setWorkspaceMode("map")}
+                className={[
+                  "rounded-xl px-3 py-2 text-sm font-medium transition",
+                  workspaceMode === "map"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900",
+                ].join(" ")}
               >
-                <SectionHeader
-                  icon={<Landmark className="h-5 w-5" />}
-                  title="Document focus"
-                  subtitle="Choose the issue and agency lens for the workspace."
-                />
-                <div className="mt-5 space-y-4">
-                  <label className="block">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Governance issue
-                    </div>
-                    <select
-                      value={selectedIssueId ?? ""}
-                      onChange={(e) => {
-                        setSelectedIssueId(e.target.value || null);
-                        setSelectedProvenance(null);
-                      }}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
-                    >
-                      {(overview?.issues ?? []).map((issue) => (
-                        <option key={issue.id} value={issue.id}>
-                          {issue.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                Governance Map
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedIssueId) setWorkspaceMode("case");
+                }}
+                disabled={!selectedIssueId}
+                className={[
+                  "rounded-xl px-3 py-2 text-sm font-medium transition",
+                  workspaceMode === "case"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900",
+                  !selectedIssueId ? "cursor-not-allowed opacity-50" : "",
+                ].join(" ")}
+              >
+                Case Review
+              </button>
+            </div>
+          </div>
 
-                  <label className="block">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Agency lens
-                    </div>
-                    <select
-                      value={selectedAgencyId ?? ""}
-                      onChange={(e) => {
-                        setSelectedAgencyId(e.target.value || null);
-                        setSelectedProvenance(null);
-                      }}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                    >
-                      {(overview?.agencies ?? []).map((agency) => (
-                        <option key={agency.id} value={agency.id}>
-                          {agency.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+          {workspaceMode === "case" && selectedIssueId ? (
+            <CaseWorkspacePanel
+              issueId={selectedIssueId}
+              issueTitle={selectedIssue?.title ?? null}
+              actorAgencyId={selectedAgencyId}
+              onActorAgencyIdChange={setSelectedAgencyId}
+              onClose={() => setWorkspaceMode("map")}
+            />
+          ) : (
+            <div className="grid gap-6 xl:grid-cols-[300px,minmax(0,1fr),360px]">
+              <div className="space-y-6">
+                <SmartCard
+                  className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<Landmark className="h-5 w-5" />}
+                    title="Document focus"
+                    subtitle="Choose the issue and agency lens for the workspace."
+                  />
+                  <div className="mt-5 space-y-4">
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Governance issue
+                      </div>
+                      <select
+                        value={selectedIssueId ?? ""}
+                        onChange={(e) => {
+                          setSelectedIssueId(e.target.value || null);
+                          setSelectedProvenance(null);
+                        }}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                      >
+                        {(overview?.issues ?? []).map((issue) => (
+                          <option key={issue.id} value={issue.id}>
+                            {issue.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                <div className="mt-6 space-y-3">
-                  {(overview?.issues ?? []).length === 0 ? (
-                    <EmptyPanel
-                      title="No governance issues extracted yet"
-                      body="Run tagging/extraction on a richer governance document and reopen this workspace."
-                    />
-                  ) : (
-                    (overview?.issues ?? []).slice(0, 8).map((issue) => {
-                      const active = issue.id === selectedIssueId;
-                      return (
-                        <button
-                          key={issue.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedIssueId(issue.id);
-                            setSelectedProvenance(null);
-                          }}
-                          className={[
-                            "w-full rounded-2xl border p-3 text-left transition",
-                            active
-                              ? "border-sky-300 bg-sky-50 shadow-sm"
-                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                          ].join(" ")}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-900">
-                                {issue.title}
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Agency lens
+                      </div>
+                      <select
+                        value={selectedAgencyId ?? ""}
+                        onChange={(e) => {
+                          setSelectedAgencyId(e.target.value || null);
+                          setSelectedProvenance(null);
+                        }}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                      >
+                        {(overview?.agencies ?? []).map((agency) => (
+                          <option key={agency.id} value={agency.id}>
+                            {agency.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    {(overview?.issues ?? []).length === 0 ? (
+                      <EmptyPanel
+                        title="No governance issues extracted yet"
+                        body="Run tagging/extraction on a richer governance document and reopen this workspace."
+                      />
+                    ) : (
+                      (overview?.issues ?? []).slice(0, 8).map((issue) => {
+                        const active = issue.id === selectedIssueId;
+                        return (
+                          <button
+                            key={issue.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedIssueId(issue.id);
+                              setSelectedProvenance(null);
+                            }}
+                            className={[
+                              "w-full rounded-2xl border p-3 text-left transition",
+                              active
+                                ? "border-sky-300 bg-sky-50 shadow-sm"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                            ].join(" ")}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-slate-900">
+                                  {issue.title}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-600">
+                                  {compactText(
+                                    issue.summary,
+                                    "No issue summary extracted",
+                                  )}
+                                </div>
                               </div>
-                              <div className="mt-1 text-xs text-slate-600">
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
+                                {issue.kind}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  {selectedIssue ? (
+                    <button
+                      type="button"
+                      onClick={() => setWorkspaceMode("case")}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-900"
+                    >
+                      Open Case Review
+                      <ArrowUpRight className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </SmartCard>
+
+                <SmartCard
+                  className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<Building2 className="h-5 w-5" />}
+                    title="Agencies"
+                    subtitle="Scan institutions represented in the current document."
+                  />
+                  <div className="mt-5 space-y-3">
+                    {(overview?.agencies ?? []).length === 0 ? (
+                      <EmptyPanel
+                        title="No agencies extracted"
+                        body="The selected document does not yet contain structured institution entities."
+                      />
+                    ) : (
+                      (overview?.agencies ?? []).slice(0, 12).map((agency) => {
+                        const active = agency.id === selectedAgencyId;
+                        return (
+                          <button
+                            key={agency.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedAgencyId(agency.id);
+                              setSelectedProvenance(null);
+                            }}
+                            className={[
+                              "w-full rounded-2xl border p-3 text-left transition",
+                              active
+                                ? "border-emerald-300 bg-emerald-50 shadow-sm"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                            ].join(" ")}
+                          >
+                            <div className="text-sm font-semibold text-slate-900">
+                              {agency.name}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                              {agency.category && (
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                  {agency.category}
+                                </span>
+                              )}
+                              {agency.jurisdiction && (
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                  {agency.jurisdiction}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </SmartCard>
+              </div>
+
+              <div className="space-y-6">
+                <SmartCard
+                  className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<Network className="h-5 w-5" />}
+                    title="Case timeline"
+                    subtitle={
+                      selectedIssue
+                        ? `Merged chronology for ${selectedIssue.title}`
+                        : "Choose an issue to inspect the merged timeline."
+                    }
+                    action={
+                      busy ? (
+                        <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-3 py-1 text-xs text-slate-600 shadow-sm">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Syncing
+                        </div>
+                      ) : null
+                    }
+                  />
+
+                  <div className="mt-5 space-y-3">
+                    {(timeline?.entries ?? []).length === 0 ? (
+                      <EmptyPanel
+                        title="No timeline entries"
+                        body="This issue does not yet have normalized events or dated positions."
+                      />
+                    ) : (
+                      (timeline?.entries ?? []).map((entry) => (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedProvenance({
+                              title: entry.label,
+                              subtitle:
+                                entry.actorAgency?.name ??
+                                entry.position?.agency?.name ??
+                                entry.itemType,
+                              narrative:
+                                entry.summary ??
+                                entry.position?.stanceSummary ??
+                                entry.position?.stanceText ??
+                                entry.event?.summary ??
+                                null,
+                              chips: [
+                                entry.itemType,
+                                entry.sortPrecision,
+                                entry.actorAgency?.name ?? "Unattributed",
+                              ].filter((chip): chip is string => Boolean(chip)),
+                              provenance: entry.provenance,
+                            })
+                          }
+                          className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                  {entry.itemType}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {entry.actorAgency?.name ??
+                                    entry.position?.agency?.name ??
+                                    "Unattributed"}
+                                </span>
+                              </div>
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {entry.label}
+                              </div>
+                              <div className="mt-1 text-sm leading-6 text-slate-600">
                                 {compactText(
-                                  issue.summary,
-                                  "No issue summary extracted",
+                                  entry.summary ??
+                                    entry.position?.stanceSummary ??
+                                    entry.position?.stanceText ??
+                                    entry.event?.summary,
+                                  "No narrative summary available",
                                 )}
                               </div>
                             </div>
-                            <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
-                              {issue.kind}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </SmartCard>
-
-              <SmartCard
-                className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
-              >
-                <SectionHeader
-                  icon={<Building2 className="h-5 w-5" />}
-                  title="Agencies"
-                  subtitle="Scan institutions represented in the current document."
-                />
-                <div className="mt-5 space-y-3">
-                  {(overview?.agencies ?? []).length === 0 ? (
-                    <EmptyPanel
-                      title="No agencies extracted"
-                      body="The selected document does not yet contain structured institution entities."
-                    />
-                  ) : (
-                    (overview?.agencies ?? []).slice(0, 12).map((agency) => {
-                      const active = agency.id === selectedAgencyId;
-                      return (
-                        <button
-                          key={agency.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedAgencyId(agency.id);
-                            setSelectedProvenance(null);
-                          }}
-                          className={[
-                            "w-full rounded-2xl border p-3 text-left transition",
-                            active
-                              ? "border-emerald-300 bg-emerald-50 shadow-sm"
-                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                          ].join(" ")}
-                        >
-                          <div className="text-sm font-semibold text-slate-900">
-                            {agency.name}
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                            {agency.category && (
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
-                                {agency.category}
-                              </span>
-                            )}
-                            {agency.jurisdiction && (
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
-                                {agency.jurisdiction}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </SmartCard>
-            </div>
-
-            <div className="space-y-6">
-              <SmartCard
-                className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
-              >
-                <SectionHeader
-                  icon={<Network className="h-5 w-5" />}
-                  title="Case timeline"
-                  subtitle={
-                    selectedIssue
-                      ? `Merged chronology for ${selectedIssue.title}`
-                      : "Choose an issue to inspect the merged timeline."
-                  }
-                  action={
-                    busy ? (
-                      <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/80 px-3 py-1 text-xs text-slate-600 shadow-sm">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Syncing
-                      </div>
-                    ) : null
-                  }
-                />
-
-                <div className="mt-5 space-y-3">
-                  {(timeline?.entries ?? []).length === 0 ? (
-                    <EmptyPanel
-                      title="No timeline entries"
-                      body="This issue does not yet have normalized events or dated positions."
-                    />
-                  ) : (
-                    (timeline?.entries ?? []).map((entry) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedProvenance({
-                            title: entry.label,
-                            subtitle:
-                              entry.actorAgency?.name ??
-                              entry.position?.agency?.name ??
-                              entry.itemType,
-                            narrative:
-                              entry.summary ??
-                              entry.position?.stanceSummary ??
-                              entry.position?.stanceText ??
-                              entry.event?.summary ??
-                              null,
-                            chips: [
-                              entry.itemType,
-                              entry.sortPrecision,
-                              entry.actorAgency?.name ?? "Unattributed",
-                            ].filter((chip): chip is string => Boolean(chip)),
-                            provenance: entry.provenance,
-                          })
-                        }
-                        className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                {entry.itemType}
-                              </span>
-                              <span className="text-xs text-slate-500">
-                                {entry.actorAgency?.name ??
-                                  entry.position?.agency?.name ??
-                                  "Unattributed"}
-                              </span>
-                            </div>
-                            <div className="mt-2 text-sm font-semibold text-slate-900">
-                              {entry.label}
-                            </div>
-                            <div className="mt-1 text-sm leading-6 text-slate-600">
-                              {compactText(
-                                entry.summary ??
-                                  entry.position?.stanceSummary ??
-                                  entry.position?.stanceText ??
-                                  entry.event?.summary,
-                                "No narrative summary available",
-                              )}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className="text-xs font-semibold text-slate-500">
-                              {formatShortDate(entry.sortDate)}
-                            </div>
-                            <div className="mt-1 text-[11px] text-slate-400">
-                              {entry.sortPrecision}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </SmartCard>
-
-              <SmartCard
-                className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
-              >
-                <SectionHeader
-                  icon={<GitBranch className="h-5 w-5" />}
-                  title="Contradiction & alignment panel"
-                  subtitle="Inspect explicit cross-document relation candidates grounded in extracted claims."
-                  action={
-                    <select
-                      value={relationFilter}
-                      onChange={(e) =>
-                        setRelationFilter(e.target.value as RelationFilter)
-                      }
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-                    >
-                      {relationOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  }
-                />
-
-                <div className="mt-5 space-y-3">
-                  {(relations?.relations ?? []).length === 0 ? (
-                    <EmptyPanel
-                      title="No relation candidates"
-                      body="This issue currently has no extracted contradictions, tensions, overrides, or reinforcements."
-                    />
-                  ) : (
-                    (relations?.relations ?? []).map((rel) => (
-                      <button
-                        key={rel.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedProvenance({
-                            title: `${rel.relationType} • ${rel.fromAgency?.name ?? "Unknown"} → ${rel.toAgency?.name ?? "Unknown"}`,
-                            subtitle:
-                              rel.issue?.title ?? selectedIssue?.title ?? null,
-                            narrative:
-                              rel.rationale ??
-                              rel.fromClaim?.claimSummary ??
-                              rel.toClaim?.claimSummary ??
-                              null,
-                            chips: [
-                              rel.relationType,
-                              rel.fromAgency?.name ?? "Unknown source",
-                              rel.toAgency?.name ?? "Unknown target",
-                            ],
-                            provenance: rel.provenance,
-                          })
-                        }
-                        className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700">
-                                {rel.relationType}
-                              </span>
-                              <span className="text-xs text-slate-500">
-                                {(rel.confidence ?? 0).toFixed(2)} confidence
-                              </span>
-                            </div>
-                            <div className="mt-2 text-sm font-semibold text-slate-900">
-                              {rel.fromAgency?.name ?? "Unknown"} →{" "}
-                              {rel.toAgency?.name ?? "Unknown"}
-                            </div>
-                            <div className="mt-2 text-sm leading-6 text-slate-600">
-                              {compactText(
-                                rel.rationale ??
-                                  rel.fromClaim?.claimSummary ??
-                                  rel.toClaim?.claimSummary,
-                                "No rationale extracted",
-                              )}
-                            </div>
-                            {(rel.fromClaim?.claimText ||
-                              rel.toClaim?.claimText) && (
-                              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                                  <div className="font-semibold text-slate-900">
-                                    From claim
-                                  </div>
-                                  <div className="mt-1 leading-5">
-                                    {compactText(rel.fromClaim?.claimText)}
-                                  </div>
-                                </div>
-                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                                  <div className="font-semibold text-slate-900">
-                                    To claim
-                                  </div>
-                                  <div className="mt-1 leading-5">
-                                    {compactText(rel.toClaim?.claimText)}
-                                  </div>
-                                </div>
+                            <div className="shrink-0 text-right">
+                              <div className="text-xs font-semibold text-slate-500">
+                                {formatShortDate(entry.sortDate)}
                               </div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </SmartCard>
-            </div>
-
-            <div className="space-y-6">
-              <SmartCard
-                className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
-              >
-                <SectionHeader
-                  icon={<Building2 className="h-5 w-5" />}
-                  title="Agency landscape"
-                  subtitle={
-                    selectedAgency
-                      ? `Mandates, positions, and coordination signals for ${selectedAgency.name}`
-                      : "Choose an agency to inspect its landscape."
-                  }
-                />
-                <div className="mt-5 space-y-4">
-                  {!landscape ? (
-                    <EmptyPanel
-                      title="No agency landscape yet"
-                      body="Select an agency from the left column to inspect its issue matrix and related evidence."
-                    />
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <MetricCard
-                          label="Issues"
-                          value={landscape.summary.issueCount}
-                          icon={<Landmark className="h-4 w-4" />}
-                          tone="emerald"
-                          detail="Linked issue records"
-                        />
-                        <MetricCard
-                          label="Positions"
-                          value={landscape.summary.positionCount}
-                          icon={<FileText className="h-4 w-4" />}
-                          tone="blue"
-                          detail="Actor positions"
-                        />
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Issue matrix
-                        </div>
-                        <div className="mt-3 space-y-2">
-                          {landscape.issueMatrix.length === 0 ? (
-                            <div className="text-sm text-slate-600">
-                              No issue matrix rows were derived for this agency.
+                              <div className="mt-1 text-[11px] text-slate-400">
+                                {entry.sortPrecision}
+                              </div>
                             </div>
-                          ) : (
-                            landscape.issueMatrix.slice(0, 8).map((row) => (
-                              <button
-                                key={row.issue.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedIssueId(row.issue.id);
-                                }}
-                                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
-                              >
-                                <div className="min-w-0">
-                                  <div className="truncate text-sm font-semibold text-slate-900">
-                                    {row.issue.title}
-                                  </div>
-                                  <div className="mt-1 text-xs text-slate-500">
-                                    mandates {row.counts.mandates} • positions{" "}
-                                    {row.counts.positions} • gaps{" "}
-                                    {row.counts.gaps}
-                                  </div>
-                                </div>
-                                <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-400" />
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </SmartCard>
-
-              <SmartCard
-                className="sticky top-[92px] border-white/70 bg-white/90 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
-                tabIndex={-1}
-              >
-                <SectionHeader
-                  icon={<BookOpen className="h-5 w-5" />}
-                  title="Evidence drawer"
-                  subtitle="Every structured item should stay traceable to chunks, pages, and capture lineage."
-                />
-
-                {!selectedProvenance ? (
-                  <div className="mt-5">
-                    <EmptyPanel
-                      title="Select a timeline or relation item"
-                      body="Click any timeline entry or contradiction card to inspect its provenance, evidence snippet, and capture lineage."
-                    />
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-4">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-950">
-                        {selectedProvenance.title}
-                      </div>
-                      {selectedProvenance.subtitle && (
-                        <div className="mt-1 text-sm text-slate-600">
-                          {selectedProvenance.subtitle}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProvenance.chips.map((chip) => (
-                        <span
-                          key={chip}
-                          className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600"
-                        >
-                          {chip}
-                        </span>
-                      ))}
-                    </div>
-
-                    {selectedProvenance.narrative && (
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm leading-6 text-slate-700">
-                        {selectedProvenance.narrative}
-                      </div>
+                          </div>
+                        </button>
+                      ))
                     )}
+                  </div>
+                </SmartCard>
 
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Provenance metadata
-                      </div>
-                      <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-700">
-                        <div>
-                          <div className="text-xs text-slate-500">Pages</div>
-                          <div className="mt-1 font-medium text-slate-900">
-                            {(selectedProvenance.provenance?.pageNumbers ?? [])
-                              .length
-                              ? selectedProvenance.provenance?.pageNumbers.join(
-                                  ", ",
-                                )
-                              : "No page markers"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">Chunks</div>
-                          <div className="mt-1 font-medium text-slate-900">
-                            {(selectedProvenance.provenance?.chunkIds ?? [])
-                              .length
-                              ? `${selectedProvenance.provenance?.chunkIds.length} linked chunks`
-                              : "No linked chunks"}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">
-                            Model / extraction version
-                          </div>
-                          <div className="mt-1 font-medium text-slate-900">
-                            {compactText(
-                              selectedProvenance.provenance?.extractionModel,
-                            )}{" "}
-                            •{" "}
-                            {compactText(
-                              selectedProvenance.provenance?.extractionVersion,
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-500">
-                            Captured artifact
-                          </div>
-                          <div className="mt-1 font-medium text-slate-900">
-                            {selectedProvenance.provenance?.documentRevision
-                              ?.storedFile?.fileName ??
-                              "No stored file attached"}
-                          </div>
-                        </div>
-                      </div>
+                <SmartCard
+                  className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<GitBranch className="h-5 w-5" />}
+                    title="Contradiction & alignment panel"
+                    subtitle="Inspect explicit cross-document relation candidates grounded in extracted claims."
+                    action={
+                      <select
+                        value={relationFilter}
+                        onChange={(e) =>
+                          setRelationFilter(e.target.value as RelationFilter)
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                      >
+                        {relationOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    }
+                  />
 
-                      {selectedProvenance.provenance?.evidenceText && (
-                        <div className="mt-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-4">
-                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                            Evidence snippet
-                          </div>
-                          <div className="mt-2 text-sm leading-6 text-emerald-950">
-                            {selectedProvenance.provenance.evidenceText}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-5 space-y-3">
+                    {(relations?.relations ?? []).length === 0 ? (
+                      <EmptyPanel
+                        title="No relation candidates"
+                        body="This issue currently has no extracted contradictions, tensions, overrides, or reinforcements."
+                      />
+                    ) : (
+                      (relations?.relations ?? []).map((rel) => (
                         <button
+                          key={rel.id}
                           type="button"
                           onClick={() =>
-                            openArtifactPreview(selectedProvenance.provenance)
+                            setSelectedProvenance({
+                              title: `${rel.relationType} • ${rel.fromAgency?.name ?? "Unknown"} → ${rel.toAgency?.name ?? "Unknown"}`,
+                              subtitle:
+                                rel.issue?.title ??
+                                selectedIssue?.title ??
+                                null,
+                              narrative:
+                                rel.rationale ??
+                                rel.fromClaim?.claimSummary ??
+                                rel.toClaim?.claimSummary ??
+                                null,
+                              chips: [
+                                rel.relationType,
+                                rel.fromAgency?.name ?? "Unknown source",
+                                rel.toAgency?.name ?? "Unknown target",
+                              ],
+                              provenance: rel.provenance,
+                            })
                           }
-                          disabled={
-                            !selectedProvenance.provenance?.documentRevision
-                              ?.storedFile?.id
-                          }
-                          className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50"
                         >
-                          <ArrowUpRight className="mr-2 h-4 w-4" />
-                          Open artifact
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700">
+                                  {rel.relationType}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {(rel.confidence ?? 0).toFixed(2)} confidence
+                                </span>
+                              </div>
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {rel.fromAgency?.name ?? "Unknown"} →{" "}
+                                {rel.toAgency?.name ?? "Unknown"}
+                              </div>
+                              <div className="mt-2 text-sm leading-6 text-slate-600">
+                                {compactText(
+                                  rel.rationale ??
+                                    rel.fromClaim?.claimSummary ??
+                                    rel.toClaim?.claimSummary,
+                                  "No rationale extracted",
+                                )}
+                              </div>
+                              {(rel.fromClaim?.claimText ||
+                                rel.toClaim?.claimText) && (
+                                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                                    <div className="font-semibold text-slate-900">
+                                      From claim
+                                    </div>
+                                    <div className="mt-1 leading-5">
+                                      {compactText(rel.fromClaim?.claimText)}
+                                    </div>
+                                  </div>
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                                    <div className="font-semibold text-slate-900">
+                                      To claim
+                                    </div>
+                                    <div className="mt-1 leading-5">
+                                      {compactText(rel.toClaim?.claimText)}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </button>
-                        <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                          Trace created{" "}
-                          {formatDate(selectedProvenance.provenance?.createdAt)}
+                      ))
+                    )}
+                  </div>
+                </SmartCard>
+              </div>
+
+              <div className="space-y-6">
+                <SmartCard
+                  className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<Building2 className="h-5 w-5" />}
+                    title="Agency landscape"
+                    subtitle={
+                      selectedAgency
+                        ? `Mandates, positions, and coordination signals for ${selectedAgency.name}`
+                        : "Choose an agency to inspect its landscape."
+                    }
+                  />
+                  <div className="mt-5 space-y-4">
+                    {!landscape ? (
+                      <EmptyPanel
+                        title="No agency landscape yet"
+                        body="Select an agency from the left column to inspect its issue matrix and related evidence."
+                      />
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <MetricCard
+                            label="Issues"
+                            value={landscape.summary.issueCount}
+                            icon={<Landmark className="h-4 w-4" />}
+                            tone="emerald"
+                            detail="Linked issue records"
+                          />
+                          <MetricCard
+                            label="Positions"
+                            value={landscape.summary.positionCount}
+                            icon={<FileText className="h-4 w-4" />}
+                            tone="blue"
+                            detail="Actor positions"
+                          />
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                          <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                            Issue matrix
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {landscape.issueMatrix.length === 0 ? (
+                              <div className="text-sm text-slate-600">
+                                No issue matrix rows were derived for this
+                                agency.
+                              </div>
+                            ) : (
+                              landscape.issueMatrix.slice(0, 8).map((row) => (
+                                <button
+                                  key={row.issue.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedIssueId(row.issue.id);
+                                  }}
+                                  className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-semibold text-slate-900">
+                                      {row.issue.title}
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500">
+                                      mandates {row.counts.mandates} • positions{" "}
+                                      {row.counts.positions} • gaps{" "}
+                                      {row.counts.gaps}
+                                    </div>
+                                  </div>
+                                  <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-400" />
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </SmartCard>
+
+                <SmartCard
+                  className="sticky top-[92px] border-white/70 bg-white/90 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                  tabIndex={-1}
+                >
+                  <SectionHeader
+                    icon={<BookOpen className="h-5 w-5" />}
+                    title="Evidence drawer"
+                    subtitle="Every structured item should stay traceable to chunks, pages, and capture lineage."
+                  />
+
+                  {!selectedProvenance ? (
+                    <div className="mt-5">
+                      <EmptyPanel
+                        title="Select a timeline or relation item"
+                        body="Click any timeline entry or contradiction card to inspect its provenance, evidence snippet, and capture lineage."
+                      />
+                    </div>
+                  ) : (
+                    <div className="mt-5 space-y-4">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-950">
+                          {selectedProvenance.title}
+                        </div>
+                        {selectedProvenance.subtitle && (
+                          <div className="mt-1 text-sm text-slate-600">
+                            {selectedProvenance.subtitle}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {selectedProvenance.chips.map((chip) => (
+                          <span
+                            key={chip}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600"
+                          >
+                            {chip}
+                          </span>
+                        ))}
+                      </div>
+
+                      {selectedProvenance.narrative && (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm leading-6 text-slate-700">
+                          {selectedProvenance.narrative}
+                        </div>
+                      )}
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Provenance metadata
+                        </div>
+                        <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-700">
+                          <div>
+                            <div className="text-xs text-slate-500">Pages</div>
+                            <div className="mt-1 font-medium text-slate-900">
+                              {(
+                                selectedProvenance.provenance?.pageNumbers ?? []
+                              ).length
+                                ? selectedProvenance.provenance?.pageNumbers.join(
+                                    ", ",
+                                  )
+                                : "No page markers"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">Chunks</div>
+                            <div className="mt-1 font-medium text-slate-900">
+                              {(selectedProvenance.provenance?.chunkIds ?? [])
+                                .length
+                                ? `${selectedProvenance.provenance?.chunkIds.length} linked chunks`
+                                : "No linked chunks"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">
+                              Model / extraction version
+                            </div>
+                            <div className="mt-1 font-medium text-slate-900">
+                              {compactText(
+                                selectedProvenance.provenance?.extractionModel,
+                              )}{" "}
+                              •{" "}
+                              {compactText(
+                                selectedProvenance.provenance
+                                  ?.extractionVersion,
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-500">
+                              Captured artifact
+                            </div>
+                            <div className="mt-1 font-medium text-slate-900">
+                              {selectedProvenance.provenance?.documentRevision
+                                ?.storedFile?.fileName ??
+                                "No stored file attached"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {selectedProvenance.provenance?.evidenceText && (
+                          <div className="mt-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-4">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                              Evidence snippet
+                            </div>
+                            <div className="mt-2 text-sm leading-6 text-emerald-950">
+                              {selectedProvenance.provenance.evidenceText}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openArtifactPreview(selectedProvenance.provenance)
+                            }
+                            disabled={
+                              !selectedProvenance.provenance?.documentRevision
+                                ?.storedFile?.id
+                            }
+                            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <ArrowUpRight className="mr-2 h-4 w-4" />
+                            Open artifact
+                          </button>
+                          <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                            Trace created{" "}
+                            {formatDate(
+                              selectedProvenance.provenance?.createdAt,
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </SmartCard>
+                  )}
+                </SmartCard>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>

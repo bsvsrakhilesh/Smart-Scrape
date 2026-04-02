@@ -4,6 +4,7 @@ import { validate } from "../middlewares/validate";
 import {
   getAgencyLandscapeHandler,
   getDocumentGovernanceHandler,
+  getIssueCaseWorkspaceHandler,
   getIssueRelationsHandler,
   getIssueTimelineHandler,
 } from "../controllers/governance.controller";
@@ -46,6 +47,14 @@ const issueRelationsQuery = z.object({
   limit: z.coerce.number().int().positive().max(300).optional(),
 });
 
+const issueCaseWorkspaceQuery = z.object({
+  actorAgencyId: z.string().min(1).optional(),
+  relationType: relationTypeSchema.optional(),
+  dateFrom: ymd.optional(),
+  dateTo: ymd.optional(),
+  limit: z.coerce.number().int().positive().max(300).optional(),
+});
+
 const agencyLandscapeQuery = z.object({
   limit: z.coerce.number().int().positive().max(250).optional(),
 });
@@ -66,6 +75,12 @@ r.get(
   "/issues/:id/relations",
   validate({ params: idParams, query: issueRelationsQuery }),
   getIssueRelationsHandler,
+);
+
+r.get(
+  "/issues/:id/case-workspace",
+  validate({ params: idParams, query: issueCaseWorkspaceQuery }),
+  getIssueCaseWorkspaceHandler,
 );
 
 r.get(

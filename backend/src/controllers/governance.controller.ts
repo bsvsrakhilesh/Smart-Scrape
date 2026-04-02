@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import {
   getAgencyLandscape,
   getDocumentGovernanceOverview,
+  getIssueCaseWorkspace,
   getIssueRelations,
   getIssueTimeline,
 } from "../services/governanceRead.service";
@@ -74,6 +75,34 @@ export async function getIssueRelationsHandler(
         typeof req.query.relationType === "string"
           ? req.query.relationType
           : undefined,
+      limit: parseLimit(req.query.limit),
+    });
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getIssueCaseWorkspaceHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const id = requireStringId(req);
+    const out = await getIssueCaseWorkspace(id, {
+      actorAgencyId:
+        typeof req.query.actorAgencyId === "string"
+          ? req.query.actorAgencyId
+          : undefined,
+      relationType:
+        typeof req.query.relationType === "string"
+          ? req.query.relationType
+          : undefined,
+      dateFrom:
+        typeof req.query.dateFrom === "string" ? req.query.dateFrom : undefined,
+      dateTo:
+        typeof req.query.dateTo === "string" ? req.query.dateTo : undefined,
       limit: parseLimit(req.query.limit),
     });
     res.json(out);

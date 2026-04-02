@@ -1397,6 +1397,108 @@ export type GovernanceIssueRelationsResponse = {
   relations: GovernanceRelation[];
 };
 
+export type GovernanceCaseActorCard = {
+  agency: GovernanceAgency | null;
+  roleLabels: string[];
+  stats: {
+    timelineEntryCount: number;
+    positionCount: number;
+    eventCount: number;
+    mandateCount: number;
+    claimCount: number;
+    outgoingRelationCount: number;
+    incomingRelationCount: number;
+    gapCount: number;
+  };
+  evolution: {
+    kind: "none" | "single" | "stable" | "changed";
+    summary: string;
+    changed: boolean;
+  };
+  latestPosition: {
+    id: string;
+    stanceText: string;
+    stanceSummary: string | null;
+    polarity: string | null;
+    effectiveDate: string | null;
+    effectiveDateText: string | null;
+    effectiveDatePrecision: string | null;
+    claim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    provenance: GovernanceProvenance | null;
+  } | null;
+  latestTimelineEntry: GovernanceTimelineEntry | null;
+  positions: Array<{
+    id: string;
+    stanceText: string;
+    stanceSummary: string | null;
+    polarity: string | null;
+    effectiveDate: string | null;
+    effectiveDateText: string | null;
+    effectiveDatePrecision: string | null;
+    claim: {
+      id: string;
+      claimText: string;
+      claimSummary: string | null;
+    } | null;
+    provenance: GovernanceProvenance | null;
+  }>;
+};
+
+export type GovernanceIssueCaseWorkspaceResponse = {
+  issue: GovernanceIssue | null;
+  filters: {
+    actorAgencyId: string | null;
+    relationType: GovernanceRelationType | string | null;
+    dateFrom: string | null;
+    dateTo: string | null;
+    limit: number;
+  };
+  summary: {
+    agencyCount: number;
+    timelineEntryCount: number;
+    eventCount: number;
+    positionCount: number;
+    contradictionCount: number;
+    gapCount: number;
+    sourceCount: number;
+    changedActorCount: number;
+  };
+  actors: GovernanceCaseActorCard[];
+  timeline: {
+    summary: {
+      byType: {
+        event: number;
+        position: number;
+        entry: number;
+      };
+    };
+    entries: GovernanceTimelineEntry[];
+  };
+  relations: {
+    summary: {
+      relationCount: number;
+      byType: Record<string, number>;
+    };
+    contradictions: GovernanceRelation[];
+    alignments: GovernanceRelation[];
+  };
+  gaps: GovernanceGap[];
+  mandates: GovernanceMandate[];
+  claims: GovernanceClaim[];
+  events: GovernanceEvent[];
+  sources: Array<{
+    sourceDocument: GovernanceProvenance["sourceDocument"];
+    documentRevision: GovernanceProvenance["documentRevision"];
+    pipeline: GovernanceProvenance["pipeline"];
+    itemCount: number;
+    latestSeenAt: string | null;
+  }>;
+};
+
 export type GovernanceAgencyLandscapeResponse = {
   agency: GovernanceAgency | null;
   summary: {
@@ -1520,6 +1622,23 @@ export async function getGovernanceIssueRelations(
 ) {
   return apiGet<GovernanceIssueRelationsResponse>(
     `/api/issues/${encodeURIComponent(issueId)}/relations${buildGovernanceQuery(
+      params,
+    )}`,
+  );
+}
+
+export async function getGovernanceIssueCaseWorkspace(
+  issueId: string,
+  params?: {
+    actorAgencyId?: string;
+    relationType?: GovernanceRelationType;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  },
+) {
+  return apiGet<GovernanceIssueCaseWorkspaceResponse>(
+    `/api/issues/${encodeURIComponent(issueId)}/case-workspace${buildGovernanceQuery(
       params,
     )}`,
   );

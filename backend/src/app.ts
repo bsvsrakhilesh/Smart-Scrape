@@ -26,6 +26,7 @@ import collectionRoutes from "./routes/collection.routes";
 import faviconRoutes from "./routes/favicon.routes";
 import institutionalNodeRoutes from "./routes/institutionalNode.routes";
 import governanceRoutes from "./routes/governance.routes";
+import auditRoutes from "./routes/audit.routes";
 
 dotenv.config();
 
@@ -155,13 +156,26 @@ app.use(
 // -------- Timeout --------
 app.use(timeout("90s"));
 
-// -------- Access log --------
-app.use((req: Request, _res: Response, next: NextFunction) => {
+// -------- Access + response log --------
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const startedAt = Date.now();
+
   log.info("http_request", {
     rid: (req as any).requestId,
     method: req.method,
     path: req.originalUrl,
   });
+
+  res.on("finish", () => {
+    log.info("http_response", {
+      rid: (req as any).requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - startedAt,
+    });
+  });
+
   next();
 });
 
@@ -201,6 +215,7 @@ app.use("/api/search", searchLimiter, searchRoutes);
 app.use("/api", fileRoutes);
 app.use("/api", documentRoutes);
 app.use("/api", governanceRoutes);
+app.use("/api", auditRoutes);
 app.use("/api", crawlRoutes);
 app.use("/api", institutionalNodeRoutes);
 app.use("/api", notebookRoutes);

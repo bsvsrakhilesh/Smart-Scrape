@@ -1,4 +1,9 @@
 import { Request, Response, NextFunction } from "express";
+import prisma from "../config/database";
+import type {
+  AuditLogStatus,
+  AuditResourceType,
+} from "../generated/prisma/client";
 import {
   listNotebooks,
   createNotebook,
@@ -23,14 +28,40 @@ import {
   createNotebookTemplateNote,
   listNotebookTemplates,
 } from "../services/notebookTemplate.service";
-
 import {
   runNotebookChat,
   listNotebookChatRuns,
 } from "../services/notebookChat.service";
+import { writeAuditLog } from "../services/audit.service";
 
 const firstParam = (v: unknown): string =>
   Array.isArray(v) ? String(v[0] ?? "") : String(v ?? "");
+
+async function logAudit(
+  req: Request,
+  args: {
+    action: string;
+    resourceType: AuditResourceType;
+    resourceId?: string | null;
+    status?: AuditLogStatus;
+    metadata?: any;
+  },
+) {
+  try {
+    await writeAuditLog(prisma, {
+      action: args.action,
+      resourceType: args.resourceType,
+      resourceId: args.resourceId ?? null,
+      status: args.status ?? "SUCCESS",
+      requestId: (req as any).requestId ?? null,
+      actorId: null,
+      actorName: null,
+      metadata: args.metadata ?? null,
+    });
+  } catch {
+    // audit logging must never break primary flow
+  }
+}
 
 export async function getNotebookTemplatesHandler(
   _req: Request,
@@ -55,54 +86,93 @@ export async function getNotebooksHandler(
     next(e);
   }
 }
+
 export async function postNotebookHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    res.status(201).json(await createNotebook(req.body || {}));
+    const data = await createNotebook(req.body || {});
+    await logAudit(req, {
+      action: "notebook.created",
+      resourceType: "NOTEBOOK",
+      resourceId: data.id,
+      metadata: { title: data.title },
+    });
+    res.status(201).json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function getNotebookDetailHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    const data = await getNotebook(firstParam(req.params.id));
+    const notebookId = firstParam(req.params.id);
+    const data = await getNotebook(notebookId);
     if (!data) return res.status(404).json({ message: "Notebook not found" });
+
+    await logAudit(req, {
+      action: "notebook.opened",
+      resourceType: "NOTEBOOK",
+      resourceId: notebookId,
+    });
+
     res.json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function patchNotebookHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    res.json(await updateNotebook(firstParam(req.params.id), req.body || {}));
+    const notebookId = firstParam(req.params.id);
+    const data = await updateNotebook(notebookId, req.body || {});
+    await logAudit(req, {
+      action: "notebook.updated",
+      resourceType: "NOTEBOOK",
+      resourceId: notebookId,
+      metadata: {
+        title: req.body?.title ?? null,
+        descriptionUpdated: req.body?.description !== undefined,
+      },
+    });
+    res.json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function deleteNotebookHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    const ok = await deleteNotebook(firstParam(req.params.id));
+    const notebookId = firstParam(req.params.id);
+    const ok = await deleteNotebook(notebookId);
     if (!ok) return res.status(404).json({ message: "Notebook not found" });
+
+    await logAudit(req, {
+      action: "notebook.deleted",
+      resourceType: "NOTEBOOK",
+      resourceId: notebookId,
+    });
+
     res.status(204).end();
   } catch (e) {
     next(e);
   }
 }
+
 export async function getNotebookSourcesHandler(
   req: Request,
   res: Response,
@@ -114,52 +184,78 @@ export async function getNotebookSourcesHandler(
     next(e);
   }
 }
+
 export async function postNotebookSourceUrlHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    res
-      .status(201)
-      .json(
-        await attachUrlSource(
-          firstParam(req.params.id),
-          Number(req.body?.urlId),
-        ),
-      );
+    const notebookId = firstParam(req.params.id);
+    const data = await attachUrlSource(notebookId, Number(req.body?.urlId));
+
+    await logAudit(req, {
+      action: "notebook.source.url_attached",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: data?.id ?? null,
+      metadata: {
+        notebookId,
+        kind: "URL",
+        urlId: Number(req.body?.urlId),
+      },
+    });
+
+    res.status(201).json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function postNotebookSourceFileHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    res
-      .status(201)
-      .json(
-        await attachFileSource(
-          firstParam(req.params.id),
-          String(req.body?.fileId),
-        ),
-      );
+    const notebookId = firstParam(req.params.id);
+    const fileId = String(req.body?.fileId);
+    const data = await attachFileSource(notebookId, fileId);
+
+    await logAudit(req, {
+      action: "notebook.source.file_attached",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: data?.id ?? null,
+      metadata: {
+        notebookId,
+        kind: "FILE",
+        fileId,
+      },
+    });
+
+    res.status(201).json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function deleteNotebookSourceHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    await deleteSource(
-      firstParam(req.params.id),
-      firstParam(req.params.sourceId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const sourceId = firstParam(req.params.sourceId);
+
+    await deleteSource(notebookId, sourceId);
+
+    await logAudit(req, {
+      action: "notebook.source.deleted",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: sourceId,
+      metadata: { notebookId },
+    });
+
     res.status(204).end();
   } catch (e) {
     next(e);
@@ -172,10 +268,17 @@ export async function postNotebookSourceRetryIngestionHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await retrySourceIngestion(
-      firstParam(req.params.id),
-      firstParam(req.params.sourceId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const sourceId = firstParam(req.params.sourceId);
+    const data = await retrySourceIngestion(notebookId, sourceId);
+
+    await logAudit(req, {
+      action: "notebook.source.retry_ingestion",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: sourceId,
+      metadata: { notebookId },
+    });
+
     res.json(data);
   } catch (e) {
     next(e);
@@ -188,10 +291,17 @@ export async function postNotebookSourceRunOcrHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await runSourceOcr(
-      firstParam(req.params.id),
-      firstParam(req.params.sourceId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const sourceId = firstParam(req.params.sourceId);
+    const data = await runSourceOcr(notebookId, sourceId);
+
+    await logAudit(req, {
+      action: "notebook.source.run_ocr",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: sourceId,
+      metadata: { notebookId },
+    });
+
     res.json(data);
   } catch (e) {
     next(e);
@@ -204,10 +314,17 @@ export async function postNotebookSourceRetryEmbeddingHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await retrySourceEmbedding(
-      firstParam(req.params.id),
-      firstParam(req.params.sourceId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const sourceId = firstParam(req.params.sourceId);
+    const data = await retrySourceEmbedding(notebookId, sourceId);
+
+    await logAudit(req, {
+      action: "notebook.source.retry_embedding",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: sourceId,
+      metadata: { notebookId },
+    });
+
     res.json(data);
   } catch (e) {
     next(e);
@@ -220,10 +337,17 @@ export async function postNotebookSourceRebuildEmbeddingHandler(
   next: NextFunction,
 ) {
   try {
-    const data = await rebuildSourceEmbedding(
-      firstParam(req.params.id),
-      firstParam(req.params.sourceId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const sourceId = firstParam(req.params.sourceId);
+    const data = await rebuildSourceEmbedding(notebookId, sourceId);
+
+    await logAudit(req, {
+      action: "notebook.source.rebuild_embedding",
+      resourceType: "NOTEBOOK_SOURCE",
+      resourceId: sourceId,
+      metadata: { notebookId },
+    });
+
     res.json(data);
   } catch (e) {
     next(e);
@@ -292,6 +416,20 @@ export async function postNotebookChatHandler(
       createdBy: null,
     });
 
+    await logAudit(req, {
+      action: "notebook.chat.executed",
+      resourceType: "CHAT_RUN",
+      resourceId: out.runId ?? null,
+      metadata: {
+        notebookId,
+        answerMode: out.mode,
+        sourceCount: Array.isArray(req.body?.sourceIds)
+          ? req.body.sourceIds.length
+          : null,
+        model: out.model ?? null,
+      },
+    });
+
     res.json(out);
   } catch (e) {
     next(e);
@@ -304,8 +442,10 @@ export async function postNotebookTemplateNoteHandler(
   next: NextFunction,
 ) {
   try {
+    const notebookId = firstParam(req.params.id);
+
     const data = await createNotebookTemplateNote({
-      notebookId: firstParam(req.params.id),
+      notebookId,
       templateKey: String(req.body?.templateKey || "") as any,
       documentId:
         typeof req.body?.documentId === "string"
@@ -325,6 +465,20 @@ export async function postNotebookTemplateNoteHandler(
           : undefined,
     });
 
+    await logAudit(req, {
+      action: "notebook.template_note.created",
+      resourceType: "NOTE",
+      resourceId: data.note.id,
+      metadata: {
+        notebookId,
+        templateKey: req.body?.templateKey ?? null,
+        documentId: req.body?.documentId ?? null,
+        issueId: req.body?.issueId ?? null,
+        agencyId: req.body?.agencyId ?? null,
+        relationType: req.body?.relationType ?? null,
+      },
+    });
+
     res.status(201).json(data);
   } catch (e) {
     next(e);
@@ -337,26 +491,43 @@ export async function postNotebookNoteHandler(
   next: NextFunction,
 ) {
   try {
-    res
-      .status(201)
-      .json(await createNote(firstParam(req.params.id), req.body || {}));
+    const notebookId = firstParam(req.params.id);
+    const data = await createNote(notebookId, req.body || {});
+
+    await logAudit(req, {
+      action: "notebook.note.created",
+      resourceType: "NOTE",
+      resourceId: data.id,
+      metadata: {
+        notebookId,
+        title: data.title ?? null,
+      },
+    });
+
+    res.status(201).json(data);
   } catch (e) {
     next(e);
   }
 }
+
 export async function patchNotebookNoteHandler(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
   try {
-    res.json(
-      await updateNote(
-        firstParam(req.params.id),
-        firstParam(req.params.noteId),
-        req.body || {},
-      ),
-    );
+    const notebookId = firstParam(req.params.id);
+    const noteId = firstParam(req.params.noteId);
+    const data = await updateNote(notebookId, noteId, req.body || {});
+
+    await logAudit(req, {
+      action: "notebook.note.updated",
+      resourceType: "NOTE",
+      resourceId: noteId,
+      metadata: { notebookId },
+    });
+
+    res.json(data);
   } catch (e) {
     next(e);
   }
@@ -368,11 +539,18 @@ export async function deleteNotebookNoteHandler(
   next: NextFunction,
 ) {
   try {
-    const ok = await deleteNote(
-      firstParam(req.params.id),
-      firstParam(req.params.noteId),
-    );
+    const notebookId = firstParam(req.params.id);
+    const noteId = firstParam(req.params.noteId);
+    const ok = await deleteNote(notebookId, noteId);
     if (!ok) return res.status(404).json({ message: "Note not found" });
+
+    await logAudit(req, {
+      action: "notebook.note.deleted",
+      resourceType: "NOTE",
+      resourceId: noteId,
+      metadata: { notebookId },
+    });
+
     res.status(204).end();
   } catch (e) {
     next(e);

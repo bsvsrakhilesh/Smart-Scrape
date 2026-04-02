@@ -11,6 +11,13 @@ import { createChunksForSource } from "../services/notebook.service";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
 import { getOrCreatePipelineConfig } from "../services/provenance.service";
 import { ocrPdfToPagesFromFile } from "../services/ocr.service";
+import {
+  markJobFailed,
+  markJobProgress,
+  markJobRunning,
+  markJobSucceeded,
+} from "../services/jobTelemetry.service";
+import { log } from "../utils/logger";
 
 function bullConnection(): ConnectionOptions {
   const u = new URL(env.REDIS_URL);
@@ -39,14 +46,18 @@ export const ingestionWorker = new Worker(
     };
     if (!sourceId) throw new Error("Missing sourceId");
 
-    await prisma.ingestionJob.upsert({
-      where: { sourceId },
-      create: { sourceId, status: "RUNNING", attemptCount: 1 },
-      update: {
-        status: "RUNNING",
-        attemptCount: { increment: 1 },
-        error: null,
-      },
+    await markJobRunning(prisma, "ingestion", sourceId, {
+      queueJobId: job.id,
+      stage: "starting",
+      progressPct: 2,
+      statusMessage: "Worker picked up ingestion job",
+      meta: { forceOcr: Boolean(forceOcr), bullJobName: job.name },
+    });
+
+    log.info("ingestion_job_started", {
+      sourceId,
+      queueJobId: job.id,
+      forceOcr: Boolean(forceOcr),
     });
 
     const src = await prisma.notebookSource.findUnique({
@@ -56,7 +67,17 @@ export const ingestionWorker = new Worker(
 
     if (!src) throw new Error(`NotebookSource not found: ${sourceId}`);
 
-    // ---------- URL ingestion ----------
+    await markJobProgress(prisma, "ingestion", sourceId, {
+      stage: "source_resolved",
+      progressPct: 8,
+      statusMessage: "Source metadata resolved",
+      meta: {
+        kind: src.kind,
+        urlId: src.urlId ?? null,
+        fileId: src.fileId ?? null,
+      },
+    });
+
     if (src.kind === "URL") {
       const u = src.url?.url;
       if (!u) throw new Error("URL source missing url.url");
@@ -64,7 +85,12 @@ export const ingestionWorker = new Worker(
       let fullTextRaw = "";
       let documentRevisionId: string | null = null;
 
-      // Prefer latest URL_TEXT snapshot for traceability (avoids link rot/version drift)
+      await markJobProgress(prisma, "ingestion", sourceId, {
+        stage: "url_prepare",
+        progressPct: 14,
+        statusMessage: "Preparing URL ingestion",
+      });
+
       if (src.urlId) {
         const snap = await prisma.storedFile.findFirst({
           where: {
@@ -76,19 +102,29 @@ export const ingestionWorker = new Worker(
         });
 
         if (snap?.storagePath) {
-          // Snapshot text is stored as a file; extract from disk (traceable)
+          await markJobProgress(prisma, "ingestion", sourceId, {
+            stage: "url_snapshot_extract",
+            progressPct: 28,
+            statusMessage: "Extracting latest saved URL snapshot",
+            meta: { snapshotStoredFileId: snap.id },
+          });
+
           fullTextRaw = await extractTextFromFile(
             snap.storagePath,
             snap.mimeType,
           );
-
           const rev = await ensureDocumentRevisionForStoredFile(snap.id);
           documentRevisionId = rev.id;
         }
       }
 
-      // Fallback: live fetch (still works, but not “paper standard”)
       if (!fullTextRaw) {
+        await markJobProgress(prisma, "ingestion", sourceId, {
+          stage: "url_live_fetch",
+          progressPct: 35,
+          statusMessage: "Fetching live URL text",
+        });
+
         fullTextRaw = await extractTextFromUrl(u);
       }
 
@@ -100,29 +136,59 @@ export const ingestionWorker = new Worker(
         usedSnapshot: Boolean(documentRevisionId),
       });
 
+      await markJobProgress(prisma, "ingestion", sourceId, {
+        stage: "chunking",
+        progressPct: 82,
+        statusMessage: "Creating chunks for notebook source",
+      });
+
       await createChunksForSource(sourceId, {
         fullText,
         documentRevisionId,
         pipelineConfigId: pc.id,
       });
 
-      await prisma.ingestionJob.update({
-        where: { sourceId },
-        data: { status: "SUCCESS", error: null },
+      await markJobSucceeded(prisma, "ingestion", sourceId, {
+        stage: "completed",
+        statusMessage: "URL ingestion completed",
+        meta: { documentRevisionId, sourceKind: src.kind },
       });
+
+      log.info("ingestion_job_succeeded", { sourceId, queueJobId: job.id });
       return;
     }
 
-    // ---------- FILE ingestion ----------
     const f = src.file;
     if (!f) throw new Error("FILE source missing stored file");
 
     const docRev = await ensureDocumentRevisionForStoredFile(f.id);
     const documentRevisionId = docRev.id;
 
+    await markJobProgress(prisma, "ingestion", sourceId, {
+      stage: "file_prepare",
+      progressPct: 16,
+      statusMessage: "Preparing file ingestion",
+      meta: { storedFileId: f.id, mimeType: f.mimeType, fileName: f.fileName },
+    });
+
     if (isPdf(f.mimeType, f.fileName)) {
+      await markJobProgress(prisma, "ingestion", sourceId, {
+        stage: "pdf_extract",
+        progressPct: 24,
+        statusMessage: "Extracting native PDF pages",
+      });
+
       const pages = await extractPdfPagesFromFile(f.storagePath);
       const scan = detectScannedPdf(pages);
+
+      await markJobProgress(prisma, "ingestion", sourceId, {
+        stage: "pdf_scan_check",
+        progressPct: 34,
+        statusMessage: scan.isScannedLikely
+          ? "PDF looks scanned; evaluating OCR path"
+          : "PDF text extraction succeeded",
+        meta: { scan },
+      });
 
       const shouldOcr = Boolean(forceOcr) || scan.isScannedLikely;
 
@@ -137,6 +203,13 @@ export const ingestionWorker = new Worker(
 
         const maxPages = Math.max(1, env.OCR_MAX_PAGES);
         const dpi = Math.max(72, env.OCR_DPI);
+
+        await markJobProgress(prisma, "ingestion", sourceId, {
+          stage: "ocr_extract",
+          progressPct: 48,
+          statusMessage: "Running OCR over scanned PDF",
+          meta: { scan, maxPages, dpi },
+        });
 
         const ocrPages = await ocrPdfToPagesFromFile(f.storagePath, {
           maxPages,
@@ -163,6 +236,13 @@ export const ingestionWorker = new Worker(
           pageSeparator: "\n\n",
         });
 
+        await markJobProgress(prisma, "ingestion", sourceId, {
+          stage: "chunking",
+          progressPct: 82,
+          statusMessage: "Creating OCR-derived chunks",
+          meta: { pageCount: ocrPages.length },
+        });
+
         await createChunksForSource(sourceId, {
           fullText,
           pages: ocrPages,
@@ -170,14 +250,16 @@ export const ingestionWorker = new Worker(
           pipelineConfigId: pc.id,
         });
 
-        await prisma.ingestionJob.update({
-          where: { sourceId },
-          data: { status: "SUCCESS", error: null },
+        await markJobSucceeded(prisma, "ingestion", sourceId, {
+          stage: "completed",
+          statusMessage: "OCR ingestion completed",
+          meta: { documentRevisionId, pageCount: ocrPages.length },
         });
+
+        log.info("ingestion_job_succeeded", { sourceId, queueJobId: job.id });
         return;
       }
 
-      // IMPORTANT: keep page separator to preserve global offsets for page mapping
       const fullText = pages
         .map((p) => (p.text || "").trim())
         .join("\n\n")
@@ -190,6 +272,13 @@ export const ingestionWorker = new Worker(
         whitespaceNormalization: false,
       });
 
+      await markJobProgress(prisma, "ingestion", sourceId, {
+        stage: "chunking",
+        progressPct: 82,
+        statusMessage: "Creating page-aware chunks",
+        meta: { pageCount: pages.length },
+      });
+
       await createChunksForSource(sourceId, {
         fullText,
         pages,
@@ -197,14 +286,22 @@ export const ingestionWorker = new Worker(
         pipelineConfigId: pc.id,
       });
 
-      await prisma.ingestionJob.update({
-        where: { sourceId },
-        data: { status: "SUCCESS", error: null },
+      await markJobSucceeded(prisma, "ingestion", sourceId, {
+        stage: "completed",
+        statusMessage: "PDF ingestion completed",
+        meta: { documentRevisionId, pageCount: pages.length },
       });
+
+      log.info("ingestion_job_succeeded", { sourceId, queueJobId: job.id });
       return;
     }
 
-    // Non-PDF files: blob extraction, normalize whitespace for quote stability
+    await markJobProgress(prisma, "ingestion", sourceId, {
+      stage: "file_extract",
+      progressPct: 34,
+      statusMessage: "Extracting file text",
+    });
+
     const bodyRaw = await extractTextFromFile(f.storagePath, f.mimeType);
     const header = `FILE: ${f.fileName}\nMIME: ${f.mimeType}\n\n`;
     const fullText = (header + (bodyRaw || "")).replace(/\s+/g, " ").trim();
@@ -214,16 +311,25 @@ export const ingestionWorker = new Worker(
       headerInjected: true,
     });
 
+    await markJobProgress(prisma, "ingestion", sourceId, {
+      stage: "chunking",
+      progressPct: 82,
+      statusMessage: "Creating chunks",
+    });
+
     await createChunksForSource(sourceId, {
       fullText,
       documentRevisionId,
       pipelineConfigId: pc.id,
     });
 
-    await prisma.ingestionJob.update({
-      where: { sourceId },
-      data: { status: "SUCCESS", error: null },
+    await markJobSucceeded(prisma, "ingestion", sourceId, {
+      stage: "completed",
+      statusMessage: "File ingestion completed",
+      meta: { documentRevisionId },
     });
+
+    log.info("ingestion_job_succeeded", { sourceId, queueJobId: job.id });
   },
   {
     connection: bullConnection(),
@@ -235,8 +341,16 @@ ingestionWorker.on("failed", async (job, err) => {
   const sourceId = (job?.data as any)?.sourceId;
   if (!sourceId) return;
 
-  await prisma.ingestionJob.update({
-    where: { sourceId },
-    data: { status: "FAILED", error: err?.message ?? String(err) },
+  await markJobFailed(prisma, "ingestion", sourceId, {
+    stage: "failed",
+    statusMessage: "Ingestion failed",
+    error: err?.message ?? String(err),
+    meta: { queueJobId: job?.id ?? null },
+  });
+
+  log.error("ingestion_job_failed", {
+    sourceId,
+    queueJobId: job?.id ?? null,
+    error: err?.message ?? String(err),
   });
 });

@@ -19,6 +19,10 @@ import {
   rebuildSourceEmbedding,
   runSourceOcr,
 } from "../services/notebook.service";
+import {
+  createNotebookTemplateNote,
+  listNotebookTemplates,
+} from "../services/notebookTemplate.service";
 
 import {
   runNotebookChat,
@@ -27,6 +31,18 @@ import {
 
 const firstParam = (v: unknown): string =>
   Array.isArray(v) ? String(v[0] ?? "") : String(v ?? "");
+
+export async function getNotebookTemplatesHandler(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    res.json(await listNotebookTemplates());
+  } catch (e) {
+    next(e);
+  }
+}
 
 export async function getNotebooksHandler(
   _req: Request,
@@ -277,6 +293,39 @@ export async function postNotebookChatHandler(
     });
 
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function postNotebookTemplateNoteHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const data = await createNotebookTemplateNote({
+      notebookId: firstParam(req.params.id),
+      templateKey: String(req.body?.templateKey || "") as any,
+      documentId:
+        typeof req.body?.documentId === "string"
+          ? req.body.documentId
+          : undefined,
+      issueId:
+        typeof req.body?.issueId === "string" ? req.body.issueId : undefined,
+      agencyId:
+        typeof req.body?.agencyId === "string" ? req.body.agencyId : undefined,
+      relationType:
+        typeof req.body?.relationType === "string"
+          ? req.body.relationType
+          : undefined,
+      titleOverride:
+        typeof req.body?.titleOverride === "string"
+          ? req.body.titleOverride
+          : undefined,
+    });
+
+    res.status(201).json(data);
   } catch (e) {
     next(e);
   }

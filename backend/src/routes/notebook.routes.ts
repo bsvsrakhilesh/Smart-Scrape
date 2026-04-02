@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getNotebookTemplatesHandler,
   getNotebooksHandler,
   postNotebookHandler,
   getNotebookDetailHandler,
@@ -12,6 +13,7 @@ import {
   getNotebookChatHistoryHandler,
   postNotebookChatHandler,
   postNotebookNoteHandler,
+  postNotebookTemplateNoteHandler,
   patchNotebookNoteHandler,
   deleteNotebookNoteHandler,
   postNotebookSourceRetryIngestionHandler,
@@ -23,8 +25,18 @@ import {
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
 
+const notebookTemplateKeyEnum = z.enum([
+  "governance_brief",
+  "contradiction_brief",
+  "agency_comparison_summary",
+  "issue_landscape_summary",
+  "case_timeline_note",
+  "accountability_coordination_gap_note",
+]);
+
 const r = Router();
 
+r.get("/notebook-templates", getNotebookTemplatesHandler);
 r.get("/notebooks", getNotebooksHandler);
 
 r.post(
@@ -177,6 +189,22 @@ r.post(
     }),
   }),
   postNotebookChatHandler,
+);
+
+r.post(
+  "/notebooks/:id/template-notes",
+  validate({
+    params: z.object({ id: z.string().min(1) }),
+    body: z.object({
+      templateKey: notebookTemplateKeyEnum,
+      documentId: z.string().min(1).optional(),
+      issueId: z.string().min(1).optional(),
+      agencyId: z.string().min(1).optional(),
+      relationType: z.string().min(1).optional(),
+      titleOverride: z.string().max(240).optional(),
+    }),
+  }),
+  postNotebookTemplateNoteHandler,
 );
 
 r.post(

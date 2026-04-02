@@ -168,7 +168,7 @@ export type ClaimCitationLink = {
 };
 
 export type NoteProvenanceArtifact = {
-  kind: "chat-answer";
+  kind: "chat-answer" | "template-note";
   runId?: string | null;
   promptVersion?: string | null;
   model?: string | null;
@@ -179,6 +179,17 @@ export type NoteProvenanceArtifact = {
   citations: Citation[];
   evidence?: EvidenceBlock[];
   claimLinks?: ClaimCitationLink[];
+  templateKey?: NotebookTemplateKey | null;
+  templateLabel?: string | null;
+  sourceContext?: {
+    documentId?: string | null;
+    issueId?: string | null;
+    agencyId?: string | null;
+    relationType?: string | null;
+    issueTitle?: string | null;
+    agencyName?: string | null;
+    documentKind?: string | null;
+  } | null;
 };
 
 export type NoteProvenanceBundle = {
@@ -225,6 +236,42 @@ export type PagedResult<T> = {
   page: number;
   pageSize: number;
   totalBytes?: number;
+};
+
+export type NotebookTemplateKey =
+  | "governance_brief"
+  | "contradiction_brief"
+  | "agency_comparison_summary"
+  | "issue_landscape_summary"
+  | "case_timeline_note"
+  | "accountability_coordination_gap_note";
+
+export type NotebookTemplateDefinition = {
+  key: NotebookTemplateKey;
+  label: string;
+  badge: string;
+  description: string;
+  defaultTitlePrefix: string;
+  required: {
+    document: boolean;
+    issue: boolean;
+    agency: boolean;
+  };
+  sections: string[];
+};
+
+export type NotebookTemplateNoteResult = {
+  note: NBNote;
+  template: NotebookTemplateDefinition;
+  context: {
+    documentId?: string | null;
+    issueId?: string | null;
+    agencyId?: string | null;
+    relationType?: string | null;
+    issueTitle?: string | null;
+    agencyName?: string | null;
+    documentKind?: string | null;
+  };
 };
 
 export interface NotebookClient {
@@ -288,7 +335,20 @@ export interface NotebookClient {
   ): Promise<NBNote>;
   deleteNote(notebookId: ID, noteId: ID): Promise<void>;
 
-  // existing resources (SourcePicker)
+  listTemplates(): Promise<NotebookTemplateDefinition[]>;
+  createTemplateNote(
+    notebookId: ID,
+    p: {
+      templateKey: NotebookTemplateKey;
+      documentId?: ID;
+      issueId?: ID;
+      agencyId?: ID;
+      relationType?: string;
+      titleOverride?: string;
+    },
+  ): Promise<NotebookTemplateNoteResult>;
+
+  // (SourcePicker)
   listUrlPicker(p?: {
     q?: string;
     page?: number;
@@ -459,7 +519,19 @@ export const notebookClient: NotebookClient = {
     return j<void>("DELETE", `/notebooks/${notebookId}/notes/${noteId}`);
   },
 
-  // existing resources (SourcePicker)
+  listTemplates() {
+    return j<NotebookTemplateDefinition[]>("GET", `/notebook-templates`);
+  },
+
+  createTemplateNote(notebookId, p) {
+    return j<NotebookTemplateNoteResult>(
+      "POST",
+      `/notebooks/${notebookId}/template-notes`,
+      p,
+    );
+  },
+
+  // (SourcePicker)
   async listUrlPicker(p) {
     const q = toQuery({
       q: p?.q,

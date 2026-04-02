@@ -17,6 +17,7 @@ import SmartCard from "../components/ui/SmartCard";
 import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 import { PlusButton } from "../components/ui/PlusButton";
 import { useToast } from "../components/providers/Toast";
+import { consumeNotebookOpenTarget } from "../lib/notebookLaunch";
 
 function clsx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
@@ -71,6 +72,7 @@ export default function NotebookPage() {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({}); // sourceId -> element
   // When there are zero notebooks, auto-create one so Chat is immediately usable.
   const autoCreateRef = useRef(false);
+  const pendingOpenTargetRef = useRef(consumeNotebookOpenTarget());
 
   // ===== Sources Library UI state =====
   const [sourceQuery, setSourceQuery] = useState("");
@@ -146,6 +148,18 @@ export default function NotebookPage() {
     [listQ.data],
   );
 
+  useEffect(() => {
+    const pending = pendingOpenTargetRef.current;
+    if (!pending?.notebookId) return;
+
+    setActiveId(pending.notebookId);
+    try {
+      localStorage.setItem(ACTIVE_KEY, pending.notebookId);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // If another page sent a FILE revision here, add it as a source automatically.
   useEffect(() => {
     if (!activeId) return;
@@ -201,6 +215,21 @@ export default function NotebookPage() {
         });
       });
   }, [activeId, sourcesQ.data, qc, notify]);
+
+  useEffect(() => {
+    const pending = pendingOpenTargetRef.current;
+    if (!pending?.noteId) return;
+    if (!activeId || pending.notebookId !== activeId) return;
+
+    const note = (detailQ.data?.notes || []).find(
+      (item) => item.id === pending.noteId,
+    );
+    if (!note) return;
+
+    window.dispatchEvent(new CustomEvent("nb:open-note", { detail: note }));
+    pendingOpenTargetRef.current = null;
+    setMobileTab("notes");
+  }, [activeId, detailQ.data?.notes]);
 
   // restore last selected notebook (can be stale if DB was reset)
   useEffect(() => {

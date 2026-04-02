@@ -30,6 +30,8 @@ import {
   type GovernanceProvenance,
   type GovernanceRelationType,
 } from "../lib/api";
+import NotebookTemplateModal from "../components/governance/NotebookTemplateModal";
+import type { NotebookTemplateKey } from "../lib/notebookClient";
 import {
   consumeGovernanceWorkspaceIntent,
   type GovernanceWorkspaceIntent,
@@ -185,6 +187,9 @@ export default function GovernanceWorkspacePage() {
   const [selectedProvenance, setSelectedProvenance] =
     useState<ProvenanceSelection | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<"map" | "case">("map");
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templatePreset, setTemplatePreset] =
+    useState<NotebookTemplateKey>("governance_brief");
 
   useEffect(() => {
     const pending = consumeGovernanceWorkspaceIntent();
@@ -360,6 +365,11 @@ export default function GovernanceWorkspacePage() {
   const timeline = timelineQuery.data ?? null;
   const relations = relationsQuery.data ?? null;
 
+  function openTemplateModal(templateKey: NotebookTemplateKey) {
+    setTemplatePreset(templateKey);
+    setTemplateModalOpen(true);
+  }
+
   return (
     <div className="space-y-6 py-6">
       <motion.section
@@ -452,6 +462,61 @@ export default function GovernanceWorkspacePage() {
             </span>
           )}
         </div>
+
+        {activeDocumentId ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+            <div className="mr-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Notebook actions
+              </div>
+              <div className="mt-1 text-sm text-slate-600">
+                Turn the current governance lens into a durable notebook
+                artifact.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => openTemplateModal("governance_brief")}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50"
+            >
+              <BookOpen className="h-4 w-4" />
+              Governance Brief
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openTemplateModal("contradiction_brief")}
+              disabled={!selectedIssueId}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <GitBranch className="h-4 w-4" />
+              Contradiction Brief
+            </button>
+
+            <button
+              type="button"
+              onClick={() => openTemplateModal("case_timeline_note")}
+              disabled={!selectedIssueId}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Network className="h-4 w-4" />
+              Case Timeline Note
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                openTemplateModal("accountability_coordination_gap_note")
+              }
+              disabled={!selectedIssueId}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Landmark className="h-4 w-4" />
+              Gap Note
+            </button>
+          </div>
+        ) : null}
       </motion.section>
 
       {!activeDocumentId ? (
@@ -1173,6 +1238,18 @@ export default function GovernanceWorkspacePage() {
           )}
         </>
       )}
+
+      <NotebookTemplateModal
+        open={templateModalOpen}
+        onClose={() => setTemplateModalOpen(false)}
+        defaultTemplateKey={templatePreset}
+        documentId={activeDocumentId}
+        issueId={selectedIssueId}
+        issueTitle={selectedIssue?.title ?? null}
+        agencyId={selectedAgencyId}
+        agencyName={selectedAgency?.name ?? null}
+        relationType={relationFilter === "all" ? null : relationFilter}
+      />
     </div>
   );
 }

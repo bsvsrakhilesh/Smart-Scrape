@@ -20,11 +20,13 @@ import SmartCard from "../components/ui/SmartCard";
 import CaseWorkspacePanel from "../components/governance/CaseWorkspacePanel";
 import {
   apiUrl,
+  getAuditLogs,
   getDocumentGovernance,
   getGovernanceAgencyLandscape,
   getGovernanceIssueRelations,
   getGovernanceIssueTimeline,
   getUrlRevisions,
+  type AuditLogRow,
   type GovernanceAgency,
   type GovernanceIssue,
   type GovernanceProvenance,
@@ -81,6 +83,32 @@ function formatShortDate(value?: string | null) {
 function compactText(value?: string | null, fallback = "—") {
   const text = String(value || "").trim();
   return text || fallback;
+}
+
+function confidencePct(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const normalized = value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function confidenceTone(value?: number | null) {
+  const pct = confidencePct(value);
+  if (pct === null) return "border-slate-200 bg-slate-50 text-slate-700";
+  if (pct >= 80) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (pct >= 60) return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-rose-200 bg-rose-50 text-rose-800";
+}
+
+function confidenceLabel(value?: number | null) {
+  const pct = confidencePct(value);
+  return pct === null ? "Confidence unscored" : `${pct}% extraction confidence`;
+}
+
+function prettifyAuditAction(action: string) {
+  return String(action || "")
+    .replace(/[._]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function openArtifactPreview(provenance: GovernanceProvenance | null) {
@@ -190,6 +218,20 @@ export default function GovernanceWorkspacePage() {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templatePreset, setTemplatePreset] =
     useState<NotebookTemplateKey>("governance_brief");
+
+  const evidenceDocumentId =
+    selectedProvenance?.provenance?.sourceDocument?.id ?? null;
+
+  const evidenceAuditQuery = useQuery({
+    queryKey: ["governance-evidence-audit", evidenceDocumentId],
+    enabled: Boolean(evidenceDocumentId),
+    queryFn: async () =>
+      getAuditLogs({
+        resourceType: "DOCUMENT",
+        resourceId: String(evidenceDocumentId),
+        limit: 6,
+      }),
+  });
 
   useEffect(() => {
     const pending = consumeGovernanceWorkspaceIntent();
@@ -1147,7 +1189,78 @@ export default function GovernanceWorkspacePage() {
                         <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                           Provenance metadata
                         </div>
-                        <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-slate-700">
+
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-950">
+                                Trust and extraction signals
+                              </div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                Confidence is conservative and comes only from
+                                recorded extraction traces.
+                              </div>
+                            </div>
+                            <div
+                              className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceTone(
+                                selectedProvenance.provenance?.confidence,
+                              )}`}
+                            >
+                              {confidenceLabel(
+                                selectedProvenance.provenance?.confidence,
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+                            <div
+                              className="h-full rounded-full bg-slate-900/80"
+                              style={{
+                                width: `${
+                                  confidencePct(
+                                    selectedProvenance.provenance?.confidence,
+                                  ) ?? 0
+                                }%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-700">
+                            <div>
+                              <div className="text-xs text-slate-500">
+                                Pipeline
+                              </div>
+                              <div className="mt-1 font-medium text-slate-900">
+                                {compactText(
+                                  selectedProvenance.provenance?.pipeline?.name,
+                                )}{" "}
+                                •{" "}
+                                {compactText(
+                                  selectedProvenance.provenance?.pipeline
+                                    ?.version,
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-500">
+                                Model / extraction version
+                              </div>
+                              <div className="mt-1 font-medium text-slate-900">
+                                {compactText(
+                                  selectedProvenance.provenance
+                                    ?.extractionModel,
+                                )}{" "}
+                                •{" "}
+                                {compactText(
+                                  selectedProvenance.provenance
+                                    ?.extractionVersion,
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-700">
                           <div>
                             <div className="text-xs text-slate-500">Pages</div>
                             <div className="mt-1 font-medium text-slate-900">
@@ -1229,6 +1342,36 @@ export default function GovernanceWorkspacePage() {
                             )}
                           </div>
                         </div>
+                        {evidenceAuditQuery.data?.length ? (
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Recent document activity
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              {evidenceAuditQuery.data.map(
+                                (row: AuditLogRow) => (
+                                  <div
+                                    key={row.id}
+                                    className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                                  >
+                                    <div>
+                                      <div className="text-sm font-medium text-slate-900">
+                                        {prettifyAuditAction(row.action)}
+                                      </div>
+                                      <div className="mt-1 text-[12px] text-slate-500">
+                                        {row.status} ·{" "}
+                                        {formatDate(row.createdAt)}
+                                      </div>
+                                    </div>
+                                    <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-600">
+                                      {row.resourceType}
+                                    </div>
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   )}

@@ -15,7 +15,9 @@ from tasks import CELERY, process_job  # celery app + task
 log = logging.getLogger("ai_tagger")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
-app = FastAPI(title="SmartScrape AI Tagger", version=os.getenv("TAGGER_VERSION", "0.1.0"))
+app = FastAPI(
+    title="SmartScrape AI Tagger", version=os.getenv("TAGGER_VERSION", "0.1.0")
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,17 +26,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class JobAccepted(BaseModel):
     jobId: str = Field(..., description="Celery task id")
     job_id: Optional[str] = Field(None, description="Alias for compatibility")
+
 
 @app.get("/ping")
 def ping() -> Dict[str, Any]:
     return {"ok": True, "version": app.version}
 
+
 @app.get("/health")
 def health() -> Dict[str, Any]:
     return {"ok": True, "version": app.version}
+
 
 def _normalize_bool(val: Optional[str], default=True) -> bool:
     if isinstance(val, bool):
@@ -42,6 +48,7 @@ def _normalize_bool(val: Optional[str], default=True) -> bool:
     if val is None:
         return default
     return str(val).strip().lower() in ("1", "true", "yes", "on")
+
 
 @app.post("/jobs", response_model=JobAccepted)
 async def create_job(
@@ -71,8 +78,12 @@ async def create_job(
             for key, value in form.multi_items():
                 if isinstance(value, UploadFile):
                     upload = value
-                    log.info("Received upload field '%s' filename='%s' content_type='%s'",
-                             key, value.filename, value.content_type)
+                    log.info(
+                        "Received upload field '%s' filename='%s' content_type='%s'",
+                        key,
+                        value.filename,
+                        value.content_type,
+                    )
                     break
         except Exception as e:
             log.warning("Failed to parse multipart form: %s", e)
@@ -94,16 +105,23 @@ async def create_job(
     elif upload is not None:
         raw = await upload.read()
         if not raw:
-            return JSONResponse(status_code=400, content={"detail": "Uploaded file is empty"})
+            return JSONResponse(
+                status_code=400, content={"detail": "Uploaded file is empty"}
+            )
         b64 = base64.b64encode(raw).decode("utf-8")
-        payload.update({"input_type": "file", "file_base64": b64, "file_name": upload.filename})
+        payload.update(
+            {"input_type": "file", "file_base64": b64, "file_name": upload.filename}
+        )
     else:
-        return JSONResponse(status_code=400, content={"detail": "Provide url, text, or file_base64"})
+        return JSONResponse(
+            status_code=400, content={"detail": "Provide url, text, or file_base64"}
+        )
 
     # Dispatch Celery job
     async_result = process_job.delay(payload)
     job_id = async_result.id
     return JobAccepted(jobId=job_id, job_id=job_id)
+
 
 @app.get("/jobs/{job_id}")
 def job_status(job_id: str):
@@ -114,19 +132,43 @@ def job_status(job_id: str):
     """
     async_result = CELERY.AsyncResult(job_id)
     state = async_result.state
+    meta = async_result.info if isinstance(async_result.info, dict) else {}
 
     if state in ("PENDING", "STARTED", "RETRY"):
-        return JSONResponse(status_code=202, content={"state": state})
+        progress = meta.get("progress")
+        return JSONResponse(
+            status_code=202,
+            content={
+                "state": state,
+                "progress": int(progress) if isinstance(progress, (int, float)) else 0,
+                "stage": meta.get("stage"),
+                "message": meta.get("message"),
+                "attempt": meta.get("attempt"),
+                "tagger_version": meta.get("tagger_version"),
+                "cached": meta.get("cached"),
+            },
+        )
 
     if state == "SUCCESS":
         result = async_result.result or {}
         if isinstance(result, dict):
             return {"state": "SUCCESS", **result}
-        else:
-            return {"state": "SUCCESS", "result": result}
+        return {"state": "SUCCESS", "result": result}
 
-    err = str(async_result.info) if async_result.info else "unknown error"
-    return JSONResponse(status_code=500, content={"state": state, "error": err})
+    err = str(meta.get("error") or async_result.info or "unknown error")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "state": state,
+            "error": err,
+            "stage": meta.get("stage"),
+            "message": meta.get("message"),
+            "attempt": meta.get("attempt"),
+            "progress": meta.get("progress"),
+            "tagger_version": meta.get("tagger_version"),
+        },
+    )
+
 
 @app.middleware("http")
 async def request_id_ctx(request: Request, call_next):

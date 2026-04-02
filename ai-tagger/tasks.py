@@ -7,6 +7,7 @@ import pathlib
 import sys
 import hashlib
 from typing import Any, Dict, Optional
+
 from inspect import signature
 
 from celery import Celery
@@ -23,10 +24,10 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 _r = redis.Redis.from_url(REDIS_URL)
 
 # ---- New: task runtime controls (tunable via env) ----
-JOB_SOFT_LIMIT = int(os.getenv("JOB_SOFT_LIMIT", "30"))     # seconds
-JOB_HARD_LIMIT = int(os.getenv("JOB_HARD_LIMIT", "60"))     # seconds
+JOB_SOFT_LIMIT = int(os.getenv("JOB_SOFT_LIMIT", "30"))  # seconds
+JOB_HARD_LIMIT = int(os.getenv("JOB_HARD_LIMIT", "60"))  # seconds
 JOB_MAX_RETRIES = int(os.getenv("JOB_MAX_RETRIES", "3"))
-CACHE_TTL = int(os.getenv("TAGGER_CACHE_TTL", "86400"))     # seconds (24h)
+CACHE_TTL = int(os.getenv("TAGGER_CACHE_TTL", "86400"))  # seconds (24h)
 CACHE_NAMESPACE = os.getenv("TAGGER_CACHE_NS", "tagger:v1")
 
 CELERY = Celery("ai_tagger", broker=BROKER_URL, backend=BACKEND_URL)
@@ -66,6 +67,7 @@ def _normalize_ws(s: Optional[str]) -> str:
         return ""
     return " ".join(s.split())
 
+
 def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     """
     Build a stable fingerprint for idempotency:
@@ -89,8 +91,10 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     raw = f"{t}|k={topk}|llm={use_llm}|{base}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+
 def _cache_key(fingerprint: str) -> str:
     return f"{CACHE_NAMESPACE}:{fingerprint}"
+
 
 def _cache_get(fingerprint: str) -> Optional[Dict[str, Any]]:
     try:
@@ -103,6 +107,7 @@ def _cache_get(fingerprint: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
+
 def _cache_set(fingerprint: str, data: Dict[str, Any], ttl: int = CACHE_TTL) -> None:
     try:
         _r.setex(_cache_key(fingerprint), ttl, json.dumps(data))
@@ -110,7 +115,36 @@ def _cache_set(fingerprint: str, data: Dict[str, Any], ttl: int = CACHE_TTL) -> 
         pass
 
 
+def _task_attempt(task: Any) -> int:
+    try:
+        return int(getattr(task.request, "retries", 0)) + 1
+    except Exception:
+        return 1
+
+
+def _emit_progress(
+    task: Any,
+    stage: str,
+    progress: int,
+    message: str,
+    **meta: Any,
+) -> None:
+    try:
+        payload: Dict[str, Any] = {
+            "stage": stage,
+            "progress": max(0, min(100, int(progress))),
+            "message": message,
+            "attempt": _task_attempt(task),
+            "tagger_version": os.getenv("TAGGER_VERSION", "0.1.0"),
+        }
+        payload.update(meta)
+        task.update_state(state="STARTED", meta=payload)
+    except Exception:
+        pass
+
+
 @CELERY.task(
+    bind=True,
     name="process_job",
     soft_time_limit=JOB_SOFT_LIMIT,
     time_limit=JOB_HARD_LIMIT,
@@ -119,41 +153,43 @@ def _cache_set(fingerprint: str, data: Dict[str, Any], ttl: int = CACHE_TTL) -> 
     retry_jitter=True,
     retry_kwargs={"max_retries": JOB_MAX_RETRIES},
 )
-def process_job(payload: Dict[str, Any]) -> Dict[str, Any]:
+def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Normalize inputs and run the (synchronous) pipeline.
     Now includes Redis-backed idempotency (content+params) with TTL.
     Returns a dict with keys like: tags, hash, tagger_version, phrases, unigrams.
     """
     try:
-        # ---- New: idempotency check before work ----
+        _emit_progress(self, "cache_lookup", 4, "Checking idempotency cache")
+
         fp = _fingerprint_payload(payload)
         cached = _cache_get(fp)
-        
+
         if cached:
-            # If we previously cached an *empty* extraction for a URL, drop it and re-run.
-            # This prevents permanent "empty hash" loops.
-            if (payload.get("input_type") == "url") and int(cached.get("length") or 0) == 0:
-                log.warning("idempotent_cache_empty_drop", extra={"fingerprint": fp, "url": payload.get("url")})
+            if (payload.get("input_type") == "url") and int(
+                cached.get("length") or 0
+            ) == 0:
+                log.warning(
+                    "idempotent_cache_empty_drop",
+                    extra={"fingerprint": fp, "url": payload.get("url")},
+                )
                 try:
                     _r.delete(_cache_key(fp))
                 except Exception:
                     pass
                 cached = None
             else:
-                # IMPORTANT: override cached flag so cache hits don't show cached=False
                 cached["cached"] = True
                 log.info("idempotent_cache_hit", extra={"fingerprint": fp})
                 return cached
 
-        # Optional advanced pipeline
         try:
             from pipeline import extract_and_tag_sync as _extract_and_tag_sync
+
             use_pipeline = True
         except Exception:
             use_pipeline = False
 
-        # Basic extractor fallback
         try:
             from extractors import extract_text
         except Exception:
@@ -163,66 +199,147 @@ def process_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         topk = int(payload.get("topk", 10))
         use_llm = bool(payload.get("use_llm", False))
 
+        _emit_progress(
+            self,
+            "input_normalized",
+            12,
+            "Input normalized for extraction",
+            input_type=input_type,
+            use_pipeline=use_pipeline,
+            use_llm=use_llm,
+            topk=topk,
+        )
+
         if input_type == "text":
             text = payload.get("text") or ""
+            _emit_progress(
+                self,
+                "extract_and_tag",
+                48,
+                "Running text extraction pipeline",
+                input_type=input_type,
+            )
             if use_pipeline:
-                out = _call_with_supported(_extract_and_tag_sync, text=text, topk=topk, use_llm=use_llm)
+                out = _call_with_supported(
+                    _extract_and_tag_sync,
+                    text=text,
+                    topk=topk,
+                    use_llm=use_llm,
+                )
             else:
                 out = _fallback_tag(text, version=os.getenv("TAGGER_VERSION", "0.1.0"))
 
         elif input_type == "url":
             url = payload.get("url") or ""
+            _emit_progress(
+                self,
+                "extract_and_tag",
+                48,
+                "Running URL extraction pipeline",
+                input_type=input_type,
+                url=url,
+            )
             if use_pipeline:
-                out = _call_with_supported(_extract_and_tag_sync, url=url, topk=topk, use_llm=use_llm)
+                out = _call_with_supported(
+                    _extract_and_tag_sync,
+                    url=url,
+                    topk=topk,
+                    use_llm=use_llm,
+                )
             else:
                 if extract_text:
                     text = _call_with_supported(extract_text, url=url)  # type: ignore
-                    out = _fallback_tag(text or "", version=os.getenv("TAGGER_VERSION", "0.1.0"))
+                    out = _fallback_tag(
+                        text or "", version=os.getenv("TAGGER_VERSION", "0.1.0")
+                    )
                 else:
-                    out = _fallback_tag("", version=os.getenv("TAGGER_VERSION", "0.1.0"))
+                    out = _fallback_tag(
+                        "", version=os.getenv("TAGGER_VERSION", "0.1.0")
+                    )
 
         elif input_type == "file":
             b64: Optional[str] = payload.get("file_base64")
             file_name: Optional[str] = payload.get("file_name")
             raw = base64.b64decode(b64) if b64 else b""
+
+            _emit_progress(
+                self,
+                "extract_and_tag",
+                48,
+                "Running file extraction pipeline",
+                input_type=input_type,
+                file_name=file_name,
+            )
+
             if use_pipeline:
                 out = _call_with_supported(
                     _extract_and_tag_sync,
-                    file_bytes=raw, file_name=file_name, topk=topk, use_llm=use_llm
+                    file_bytes=raw,
+                    file_name=file_name,
+                    topk=topk,
+                    use_llm=use_llm,
                 )
             else:
                 if extract_text:
-                    text = _call_with_supported(extract_text, file_bytes=raw, file_name=file_name)  # type: ignore
-                    out = _fallback_tag(text or "", version=os.getenv("TAGGER_VERSION", "0.1.0"))
+                    text = _call_with_supported(
+                        extract_text,
+                        file_bytes=raw,
+                        file_name=file_name,
+                    )  # type: ignore
+                    out = _fallback_tag(
+                        text or "", version=os.getenv("TAGGER_VERSION", "0.1.0")
+                    )
                 else:
-                    out = _fallback_tag("", version=os.getenv("TAGGER_VERSION", "0.1.0"))
+                    out = _fallback_tag(
+                        "", version=os.getenv("TAGGER_VERSION", "0.1.0")
+                    )
 
         else:
             raise ValueError(f"Unsupported input_type: {input_type}")
 
-        # ---- New: save result in cache (idempotent) ----
-        # Keep response shape as-is; we may annotate 'cached': False for tracing.
+        _emit_progress(
+            self,
+            "finalizing",
+            92,
+            "Finalizing tag payload",
+            input_type=input_type,
+        )
+
         out = dict(out) if isinstance(out, dict) else {"result": out}
-        
-        # response should show whether this call used cache
         out["cached"] = False
 
-        # never store "cached" in Redis (cache metadata is per-response)
         cache_data = dict(out)
         cache_data.pop("cached", None)
 
-        # don't cache empty URL extractions
         should_cache = True
         if input_type == "url" and int(out.get("length") or 0) == 0:
             should_cache = False
-            log.warning("skip_cache_empty_extraction", extra={"url": payload.get("url"), "fingerprint": fp})
-        
+            log.warning(
+                "skip_cache_empty_extraction",
+                extra={"url": payload.get("url"), "fingerprint": fp},
+            )
+
         if should_cache:
             _cache_set(fp, cache_data, CACHE_TTL)
 
         return out
 
     except Exception as e:
+        try:
+            self.update_state(
+                state="FAILURE",
+                meta={
+                    "stage": "failed",
+                    "progress": 100,
+                    "message": "Tagger job failed",
+                    "attempt": _task_attempt(self),
+                    "error": str(e),
+                    "tagger_version": os.getenv("TAGGER_VERSION", "0.1.0"),
+                },
+            )
+        except Exception:
+            pass
+
         log.exception("process_job failed")
         raise e
 
@@ -234,8 +351,35 @@ def _fallback_tag(text: str, version: str = "0.1.0") -> Dict[str, Any]:
 
     tokens = [t.lower() for t in re.findall(r"[A-Za-z][A-Za-z0-9_\-]+", text or "")]
     stop = {
-        "the","a","an","and","or","but","is","are","to","of","in","on","for","with","by",
-        "this","that","these","those","it","as","be","we","you","i","at","from","was","were"
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "by",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "as",
+        "be",
+        "we",
+        "you",
+        "i",
+        "at",
+        "from",
+        "was",
+        "were",
     }
     tokens = [t for t in tokens if t not in stop and len(t) > 2]
     cnt = Counter(tokens)

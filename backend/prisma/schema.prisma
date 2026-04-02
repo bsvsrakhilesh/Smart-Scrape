@@ -37,6 +37,25 @@ enum NotebookChatRunStatus {
   FAILED
 }
 
+enum AuditResourceType {
+  DOCUMENT
+  FILE
+  URL
+  NOTEBOOK
+  NOTE
+  NOTEBOOK_SOURCE
+  ISSUE
+  AGENCY
+  CHAT_RUN
+  SYSTEM
+}
+
+enum AuditLogStatus {
+  SUCCESS
+  FAILURE
+  INFO
+}
+
 enum AgencyCategory {
   REGULATOR
   JUDICIARY
@@ -335,6 +354,15 @@ model EmbeddingJob {
   status       TaggingStatus @default(PENDING)
   attemptCount Int           @default(0)
   error        String?
+  queueJobId      String?
+  stage           String?
+  progressPct     Int       @default(0)
+  statusMessage   String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  lastHeartbeatAt DateTime?
+  lastErrorAt     DateTime?
+  meta            Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -348,6 +376,15 @@ model IngestionJob {
   status       TaggingStatus @default(PENDING)
   attemptCount Int           @default(0)
   error        String?
+  queueJobId      String?
+  stage           String?
+  progressPct     Int       @default(0)
+  statusMessage   String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  lastHeartbeatAt DateTime?
+  lastErrorAt     DateTime?
+  meta            Json?
   updatedAt    DateTime      @updatedAt
   createdAt    DateTime      @default(now())
 }
@@ -813,6 +850,26 @@ model PipelineConfig {
 
   @@unique([name, version, configHash])
   @@index([name])
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  action       String
+  resourceType AuditResourceType
+  resourceId   String?
+  status       AuditLogStatus @default(INFO)
+
+  actorId   String?
+  actorName String?
+  requestId String?
+
+  metadata Json?
+  createdAt DateTime @default(now())
+
+  @@index([resourceType, resourceId, createdAt])
+  @@index([action, createdAt])
+  @@index([requestId])
 }
 
 model CaptureEvent {

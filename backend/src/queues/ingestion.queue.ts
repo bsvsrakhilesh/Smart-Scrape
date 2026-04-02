@@ -1,5 +1,7 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import { env } from "../config/env";
+import prisma from "../config/database";
+import { markJobQueued } from "../services/jobTelemetry.service";
 
 function bullConnection(): ConnectionOptions {
   const u = new URL(env.REDIS_URL);
@@ -45,4 +47,16 @@ export async function enqueueIngestionJob(
     { sourceId, forceOcr: Boolean(opts?.forceOcr) },
     { jobId },
   );
+
+  await markJobQueued(prisma, "ingestion", sourceId, {
+    queueJobId: jobId,
+    stage: "queued",
+    statusMessage: opts?.forceOcr
+      ? "Queued OCR ingestion job"
+      : "Queued ingestion job",
+    meta: {
+      bullQueue: "ingestion",
+      forceOcr: Boolean(opts?.forceOcr),
+    },
+  });
 }

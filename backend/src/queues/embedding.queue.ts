@@ -1,5 +1,7 @@
 import { Queue, type ConnectionOptions } from "bullmq";
 import { env } from "../config/env";
+import prisma from "../config/database";
+import { markJobQueued } from "../services/jobTelemetry.service";
 
 function bullConnection(): ConnectionOptions {
   const u = new URL(env.REDIS_URL);
@@ -24,5 +26,26 @@ export const embeddingQueue = new Queue("embeddings", {
 });
 
 export async function enqueueEmbeddingJob(sourceId: string) {
-  await embeddingQueue.add("embed_source", { sourceId }, { jobId: sourceId });
+  const jobId = sourceId;
+
+  const existing = await embeddingQueue.getJob(jobId);
+  if (
+    existing &&
+    ((await existing.isActive()) ||
+      (await existing.isWaiting()) ||
+      (await existing.isDelayed()))
+  ) {
+    return;
+  }
+
+  await embeddingQueue.add("embed_source", { sourceId }, { jobId });
+
+  await markJobQueued(prisma, "embedding", sourceId, {
+    queueJobId: jobId,
+    stage: "queued",
+    statusMessage: "Queued embedding job",
+    meta: {
+      bullQueue: "embeddings",
+    },
+  });
 }

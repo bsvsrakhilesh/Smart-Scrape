@@ -13,25 +13,43 @@ export type Notebook = {
 
 export type AnswerMode = "draft" | "evidence" | "briefing";
 
+export type NotebookAuditEvent = {
+  id: ID;
+  action: string;
+  resourceType: string;
+  resourceId?: string | null;
+  status: "SUCCESS" | "FAILURE" | "INFO";
+  actorId?: string | null;
+  actorName?: string | null;
+  requestId?: string | null;
+  metadata?: any;
+  createdAt: string;
+};
+
+export type JobRuntime = {
+  status: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+  error?: string | null;
+  updatedAt: string;
+  attemptCount?: number;
+  queueJobId?: string | null;
+  stage?: string | null;
+  progressPct?: number | null;
+  statusMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  lastErrorAt?: string | null;
+  meta?: any;
+};
+
 export type NBSource = {
   id: ID;
   notebookId: ID;
   kind: SourceKind;
   url?: { id: ID; url: string; title?: string | null } | null;
   file?: { id: ID; fileName: string; mimeType?: string | null } | null;
-
-  ingestionJob?: {
-    status: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-    error?: string | null;
-    updatedAt: string;
-  } | null;
-
-  embeddingJob?: {
-    status: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-    error?: string | null;
-    updatedAt: string;
-  } | null;
-
+  ingestionJob?: JobRuntime | null;
+  embeddingJob?: JobRuntime | null;
   createdAt: string;
 };
 
@@ -77,18 +95,8 @@ export type SourceDiagnostics = {
     createdAt: string;
   };
   jobs: {
-    ingestion: {
-      status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-      error?: string | null;
-      updatedAt: string;
-      attemptCount: number;
-    } | null;
-    embedding: {
-      status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-      error?: string | null;
-      updatedAt: string;
-      attemptCount: number;
-    } | null;
+    ingestion: JobRuntime | null;
+    embedding: JobRuntime | null;
   };
   activeRevision: {
     id: ID;
@@ -96,9 +104,11 @@ export type SourceDiagnostics = {
     contentHash?: string | null;
     createdAt: string;
     pipelineConfig?: {
+      id: ID;
       name: string;
       version: string;
       configHash: string;
+      codeSha?: string | null;
     } | null;
   } | null;
   counts: { pageCount: number; chunkCount: number; embeddedCount: number };
@@ -106,6 +116,7 @@ export type SourceDiagnostics = {
   pagePreviews:
     | { pageNumber: number; charCount: number; preview: string }[]
     | null;
+  recentAudit: NotebookAuditEvent[];
 };
 
 export type NBNote = {

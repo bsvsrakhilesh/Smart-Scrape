@@ -34,7 +34,6 @@ function uniqueById<T extends { id: string | number }>(items: T[]): T[] {
 }
 const ACTIVE_KEY = "nb:lastId";
 const PENDING_ADD_KEY = "nb:pendingAddSource";
-
 const PANEL_SHELL =
   "rounded-2xl border border-slate-200/70 bg-white/75 shadow-[0_1px_0_rgba(255,255,255,0.65)_inset,0_18px_65px_rgba(15,23,42,0.12)] backdrop-blur supports-[backdrop-filter]:bg-white/60";
 const PANEL_CONTENT = "flex flex-col overflow-hidden min-h-0";
@@ -42,6 +41,94 @@ const PANEL_BAR =
   "border-b border-slate-200/70 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/65 shadow-[0_1px_0_rgba(255,255,255,0.70)_inset,0_1px_0_rgba(15,23,42,0.06)]";
 const PANEL_STICKY =
   "rounded-2xl border border-slate-200/70 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/65 shadow-[0_1px_0_rgba(255,255,255,0.70)_inset,0_12px_34px_rgba(15,23,42,0.10)]";
+
+function clampJobPct(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return "—";
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return "—";
+  const deltaMs = Date.now() - ts;
+  const deltaMin = Math.round(deltaMs / 60000);
+
+  if (Math.abs(deltaMin) < 1) return "just now";
+  if (Math.abs(deltaMin) < 60) return `${deltaMin}m ago`;
+
+  const deltaHr = Math.round(deltaMin / 60);
+  if (Math.abs(deltaHr) < 24) return `${deltaHr}h ago`;
+
+  const deltaDay = Math.round(deltaHr / 24);
+  return `${deltaDay}d ago`;
+}
+
+type RuntimeJob = SourceDiagnostics["jobs"]["ingestion"];
+
+function JobRuntimeCard({
+  label,
+  job,
+}: {
+  label: string;
+  job: RuntimeJob | null;
+}) {
+  if (!job) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-[12px] font-semibold text-slate-900">{label}</div>
+        <div className="mt-2 text-[12px] text-slate-500">
+          No recorded job yet.
+        </div>
+      </div>
+    );
+  }
+
+  const pct = clampJobPct(job.progressPct);
+  const tone =
+    job.status === "FAILED"
+      ? "border-rose-200 bg-rose-50"
+      : job.status === "SUCCESS"
+        ? "border-emerald-200 bg-emerald-50"
+        : job.status === "RUNNING" || job.status === "PENDING"
+          ? "border-blue-200 bg-blue-50"
+          : "border-slate-200 bg-slate-50";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${tone}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[12px] font-semibold text-slate-900">{label}</div>
+        <div className="rounded-full border border-white/70 bg-white/80 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+          {job.status}
+        </div>
+      </div>
+
+      <div className="mt-2 text-sm font-medium text-slate-900">
+        {job.statusMessage || job.stage || "Status reported"}
+      </div>
+
+      <div className="mt-1 text-[12px] text-slate-600">
+        {job.stage ? `Stage: ${job.stage}` : "Stage not reported"} · Attempt{" "}
+        {job.attemptCount ?? 0}
+      </div>
+
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/80">
+        <div
+          className="h-full rounded-full bg-slate-900/80 transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
+        <span>{pct}%</span>
+        <span>Updated {formatRelativeTime(job.updatedAt)}</span>
+        {job.lastHeartbeatAt ? (
+          <span>Heartbeat {formatRelativeTime(job.lastHeartbeatAt)}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 export default function NotebookPage() {
   const qc = useQueryClient();
@@ -671,19 +758,32 @@ export default function NotebookPage() {
   const indexBadgeForSource = (s: NBSource) => {
     const ing = s.ingestionJob?.status || "NONE";
     const emb = s.embeddingJob?.status || "NONE";
+    const ingPct = clampJobPct(s.ingestionJob?.progressPct);
+    const embPct = clampJobPct(s.embeddingJob?.progressPct);
 
     if (ing === "FAILED") {
       return {
         label: "Failed",
         tone: "red",
-        title: s.ingestionJob?.error || "Ingestion failed",
+        title:
+          s.ingestionJob?.error ||
+          s.ingestionJob?.statusMessage ||
+          "Ingestion failed",
       };
     }
     if (ing === "PENDING") {
-      return { label: "Queued", tone: "amber", title: "Waiting to ingest" };
+      return {
+        label: ingPct > 0 ? `Queued ${ingPct}%` : "Queued",
+        tone: "amber",
+        title: s.ingestionJob?.statusMessage || "Waiting to ingest",
+      };
     }
     if (ing === "RUNNING") {
-      return { label: "Processing", tone: "blue", title: "Ingesting content" };
+      return {
+        label: ingPct > 0 ? `${ingPct}% ingest` : "Processing",
+        tone: "blue",
+        title: s.ingestionJob?.statusMessage || "Ingesting content",
+      };
     }
 
     if (ing !== "SUCCESS") {
@@ -694,14 +794,20 @@ export default function NotebookPage() {
       return {
         label: "Index failed",
         tone: "red",
-        title: s.embeddingJob?.error || "Embedding/index job failed",
+        title:
+          s.embeddingJob?.error ||
+          s.embeddingJob?.statusMessage ||
+          "Embedding/index job failed",
       };
     }
+
     if (emb === "PENDING" || emb === "RUNNING") {
       return {
-        label: "Indexing",
+        label: embPct > 0 ? `Index ${embPct}%` : "Indexing",
         tone: "amber",
-        title: "Building semantic index (embeddings)",
+        title:
+          s.embeddingJob?.statusMessage ||
+          "Building semantic index (embeddings)",
       };
     }
 
@@ -1199,6 +1305,12 @@ export default function NotebookPage() {
                     const sub = sourceSub(s);
                     const isUrl = s.kind === "URL";
                     const href = isUrl ? s.url?.url : null;
+                    const liveRuntime =
+                      s.ingestionJob && s.ingestionJob.status !== "SUCCESS"
+                        ? s.ingestionJob
+                        : s.embeddingJob && s.embeddingJob.status !== "SUCCESS"
+                          ? s.embeddingJob
+                          : null;
 
                     return (
                       <StaggerItem as="div" key={s.id}>
@@ -1298,6 +1410,16 @@ export default function NotebookPage() {
                                   : "Included"}
                               </button>
                             </div>
+
+                            {liveRuntime?.statusMessage ||
+                            liveRuntime?.stage ? (
+                              <div className="mt-2 text-[11px] text-slate-500 truncate">
+                                {liveRuntime.statusMessage ?? liveRuntime.stage}
+                                {typeof liveRuntime.progressPct === "number"
+                                  ? ` · ${Math.round(liveRuntime.progressPct)}%`
+                                  : ""}
+                              </div>
+                            ) : null}
                           </div>
 
                           <PlusButton
@@ -1517,6 +1639,46 @@ export default function NotebookPage() {
                             </div>
                           </div>
                         </div>
+
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <JobRuntimeCard
+                            label="Ingestion runtime"
+                            job={diag.jobs.ingestion}
+                          />
+                          <JobRuntimeCard
+                            label="Index runtime"
+                            job={diag.jobs.embedding}
+                          />
+                        </div>
+
+                        {diag.recentAudit?.length ? (
+                          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4">
+                            <div className="text-sm font-semibold text-slate-900">
+                              Recent activity
+                            </div>
+                            <div className="mt-3 space-y-2">
+                              {diag.recentAudit.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                                >
+                                  <div>
+                                    <div className="text-[12px] font-medium text-slate-900">
+                                      {item.action.replace(/[._]/g, " ")}
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-slate-500">
+                                      {item.status} ·{" "}
+                                      {formatRelativeTime(item.createdAt)}
+                                    </div>
+                                  </div>
+                                  <div className="text-[10px] rounded-full border border-slate-200 bg-white px-2 py-0.5 text-slate-600">
+                                    {item.resourceType}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
 
                         {/* Actions */}
                         <div className="mt-3 flex flex-wrap gap-2">

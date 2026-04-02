@@ -981,8 +981,15 @@ export async function fetchAllTags(): Promise<
 }
 
 export type JobState =
-  | { state: "PENDING" | "RETRY" }
-  | { state: "STARTED"; progress?: number }
+  | {
+      state: "PENDING" | "STARTED" | "RETRY";
+      progress?: number;
+      stage?: string | null;
+      message?: string | null;
+      attempt?: number | null;
+      tagger_version?: string | null;
+      cached?: boolean | null;
+    }
   | {
       state: "SUCCESS";
       tags: string[];
@@ -991,8 +998,19 @@ export type JobState =
       hash?: string;
       tagger_version?: string;
       structured?: any;
+      extraction?: any;
+      cached?: boolean;
     }
-  | { state: "FAILURE"; error?: string };
+  | {
+      state: "FAILURE";
+      error?: string;
+      stage?: string | null;
+      message?: string | null;
+      progress?: number | null;
+      attempt?: number | null;
+      tagger_version?: string | null;
+    };
+
 export type TagJobState =
   | "PENDING"
   | "STARTED"
@@ -1000,9 +1018,26 @@ export type TagJobState =
   | "SUCCESS"
   | "FAILURE";
 
-export type TagJobSuccess = { state: "SUCCESS"; tags: string[] };
-export type TagJobFailure = { state: "FAILURE"; error?: string };
-export type TagJobPending = { state: "PENDING" | "STARTED" | "RETRY" };
+export type TagJobSuccess = {
+  state: "SUCCESS";
+  tags: string[];
+  cached?: boolean;
+};
+
+export type TagJobFailure = {
+  state: "FAILURE";
+  error?: string;
+  stage?: string | null;
+  message?: string | null;
+};
+
+export type TagJobPending = {
+  state: "PENDING" | "STARTED" | "RETRY";
+  progress?: number;
+  stage?: string | null;
+  message?: string | null;
+  attempt?: number | null;
+};
 
 export type TagJob = TagJobSuccess | TagJobFailure | TagJobPending;
 
@@ -1574,6 +1609,31 @@ export type GovernanceAgencyLandscapeResponse = {
   }>;
 };
 
+export type AuditResourceType =
+  | "DOCUMENT"
+  | "FILE"
+  | "URL"
+  | "NOTEBOOK"
+  | "NOTE"
+  | "NOTEBOOK_SOURCE"
+  | "ISSUE"
+  | "AGENCY"
+  | "CHAT_RUN"
+  | "SYSTEM";
+
+export type AuditLogRow = {
+  id: string;
+  action: string;
+  resourceType: AuditResourceType;
+  resourceId: string | null;
+  status: "SUCCESS" | "FAILURE" | "INFO";
+  actorId: string | null;
+  actorName: string | null;
+  requestId: string | null;
+  metadata: any;
+  createdAt: string;
+};
+
 function buildGovernanceQuery(params?: Record<string, unknown>) {
   const query = new URLSearchParams();
 
@@ -1584,6 +1644,16 @@ function buildGovernanceQuery(params?: Record<string, unknown>) {
 
   const qs = query.toString();
   return qs ? `?${qs}` : "";
+}
+
+export async function getAuditLogs(params?: {
+  resourceType?: AuditResourceType;
+  resourceId?: string;
+  limit?: number;
+}) {
+  return apiGet<AuditLogRow[]>(
+    `/api/audit/logs${buildGovernanceQuery(params)}`,
+  );
 }
 
 export async function getDocumentGovernance(

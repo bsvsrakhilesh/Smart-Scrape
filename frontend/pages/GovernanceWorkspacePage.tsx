@@ -51,6 +51,82 @@ type ProvenanceSelection = {
   provenance: GovernanceProvenance | null;
 };
 
+type NotebookLaunchAction = {
+  key: NotebookTemplateKey;
+  label: string;
+  description: string;
+  enabled: boolean;
+  accentClass: string;
+  chips: string[];
+};
+
+function notebookLaunchMeta(key: NotebookTemplateKey) {
+  switch (key) {
+    case "governance_brief":
+      return {
+        label: "Governance Brief",
+        description:
+          "Capture the active governance map with agencies, issues, and evidence-linked findings.",
+        accentClass:
+          "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50",
+        icon: <BookOpen className="h-4 w-4" />,
+      };
+    case "contradiction_brief":
+      return {
+        label: "Contradiction Brief",
+        description:
+          "Summarize conflicting institutional positions for the active issue with traceable evidence.",
+        accentClass:
+          "border-amber-200 bg-amber-50/70 text-amber-950 hover:border-amber-300 hover:bg-amber-50",
+        icon: <GitBranch className="h-4 w-4" />,
+      };
+    case "agency_comparison_summary":
+      return {
+        label: "Agency Comparison",
+        description:
+          "Compare the selected agency against adjacent institutions in the current governance lens.",
+        accentClass:
+          "border-emerald-200 bg-emerald-50/70 text-emerald-950 hover:border-emerald-300 hover:bg-emerald-50",
+        icon: <Building2 className="h-4 w-4" />,
+      };
+    case "issue_landscape_summary":
+      return {
+        label: "Issue Landscape",
+        description:
+          "Turn the active issue into a structured landscape summary grounded in cross-document evidence.",
+        accentClass:
+          "border-sky-200 bg-sky-50/70 text-sky-950 hover:border-sky-300 hover:bg-sky-50",
+        icon: <Landmark className="h-4 w-4" />,
+      };
+    case "case_timeline_note":
+      return {
+        label: "Case Timeline",
+        description:
+          "Create a chronology note for the current issue with actor-linked events and positions.",
+        accentClass:
+          "border-violet-200 bg-violet-50/70 text-violet-950 hover:border-violet-300 hover:bg-violet-50",
+        icon: <Network className="h-4 w-4" />,
+      };
+    case "accountability_coordination_gap_note":
+      return {
+        label: "Gap Note",
+        description:
+          "Document accountability and coordination failures around the active issue and agency lens.",
+        accentClass:
+          "border-rose-200 bg-rose-50/70 text-rose-950 hover:border-rose-300 hover:bg-rose-50",
+        icon: <AlertCircle className="h-4 w-4" />,
+      };
+    default:
+      return {
+        label: "Notebook Note",
+        description: "Launch a reusable governance notebook note.",
+        accentClass:
+          "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50",
+        icon: <FileText className="h-4 w-4" />,
+      };
+  }
+}
+
 const relationOptions: Array<{ value: RelationFilter; label: string }> = [
   { value: "all", label: "All relations" },
   { value: "contradiction", label: "Contradictions" },
@@ -531,6 +607,140 @@ export default function GovernanceWorkspacePage() {
     relationCount: 0,
   };
 
+  const notebookLaunchActions = useMemo<NotebookLaunchAction[]>(() => {
+    const preferredOrder: NotebookTemplateKey[] =
+      workspaceMode === "case"
+        ? [
+            "contradiction_brief",
+            "case_timeline_note",
+            "issue_landscape_summary",
+            "accountability_coordination_gap_note",
+          ]
+        : [
+            "governance_brief",
+            "agency_comparison_summary",
+            "issue_landscape_summary",
+            "accountability_coordination_gap_note",
+          ];
+
+    return preferredOrder.map((key) => {
+      switch (key) {
+        case "governance_brief":
+          return {
+            key,
+            label: "Governance Brief",
+            description:
+              "Capture the current governance map as a reusable notebook artifact.",
+            enabled: Boolean(activeDocumentId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              activeDocumentId ? "document ready" : "document required",
+              workspaceMode === "map" ? "map mode" : "case mode",
+            ],
+          };
+
+        case "agency_comparison_summary":
+          return {
+            key,
+            label: "Agency Comparison",
+            description:
+              "Compare the selected agency against related institutions in the current lens.",
+            enabled: Boolean(activeDocumentId && selectedAgencyId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedAgency?.name ?? "agency required",
+              selectedIssue?.title ?? "optional issue lens",
+            ],
+          };
+
+        case "issue_landscape_summary":
+          return {
+            key,
+            label: "Issue Landscape",
+            description:
+              "Generate a concise issue landscape grounded in the active issue registry row.",
+            enabled: Boolean(activeDocumentId && selectedIssueId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedIssue?.title ?? "issue required",
+              `${documentSummary.agencyCount} agencies in evidence base`,
+            ],
+          };
+
+        case "contradiction_brief":
+          return {
+            key,
+            label: "Contradiction Brief",
+            description:
+              "Summarize tensions, overrides, and conflict candidates for the active issue.",
+            enabled: Boolean(activeDocumentId && selectedIssueId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedIssue?.title ?? "issue required",
+              relationFilter === "all"
+                ? "all relation types"
+                : `filter ${relationFilter}`,
+            ],
+          };
+
+        case "case_timeline_note":
+          return {
+            key,
+            label: "Case Timeline",
+            description:
+              "Build a timeline note for the current issue and actor lens.",
+            enabled: Boolean(activeDocumentId && selectedIssueId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedIssue?.title ?? "issue required",
+              selectedAgency?.name ?? "optional actor lens",
+            ],
+          };
+
+        case "accountability_coordination_gap_note":
+          return {
+            key,
+            label: "Gap Note",
+            description:
+              "Capture accountability and coordination failures around the current issue.",
+            enabled: Boolean(activeDocumentId && selectedIssueId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedIssue?.title ?? "issue required",
+              selectedAgency?.name ?? "optional agency lens",
+            ],
+          };
+
+        default:
+          return {
+            key,
+            label: "Notebook Note",
+            description: "Open the notebook template picker.",
+            enabled: Boolean(activeDocumentId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [],
+          };
+      }
+    });
+  }, [
+    activeDocumentId,
+    workspaceMode,
+    selectedIssueId,
+    selectedAgencyId,
+    selectedIssue?.title,
+    selectedAgency?.name,
+    relationFilter,
+    documentSummary.agencyCount,
+  ]);
+
+  const notebookContextChips = [
+    activeDocumentId ? `document ${activeDocumentId}` : null,
+    selectedIssue?.title ? `issue ${selectedIssue.title}` : null,
+    selectedAgency?.name ? `agency ${selectedAgency.name}` : null,
+    relationFilter !== "all" ? `relation ${relationFilter}` : null,
+    workspaceMode === "case" ? "case review mode" : "governance map mode",
+  ].filter((chip): chip is string => Boolean(chip));
+
   function loadDocumentFromInput() {
     const next = documentInput.trim();
     setSelectedProvenance(null);
@@ -748,57 +958,73 @@ export default function GovernanceWorkspacePage() {
         </div>
 
         {activeDocumentId ? (
-          <div className="flex flex-wrap items-center gap-3 rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm">
-            <div className="mr-2">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Notebook actions
+          <div className="rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Notebook handoff
+                </div>
+                <div className="mt-1 text-sm text-slate-600">
+                  Launch the right reusable note for the current governance or
+                  case-review lens.
+                </div>
               </div>
-              <div className="mt-1 text-sm text-slate-600">
-                Turn the current governance lens into a durable notebook
-                artifact.
+
+              <div className="flex flex-wrap gap-2 text-xs text-slate-600">
+                {notebookContextChips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 shadow-sm"
+                  >
+                    {chip}
+                  </span>
+                ))}
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => openTemplateModal("governance_brief")}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50"
-            >
-              <BookOpen className="h-4 w-4" />
-              Governance Brief
-            </button>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {notebookLaunchActions.map((action) => {
+                const meta = notebookLaunchMeta(action.key);
 
-            <button
-              type="button"
-              onClick={() => openTemplateModal("contradiction_brief")}
-              disabled={!selectedIssueId}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <GitBranch className="h-4 w-4" />
-              Contradiction Brief
-            </button>
+                return (
+                  <button
+                    key={action.key}
+                    type="button"
+                    onClick={() => openTemplateModal(action.key)}
+                    disabled={!action.enabled}
+                    className={[
+                      "rounded-[22px] border p-4 text-left shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50",
+                      action.accentClass,
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="inline-flex items-center gap-2 text-sm font-semibold">
+                        <span className="rounded-xl border border-black/5 bg-white/70 p-2 shadow-sm">
+                          {meta.icon}
+                        </span>
+                        {action.label}
+                      </div>
+                      <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
+                    </div>
 
-            <button
-              type="button"
-              onClick={() => openTemplateModal("case_timeline_note")}
-              disabled={!selectedIssueId}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Network className="h-4 w-4" />
-              Case Timeline Note
-            </button>
+                    <div className="mt-3 text-sm leading-6">
+                      {action.description}
+                    </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                openTemplateModal("accountability_coordination_gap_note")
-              }
-              disabled={!selectedIssueId}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Landmark className="h-4 w-4" />
-              Gap Note
-            </button>
+                    <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                      {action.chips.map((chip) => (
+                        <span
+                          key={chip}
+                          className="rounded-full border border-black/5 bg-white/70 px-2.5 py-1"
+                        >
+                          {chip}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         ) : null}
       </motion.section>
@@ -2210,6 +2436,8 @@ export default function GovernanceWorkspacePage() {
         agencyId={selectedAgencyId}
         agencyName={selectedAgency?.name ?? null}
         relationType={relationFilter === "all" ? null : relationFilter}
+        workspaceMode={workspaceMode}
+        sourceLabel={sourceDescriptor}
       />
     </div>
   );

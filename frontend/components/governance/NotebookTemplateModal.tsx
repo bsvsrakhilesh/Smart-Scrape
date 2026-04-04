@@ -31,6 +31,8 @@ type NotebookTemplateModalProps = {
   agencyId: string | null;
   agencyName: string | null;
   relationType: string | null;
+  workspaceMode: "map" | "case";
+  sourceLabel: string | null;
 };
 
 function iconForTemplate(key: NotebookTemplateKey) {
@@ -52,6 +54,45 @@ function iconForTemplate(key: NotebookTemplateKey) {
   }
 }
 
+function humanizeWorkspaceMode(mode: "map" | "case") {
+  return mode === "case" ? "Case review" : "Governance map";
+}
+
+function buildSuggestedNotebookTitle(mode: "map" | "case") {
+  return mode === "case" ? "Case Review Briefs" : "Governance Map Briefs";
+}
+
+function buildSuggestedNoteTitle(args: {
+  templateKey: NotebookTemplateKey;
+  issueTitle: string | null;
+  agencyName: string | null;
+  relationType: string | null;
+  workspaceMode: "map" | "case";
+}) {
+  const issue = args.issueTitle?.trim() || "Current issue";
+  const agency = args.agencyName?.trim() || "Selected agency";
+  const relation = args.relationType?.trim();
+
+  switch (args.templateKey) {
+    case "governance_brief":
+      return `${args.workspaceMode === "case" ? "Case" : "Governance"} brief — ${issue}`;
+    case "contradiction_brief":
+      return relation
+        ? `Contradiction brief — ${issue} (${relation})`
+        : `Contradiction brief — ${issue}`;
+    case "agency_comparison_summary":
+      return `Agency comparison — ${agency}`;
+    case "issue_landscape_summary":
+      return `Issue landscape — ${issue}`;
+    case "case_timeline_note":
+      return `Case timeline — ${issue}`;
+    case "accountability_coordination_gap_note":
+      return `Gap note — ${issue}`;
+    default:
+      return `${humanizeWorkspaceMode(args.workspaceMode)} note — ${issue}`;
+  }
+}
+
 export default function NotebookTemplateModal({
   open,
   onClose,
@@ -62,6 +103,8 @@ export default function NotebookTemplateModal({
   agencyId,
   agencyName,
   relationType,
+  workspaceMode,
+  sourceLabel,
 }: NotebookTemplateModalProps) {
   const qc = useQueryClient();
 
@@ -87,7 +130,8 @@ export default function NotebookTemplateModal({
     if (!open) return;
     setSelectedTemplateKey(defaultTemplateKey);
     setTitleOverride("");
-  }, [open, defaultTemplateKey]);
+    setNewNotebookTitle(buildSuggestedNotebookTitle(workspaceMode));
+  }, [open, defaultTemplateKey, workspaceMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +145,22 @@ export default function NotebookTemplateModal({
       templatesQ.data?.find((item) => item.key === selectedTemplateKey) ?? null
     );
   }, [templatesQ.data, selectedTemplateKey]);
+
+  const suggestedTitle = useMemo(() => {
+    return buildSuggestedNoteTitle({
+      templateKey: selectedTemplateKey,
+      issueTitle,
+      agencyName,
+      relationType,
+      workspaceMode,
+    });
+  }, [
+    selectedTemplateKey,
+    issueTitle,
+    agencyName,
+    relationType,
+    workspaceMode,
+  ]);
 
   const contextWarnings = useMemo(() => {
     if (!selectedTemplate) return [];
@@ -201,7 +261,20 @@ export default function NotebookTemplateModal({
               <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 Current governance context
               </div>
+              <div className="mt-3 text-sm leading-6 text-slate-600">
+                This notebook note will launch from the active{" "}
+                {humanizeWorkspaceMode(workspaceMode).toLowerCase()} lens and
+                preserve the current governance context.
+              </div>
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-600">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                  {humanizeWorkspaceMode(workspaceMode)}
+                </span>
+                {sourceLabel ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                    Source {sourceLabel}
+                  </span>
+                ) : null}
                 {documentId ? (
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
                     Document {documentId}
@@ -222,6 +295,18 @@ export default function NotebookTemplateModal({
                     Relation {relationType}
                   </span>
                 ) : null}
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Launch preview
+                </div>
+                <div className="mt-2 text-sm font-semibold text-slate-900">
+                  {selectedTemplate?.label ?? "Select a template"}
+                </div>
+                <div className="mt-2 text-sm leading-6 text-slate-600">
+                  Suggested note title: {suggestedTitle}
+                </div>
               </div>
             </SmartCard>
 
@@ -357,12 +442,24 @@ export default function NotebookTemplateModal({
                 <input
                   value={titleOverride}
                   onChange={(e) => setTitleOverride(e.target.value)}
-                  placeholder={
-                    selectedTemplate?.defaultTitlePrefix ||
-                    "Optional custom note title"
-                  }
+                  placeholder={suggestedTitle}
                   className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-slate-300 focus:ring-2 focus:ring-slate-100"
                 />
+                <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-600">
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-900">
+                      Suggested title
+                    </div>
+                    <div className="truncate">{suggestedTitle}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTitleOverride(suggestedTitle)}
+                    className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  >
+                    Use suggested title
+                  </button>
+                </div>
               </label>
 
               {selectedTemplate ? (

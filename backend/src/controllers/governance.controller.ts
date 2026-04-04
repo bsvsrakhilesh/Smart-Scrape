@@ -6,6 +6,8 @@ import {
   getIssueCaseWorkspace,
   getIssueRelations,
   getIssueTimeline,
+  listGovernanceAgencies,
+  listGovernanceIssues,
 } from "../services/governanceRead.service";
 import { writeAuditLog } from "../services/audit.service";
 import type { AuditResourceType } from "../generated/prisma/client";
@@ -24,6 +26,12 @@ function parseLimit(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 async function logGovernanceAudit(
@@ -66,6 +74,72 @@ export async function getDocumentGovernanceHandler(
       resourceType: "DOCUMENT",
       resourceId: id,
       metadata: { limit: parseLimit(req.query.limit) ?? null },
+    });
+
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getIssuesDirectoryHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const out = await listGovernanceIssues({
+      query: parseOptionalString(req.query.q),
+      kind: parseOptionalString(req.query.kind),
+      status: parseOptionalString(req.query.status),
+      agencyId: parseOptionalString(req.query.agencyId),
+      limit: parseLimit(req.query.limit),
+    });
+
+    await logGovernanceAudit(req, {
+      action: "governance.issue.directory_viewed",
+      resourceType: "SYSTEM",
+      resourceId: "governance-issues-directory",
+      metadata: {
+        q: parseOptionalString(req.query.q) ?? null,
+        kind: parseOptionalString(req.query.kind) ?? null,
+        status: parseOptionalString(req.query.status) ?? null,
+        agencyId: parseOptionalString(req.query.agencyId) ?? null,
+        limit: parseLimit(req.query.limit) ?? null,
+      },
+    });
+
+    res.json(out);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAgenciesDirectoryHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const out = await listGovernanceAgencies({
+      query: parseOptionalString(req.query.q),
+      category: parseOptionalString(req.query.category),
+      jurisdiction: parseOptionalString(req.query.jurisdiction),
+      issueId: parseOptionalString(req.query.issueId),
+      limit: parseLimit(req.query.limit),
+    });
+
+    await logGovernanceAudit(req, {
+      action: "governance.agency.directory_viewed",
+      resourceType: "SYSTEM",
+      resourceId: "governance-agencies-directory",
+      metadata: {
+        q: parseOptionalString(req.query.q) ?? null,
+        category: parseOptionalString(req.query.category) ?? null,
+        jurisdiction: parseOptionalString(req.query.jurisdiction) ?? null,
+        issueId: parseOptionalString(req.query.issueId) ?? null,
+        limit: parseLimit(req.query.limit) ?? null,
+      },
     });
 
     res.json(out);

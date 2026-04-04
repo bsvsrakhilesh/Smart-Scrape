@@ -2,11 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
 import {
+  getAgenciesDirectoryHandler,
   getAgencyLandscapeHandler,
   getDocumentGovernanceHandler,
   getIssueCaseWorkspaceHandler,
   getIssueRelationsHandler,
   getIssueTimelineHandler,
+  getIssuesDirectoryHandler,
 } from "../controllers/governance.controller";
 
 const r = Router();
@@ -59,10 +61,38 @@ const agencyLandscapeQuery = z.object({
   limit: z.coerce.number().int().positive().max(250).optional(),
 });
 
+const issuesDirectoryQuery = z.object({
+  q: z.string().trim().min(1).optional(),
+  kind: z.string().trim().min(1).optional(),
+  status: z.string().trim().min(1).optional(),
+  agencyId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+const agenciesDirectoryQuery = z.object({
+  q: z.string().trim().min(1).optional(),
+  category: z.string().trim().min(1).optional(),
+  jurisdiction: z.string().trim().min(1).optional(),
+  issueId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
 r.get(
   "/documents/:id/governance",
   validate({ params: idParams, query: docGovernanceQuery }),
   getDocumentGovernanceHandler,
+);
+
+r.get(
+  "/issues",
+  validate({ query: issuesDirectoryQuery }),
+  getIssuesDirectoryHandler,
+);
+
+r.get(
+  "/agencies",
+  validate({ query: agenciesDirectoryQuery }),
+  getAgenciesDirectoryHandler,
 );
 
 r.get(

@@ -1,5 +1,11 @@
 import prisma from "../config/database";
-import { Prisma, DocumentRelationType } from "../generated/prisma/client";
+import {
+  Prisma,
+  DocumentRelationType,
+  AgencyCategory,
+  GovernanceIssueKind,
+  GovernanceIssueStatus,
+} from "../generated/prisma/client";
 
 const agencySelect = {
   id: true,
@@ -1724,6 +1730,276 @@ export async function getAgencyLandscape(
       createdAt: toIso(row.createdAt),
       updatedAt: toIso(row.updatedAt),
       provenance: formatTrace(row.trace),
+    })),
+  };
+}
+
+export async function listGovernanceIssues(opts?: {
+  query?: string;
+  kind?: string;
+  status?: string;
+  agencyId?: string;
+  limit?: number;
+}) {
+  const limit = clampLimit(opts?.limit, 50, 200);
+
+  const query = typeof opts?.query === "string" ? opts.query.trim() : "";
+  const agencyId =
+    typeof opts?.agencyId === "string" ? opts.agencyId.trim() : "";
+
+  const kindRaw =
+    typeof opts?.kind === "string" ? opts.kind.trim().toUpperCase() : "";
+  const statusRaw =
+    typeof opts?.status === "string" ? opts.status.trim().toUpperCase() : "";
+
+  const kind = (Object.values(GovernanceIssueKind) as string[]).includes(
+    kindRaw,
+  )
+    ? (kindRaw as GovernanceIssueKind)
+    : undefined;
+
+  const status = (Object.values(GovernanceIssueStatus) as string[]).includes(
+    statusRaw,
+  )
+    ? (statusRaw as GovernanceIssueStatus)
+    : undefined;
+
+  const and: Prisma.GovernanceIssueWhereInput[] = [];
+
+  if (query) {
+    and.push({
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { summary: { contains: query, mode: "insensitive" } },
+        { slug: { contains: query, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  if (kind) and.push({ kind });
+  if (status) and.push({ status });
+
+  if (agencyId) {
+    and.push({
+      OR: [
+        { agencies: { some: { agencyId } } },
+        { mandates: { some: { agencyId } } },
+        { positions: { some: { agencyId } } },
+        {
+          gaps: {
+            some: {
+              OR: [
+                { primaryAgencyId: agencyId },
+                { secondaryAgencyId: agencyId },
+              ],
+            },
+          },
+        },
+        {
+          relations: {
+            some: {
+              OR: [{ fromAgencyId: agencyId }, { toAgencyId: agencyId }],
+            },
+          },
+        },
+        { events: { some: { actorAgencyId: agencyId } } },
+        { timelineEntries: { some: { actorAgencyId: agencyId } } },
+      ],
+    });
+  }
+
+  const where: Prisma.GovernanceIssueWhereInput = and.length
+    ? { AND: and }
+    : {};
+
+  const [total, rows] = await Promise.all([
+    prisma.governanceIssue.count({ where }),
+    prisma.governanceIssue.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { title: "asc" }],
+      take: limit,
+      include: {
+        agencies: {
+          take: 5,
+          orderBy: { createdAt: "desc" },
+          select: {
+            roleLabel: true,
+            agency: { select: agencySelect },
+          },
+        },
+        _count: {
+          select: {
+            agencies: true,
+            mandates: true,
+            claims: true,
+            events: true,
+            positions: true,
+            gaps: true,
+            relations: true,
+            timelineEntries: true,
+            evidenceClusters: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    total,
+    limit,
+    filters: {
+      query: query || null,
+      kind: kind ?? null,
+      status: status ?? null,
+      agencyId: agencyId || null,
+    },
+    items: rows.map((row) => ({
+      ...formatIssue(row),
+      counts: {
+        agencyCount: row._count.agencies,
+        mandateCount: row._count.mandates,
+        claimCount: row._count.claims,
+        eventCount: row._count.events,
+        positionCount: row._count.positions,
+        gapCount: row._count.gaps,
+        relationCount: row._count.relations,
+        timelineEntryCount: row._count.timelineEntries,
+        evidenceClusterCount: row._count.evidenceClusters,
+      },
+      linkedAgencies: row.agencies.map((link) => ({
+        roleLabel: link.roleLabel ?? null,
+        agency: formatAgency(link.agency),
+      })),
+    })),
+  };
+}
+
+export async function listGovernanceAgencies(opts?: {
+  query?: string;
+  category?: string;
+  jurisdiction?: string;
+  issueId?: string;
+  limit?: number;
+}) {
+  const limit = clampLimit(opts?.limit, 50, 200);
+
+  const query = typeof opts?.query === "string" ? opts.query.trim() : "";
+  const jurisdiction =
+    typeof opts?.jurisdiction === "string" ? opts.jurisdiction.trim() : "";
+  const issueId = typeof opts?.issueId === "string" ? opts.issueId.trim() : "";
+
+  const categoryRaw =
+    typeof opts?.category === "string"
+      ? opts.category.trim().toUpperCase()
+      : "";
+
+  const category = (Object.values(AgencyCategory) as string[]).includes(
+    categoryRaw,
+  )
+    ? (categoryRaw as AgencyCategory)
+    : undefined;
+
+  const and: Prisma.AgencyWhereInput[] = [];
+
+  if (query) {
+    and.push({
+      OR: [
+        { name: { contains: query, mode: "insensitive" } },
+        { shortName: { contains: query, mode: "insensitive" } },
+        { slug: { contains: query, mode: "insensitive" } },
+      ],
+    });
+  }
+
+  if (category) and.push({ category });
+
+  if (jurisdiction) {
+    and.push({
+      jurisdiction: {
+        contains: jurisdiction,
+        mode: "insensitive",
+      },
+    });
+  }
+
+  if (issueId) {
+    and.push({
+      OR: [
+        { issueLinks: { some: { issueId } } },
+        { mandates: { some: { issueId } } },
+        { positions: { some: { issueId } } },
+        { primaryGapLinks: { some: { issueId } } },
+        { secondaryGapLinks: { some: { issueId } } },
+        { eventActors: { some: { issueId } } },
+        { outgoingRelations: { some: { issueId } } },
+        { incomingRelations: { some: { issueId } } },
+        { subjectClaims: { some: { issueId } } },
+        { timelineEntries: { some: { issueId } } },
+      ],
+    });
+  }
+
+  const where: Prisma.AgencyWhereInput = and.length ? { AND: and } : {};
+
+  const [total, rows] = await Promise.all([
+    prisma.agency.count({ where }),
+    prisma.agency.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+      take: limit,
+      include: {
+        issueLinks: {
+          take: 5,
+          orderBy: { createdAt: "desc" },
+          select: {
+            roleLabel: true,
+            issue: { select: issueSelect },
+          },
+        },
+        _count: {
+          select: {
+            issueLinks: true,
+            mandates: true,
+            positions: true,
+            primaryGapLinks: true,
+            secondaryGapLinks: true,
+            eventActors: true,
+            outgoingRelations: true,
+            incomingRelations: true,
+            subjectClaims: true,
+            timelineEntries: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    total,
+    limit,
+    filters: {
+      query: query || null,
+      category: category ?? null,
+      jurisdiction: jurisdiction || null,
+      issueId: issueId || null,
+    },
+    items: rows.map((row) => ({
+      ...formatAgency(row),
+      counts: {
+        issueCount: row._count.issueLinks,
+        mandateCount: row._count.mandates,
+        positionCount: row._count.positions,
+        gapCount: row._count.primaryGapLinks + row._count.secondaryGapLinks,
+        eventCount: row._count.eventActors,
+        relationCount:
+          row._count.outgoingRelations + row._count.incomingRelations,
+        subjectClaimCount: row._count.subjectClaims,
+        timelineEntryCount: row._count.timelineEntries,
+      },
+      linkedIssues: row.issueLinks.map((link) => ({
+        roleLabel: link.roleLabel ?? null,
+        issue: formatIssue(link.issue),
+      })),
     })),
   };
 }

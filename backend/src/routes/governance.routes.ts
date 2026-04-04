@@ -33,6 +33,10 @@ const relationTypeSchema = z.enum([
   "other",
 ]);
 
+const sourceTypeSchema = z.enum(["URL", "FILE"]);
+
+const timelineGroupBySchema = z.enum(["none", "actor", "sourceType"]);
+
 const docGovernanceQuery = z.object({
   limit: z.coerce.number().int().positive().max(250).optional(),
 });
@@ -41,6 +45,8 @@ const issueTimelineQuery = z.object({
   actorAgencyId: z.string().min(1).optional(),
   dateFrom: ymd.optional(),
   dateTo: ymd.optional(),
+  sourceType: sourceTypeSchema.optional(),
+  groupBy: timelineGroupBySchema.optional(),
   limit: z.coerce.number().int().positive().max(300).optional(),
 });
 

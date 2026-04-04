@@ -164,6 +164,12 @@ export async function getIssueTimelineHandler(
         typeof req.query.dateFrom === "string" ? req.query.dateFrom : undefined,
       dateTo:
         typeof req.query.dateTo === "string" ? req.query.dateTo : undefined,
+      sourceType:
+        typeof req.query.sourceType === "string"
+          ? req.query.sourceType
+          : undefined,
+      groupBy:
+        typeof req.query.groupBy === "string" ? req.query.groupBy : undefined,
       limit: parseLimit(req.query.limit),
     });
 
@@ -179,6 +185,12 @@ export async function getIssueTimelineHandler(
         dateFrom:
           typeof req.query.dateFrom === "string" ? req.query.dateFrom : null,
         dateTo: typeof req.query.dateTo === "string" ? req.query.dateTo : null,
+        sourceType:
+          typeof req.query.sourceType === "string"
+            ? req.query.sourceType
+            : null,
+        groupBy:
+          typeof req.query.groupBy === "string" ? req.query.groupBy : null,
         limit: parseLimit(req.query.limit) ?? null,
       },
     });

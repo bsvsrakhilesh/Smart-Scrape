@@ -6,6 +6,7 @@ import {
   GovernanceIssueKind,
   GovernanceIssueStatus,
 } from "../generated/prisma/client";
+import { buildCaseTimelineView } from "./caseTimeline.service";
 
 const agencySelect = {
   id: true,
@@ -576,6 +577,8 @@ export async function getIssueTimeline(
     actorAgencyId?: string;
     dateFrom?: string;
     dateTo?: string;
+    sourceType?: string;
+    groupBy?: string;
     limit?: number;
   },
 ) {
@@ -644,65 +647,68 @@ export async function getIssueTimeline(
     },
   });
 
-  return {
-    issue: formatIssue(issue),
+  const entries = rows.map((row) => ({
+    id: row.id,
+    itemType: row.eventId ? "event" : row.positionId ? "position" : "entry",
+    label: row.label,
+    summary: row.summary ?? null,
+    sortDate: toIso(row.sortDate),
+    sortDateEnd: toIso(row.sortDateEnd),
+    sortPrecision: row.sortPrecision,
+    actorAgency: formatAgency(row.actorAgency),
+    metadata: row.metadata ?? null,
+    createdAt: toIso(row.createdAt),
+    updatedAt: toIso(row.updatedAt),
+    event: row.event
+      ? {
+          id: row.event.id,
+          title: row.event.title,
+          summary: row.event.summary ?? null,
+          eventDate: toIso(row.event.eventDate),
+          eventDateText: row.event.eventDateText ?? null,
+          eventDatePrecision: row.event.eventDatePrecision,
+          sortDate: toIso(row.event.sortDate),
+          sortDateEnd: toIso(row.event.sortDateEnd),
+          usedDocumentDateFallback: row.event.usedDocumentDateFallback,
+        }
+      : null,
+    position: row.position
+      ? {
+          id: row.position.id,
+          stanceText: row.position.stanceText,
+          stanceSummary: row.position.stanceSummary ?? null,
+          polarity: row.position.polarity,
+          effectiveDate: toIso(row.position.effectiveDate),
+          effectiveDateText: row.position.effectiveDateText ?? null,
+          effectiveDatePrecision: row.position.effectiveDatePrecision,
+          agency: formatAgency(row.position.agency),
+          claim: row.position.claim
+            ? {
+                id: row.position.claim.id,
+                claimText: row.position.claim.claimText,
+                claimSummary: row.position.claim.claimSummary ?? null,
+              }
+            : null,
+        }
+      : null,
+    provenance: formatTrace(row.trace),
+  }));
+
+  const timelineView = buildCaseTimelineView({
+    entries,
     filters: {
       actorAgencyId: opts?.actorAgencyId ?? null,
       dateFrom: opts?.dateFrom ?? null,
       dateTo: opts?.dateTo ?? null,
+      sourceType: opts?.sourceType ?? null,
+      groupBy: opts?.groupBy ?? null,
       limit,
     },
-    summary: {
-      entryCount: rows.length,
-      eventCount: rows.filter((row) => Boolean(row.eventId)).length,
-      positionCount: rows.filter((row) => Boolean(row.positionId)).length,
-    },
-    entries: rows.map((row) => ({
-      id: row.id,
-      itemType: row.eventId ? "event" : row.positionId ? "position" : "entry",
-      label: row.label,
-      summary: row.summary ?? null,
-      sortDate: toIso(row.sortDate),
-      sortDateEnd: toIso(row.sortDateEnd),
-      sortPrecision: row.sortPrecision,
-      actorAgency: formatAgency(row.actorAgency),
-      metadata: row.metadata ?? null,
-      createdAt: toIso(row.createdAt),
-      updatedAt: toIso(row.updatedAt),
-      event: row.event
-        ? {
-            id: row.event.id,
-            title: row.event.title,
-            summary: row.event.summary ?? null,
-            eventDate: toIso(row.event.eventDate),
-            eventDateText: row.event.eventDateText ?? null,
-            eventDatePrecision: row.event.eventDatePrecision,
-            sortDate: toIso(row.event.sortDate),
-            sortDateEnd: toIso(row.event.sortDateEnd),
-            usedDocumentDateFallback: row.event.usedDocumentDateFallback,
-          }
-        : null,
-      position: row.position
-        ? {
-            id: row.position.id,
-            stanceText: row.position.stanceText,
-            stanceSummary: row.position.stanceSummary ?? null,
-            polarity: row.position.polarity,
-            effectiveDate: toIso(row.position.effectiveDate),
-            effectiveDateText: row.position.effectiveDateText ?? null,
-            effectiveDatePrecision: row.position.effectiveDatePrecision,
-            agency: formatAgency(row.position.agency),
-            claim: row.position.claim
-              ? {
-                  id: row.position.claim.id,
-                  claimText: row.position.claim.claimText,
-                  claimSummary: row.position.claim.claimSummary ?? null,
-                }
-              : null,
-          }
-        : null,
-      provenance: formatTrace(row.trace),
-    })),
+  });
+
+  return {
+    issue: formatIssue(issue),
+    ...timelineView,
   };
 }
 

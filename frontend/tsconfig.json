@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "target": "ES2021",
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
@@ -22,11 +21,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-
-    "paths": {
-      "@/*" :  ["src/*"]
-    }
+    "noUncheckedSideEffectImports": true
   },
   "include": ["**/*.ts", "**/*.tsx", "**/*.d.ts"]
 }

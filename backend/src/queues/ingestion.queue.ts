@@ -30,7 +30,7 @@ export async function enqueueIngestionJob(
   opts?: { forceOcr?: boolean },
 ) {
   const mode = opts?.forceOcr ? "ocr" : "ingest";
-  const jobId = `${sourceId}:${mode}`;
+  const jobId = `${sourceId}__${mode}`;
 
   const existing = await ingestionQueue.getJob(jobId);
   if (

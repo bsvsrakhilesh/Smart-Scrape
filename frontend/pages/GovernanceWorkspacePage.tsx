@@ -22,8 +22,10 @@ import {
   apiUrl,
   getAuditLogs,
   getDocumentGovernance,
+  getGovernanceAgenciesDirectory,
   getGovernanceAgencyLandscape,
   getGovernanceIssueRelations,
+  getGovernanceIssuesDirectory,
   getGovernanceIssueTimeline,
   getUrlRevisions,
   type AuditLogRow,
@@ -61,6 +63,38 @@ const relationOptions: Array<{ value: RelationFilter; label: string }> = [
   { value: "supersedes", label: "Supersedes" },
   { value: "other", label: "Other" },
 ];
+
+const governanceIssueKindOptions = ["GOVERNANCE_ISSUE", "CASE_FILE"] as const;
+
+const governanceIssueStatusOptions = [
+  "OPEN",
+  "MONITORING",
+  "RESOLVED",
+  "CLOSED",
+  "ARCHIVED",
+] as const;
+
+const governanceAgencyCategoryOptions = [
+  "REGULATOR",
+  "JUDICIARY",
+  "MINISTRY",
+  "EXECUTIVE",
+  "LOCAL_BODY",
+  "RESEARCH_BODY",
+  "CIVIL_SOCIETY",
+  "PRIVATE_SECTOR",
+  "OTHER",
+] as const;
+
+function humanizeEnumValue(value?: string | null, fallback = "Unspecified") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+
+  return text
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "Unknown date";
@@ -219,6 +253,13 @@ export default function GovernanceWorkspacePage() {
   const [templatePreset, setTemplatePreset] =
     useState<NotebookTemplateKey>("governance_brief");
 
+  const [issueSearch, setIssueSearch] = useState("");
+  const [issueKindFilter, setIssueKindFilter] = useState("");
+  const [issueStatusFilter, setIssueStatusFilter] = useState("");
+  const [agencySearch, setAgencySearch] = useState("");
+  const [agencyCategoryFilter, setAgencyCategoryFilter] = useState("");
+  const [agencyJurisdictionFilter, setAgencyJurisdictionFilter] = useState("");
+
   const evidenceDocumentId =
     selectedProvenance?.provenance?.sourceDocument?.id ?? null;
 
@@ -275,23 +316,70 @@ export default function GovernanceWorkspacePage() {
 
   const overview = documentQuery.data ?? null;
 
+  const issueDirectoryQuery = useQuery({
+    queryKey: [
+      "governance-issues-directory",
+      issueSearch,
+      issueKindFilter,
+      issueStatusFilter,
+      selectedAgencyId,
+    ],
+    queryFn: async () =>
+      getGovernanceIssuesDirectory({
+        q: issueSearch || undefined,
+        kind: issueKindFilter || undefined,
+        status: issueStatusFilter || undefined,
+        agencyId: selectedAgencyId || undefined,
+        limit: 40,
+      }),
+  });
+
+  const agencyDirectoryQuery = useQuery({
+    queryKey: [
+      "governance-agencies-directory",
+      agencySearch,
+      agencyCategoryFilter,
+      agencyJurisdictionFilter,
+      selectedIssueId,
+    ],
+    queryFn: async () =>
+      getGovernanceAgenciesDirectory({
+        q: agencySearch || undefined,
+        category: agencyCategoryFilter || undefined,
+        jurisdiction: agencyJurisdictionFilter || undefined,
+        issueId: selectedIssueId || undefined,
+        limit: 40,
+      }),
+  });
+
+  const issueDirectoryItems = issueDirectoryQuery.data?.items ?? [];
+  const agencyDirectoryItems = agencyDirectoryQuery.data?.items ?? [];
+
   useEffect(() => {
-    if (!overview) return;
-
+    if (!issueDirectoryItems.length) return;
     if (
-      !selectedIssueId ||
-      !overview.issues.some((issue) => issue.id === selectedIssueId)
+      selectedIssueId &&
+      issueDirectoryItems.some((issue) => issue.id === selectedIssueId)
     ) {
-      setSelectedIssueId(overview.issues[0]?.id ?? null);
+      return;
     }
 
+    setSelectedIssueId(issueDirectoryItems[0]?.id ?? null);
+    setSelectedProvenance(null);
+  }, [issueDirectoryItems, selectedIssueId]);
+
+  useEffect(() => {
+    if (!agencyDirectoryItems.length) return;
     if (
-      !selectedAgencyId ||
-      !overview.agencies.some((agency) => agency.id === selectedAgencyId)
+      selectedAgencyId &&
+      agencyDirectoryItems.some((agency) => agency.id === selectedAgencyId)
     ) {
-      setSelectedAgencyId(overview.agencies[0]?.id ?? null);
+      return;
     }
-  }, [overview, selectedIssueId, selectedAgencyId]);
+
+    setSelectedAgencyId(agencyDirectoryItems[0]?.id ?? null);
+    setSelectedProvenance(null);
+  }, [agencyDirectoryItems, selectedAgencyId]);
 
   useEffect(() => {
     if (!selectedIssueId && workspaceMode === "case") {
@@ -328,18 +416,38 @@ export default function GovernanceWorkspacePage() {
   });
 
   const selectedIssue = useMemo<GovernanceIssue | null>(() => {
-    if (!overview || !selectedIssueId) return null;
+    if (!selectedIssueId) return null;
+
     return (
-      overview.issues.find((issue) => issue.id === selectedIssueId) ?? null
+      issueDirectoryItems.find((issue) => issue.id === selectedIssueId) ??
+      overview?.issues.find((issue) => issue.id === selectedIssueId) ??
+      timelineQuery.data?.issue ??
+      relationsQuery.data?.issue ??
+      null
     );
-  }, [overview, selectedIssueId]);
+  }, [
+    issueDirectoryItems,
+    overview,
+    selectedIssueId,
+    timelineQuery.data?.issue,
+    relationsQuery.data?.issue,
+  ]);
 
   const selectedAgency = useMemo<GovernanceAgency | null>(() => {
-    if (!overview || !selectedAgencyId) return null;
+    if (!selectedAgencyId) return null;
+
     return (
-      overview.agencies.find((agency) => agency.id === selectedAgencyId) ?? null
+      agencyDirectoryItems.find((agency) => agency.id === selectedAgencyId) ??
+      overview?.agencies.find((agency) => agency.id === selectedAgencyId) ??
+      agencyLandscapeQuery.data?.agency ??
+      null
     );
-  }, [overview, selectedAgencyId]);
+  }, [
+    agencyDirectoryItems,
+    overview,
+    selectedAgencyId,
+    agencyLandscapeQuery.data?.agency,
+  ]);
 
   useEffect(() => {
     if (selectedProvenance) return;
@@ -368,6 +476,8 @@ export default function GovernanceWorkspacePage() {
   const busy =
     documentQuery.isLoading ||
     urlResolutionQuery.isLoading ||
+    issueDirectoryQuery.isLoading ||
+    agencyDirectoryQuery.isLoading ||
     timelineQuery.isLoading ||
     relationsQuery.isLoading ||
     agencyLandscapeQuery.isLoading;
@@ -375,6 +485,8 @@ export default function GovernanceWorkspacePage() {
   const anyError =
     (urlResolutionQuery.error as Error | null) ||
     (documentQuery.error as Error | null) ||
+    (issueDirectoryQuery.error as Error | null) ||
+    (agencyDirectoryQuery.error as Error | null) ||
     (timelineQuery.error as Error | null) ||
     (relationsQuery.error as Error | null) ||
     (agencyLandscapeQuery.error as Error | null);
@@ -472,6 +584,9 @@ export default function GovernanceWorkspacePage() {
               <button
                 type="button"
                 onClick={() => {
+                  void issueDirectoryQuery.refetch();
+                  void agencyDirectoryQuery.refetch();
+
                   if (activeDocumentId) {
                     void documentQuery.refetch();
                     if (selectedIssueId) void timelineQuery.refetch();
@@ -693,13 +808,67 @@ export default function GovernanceWorkspacePage() {
                 >
                   <SectionHeader
                     icon={<Landmark className="h-5 w-5" />}
-                    title="Document focus"
-                    subtitle="Choose the issue and agency lens for the workspace."
+                    title="Issue directory"
+                    subtitle="Search the cross-document governance issue registry and set the active case lens."
                   />
+
                   <div className="mt-5 space-y-4">
                     <label className="block">
                       <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Governance issue
+                        Search issues
+                      </div>
+                      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                        <Search className="h-4 w-4 text-slate-400" />
+                        <input
+                          value={issueSearch}
+                          onChange={(e) => setIssueSearch(e.target.value)}
+                          placeholder="Search title, summary, or slug"
+                          className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
+                    </label>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Kind
+                        </div>
+                        <select
+                          value={issueKindFilter}
+                          onChange={(e) => setIssueKindFilter(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                        >
+                          <option value="">All kinds</option>
+                          {governanceIssueKindOptions.map((kind) => (
+                            <option key={kind} value={kind}>
+                              {humanizeEnumValue(kind)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Status
+                        </div>
+                        <select
+                          value={issueStatusFilter}
+                          onChange={(e) => setIssueStatusFilter(e.target.value)}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                        >
+                          <option value="">All statuses</option>
+                          {governanceIssueStatusOptions.map((status) => (
+                            <option key={status} value={status}>
+                              {humanizeEnumValue(status)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Active issue
                       </div>
                       <select
                         value={selectedIssueId ?? ""}
@@ -709,29 +878,12 @@ export default function GovernanceWorkspacePage() {
                         }}
                         className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
                       >
-                        {(overview?.issues ?? []).map((issue) => (
+                        {!issueDirectoryItems.length ? (
+                          <option value="">No issues available</option>
+                        ) : null}
+                        {issueDirectoryItems.map((issue) => (
                           <option key={issue.id} value={issue.id}>
                             {issue.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="block">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                        Agency lens
-                      </div>
-                      <select
-                        value={selectedAgencyId ?? ""}
-                        onChange={(e) => {
-                          setSelectedAgencyId(e.target.value || null);
-                          setSelectedProvenance(null);
-                        }}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                      >
-                        {(overview?.agencies ?? []).map((agency) => (
-                          <option key={agency.id} value={agency.id}>
-                            {agency.name}
                           </option>
                         ))}
                       </select>
@@ -739,14 +891,27 @@ export default function GovernanceWorkspacePage() {
                   </div>
 
                   <div className="mt-6 space-y-3">
-                    {(overview?.issues ?? []).length === 0 ? (
+                    {issueDirectoryQuery.isLoading &&
+                    issueDirectoryItems.length === 0 ? (
+                      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading issue directory…
+                      </div>
+                    ) : issueDirectoryItems.length === 0 ? (
                       <EmptyPanel
-                        title="No governance issues extracted yet"
-                        body="Run tagging/extraction on a richer governance document and reopen this workspace."
+                        title="No governance issues matched these filters"
+                        body="Adjust the issue search or clear the filters to broaden the landscape."
                       />
                     ) : (
-                      (overview?.issues ?? []).slice(0, 8).map((issue) => {
+                      issueDirectoryItems.slice(0, 8).map((issue) => {
                         const active = issue.id === selectedIssueId;
+                        const linkedAgencyPreview = issue.linkedAgencies
+                          .slice(0, 2)
+                          .map(
+                            (link) => link.agency.shortName || link.agency.name,
+                          )
+                          .join(" • ");
+
                         return (
                           <button
                             key={issue.id}
@@ -775,14 +940,34 @@ export default function GovernanceWorkspacePage() {
                                 </div>
                               </div>
                               <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600">
-                                {issue.kind}
+                                {humanizeEnumValue(issue.kind, "Unknown")}
                               </span>
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                              {issue.status ? (
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                  {humanizeEnumValue(issue.status)}
+                                </span>
+                              ) : null}
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                {issue.counts.agencyCount} agencies
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                {issue.counts.relationCount} relations
+                              </span>
+                            </div>
+
+                            <div className="mt-2 text-[11px] text-slate-500">
+                              {linkedAgencyPreview ||
+                                "No linked agencies preview"}
                             </div>
                           </button>
                         );
                       })
                     )}
                   </div>
+
                   {selectedIssue ? (
                     <button
                       type="button"
@@ -801,18 +986,106 @@ export default function GovernanceWorkspacePage() {
                 >
                   <SectionHeader
                     icon={<Building2 className="h-5 w-5" />}
-                    title="Agencies"
-                    subtitle="Scan institutions represented in the current document."
+                    title="Agency directory"
+                    subtitle="Search the cross-document institution registry and set the active agency comparison lens."
                   />
-                  <div className="mt-5 space-y-3">
-                    {(overview?.agencies ?? []).length === 0 ? (
+
+                  <div className="mt-5 space-y-4">
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Search agencies
+                      </div>
+                      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
+                        <Search className="h-4 w-4 text-slate-400" />
+                        <input
+                          value={agencySearch}
+                          onChange={(e) => setAgencySearch(e.target.value)}
+                          placeholder="Search name, short name, or slug"
+                          className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
+                    </label>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Category
+                        </div>
+                        <select
+                          value={agencyCategoryFilter}
+                          onChange={(e) =>
+                            setAgencyCategoryFilter(e.target.value)
+                          }
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        >
+                          <option value="">All categories</option>
+                          {governanceAgencyCategoryOptions.map((category) => (
+                            <option key={category} value={category}>
+                              {humanizeEnumValue(category)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block">
+                        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Jurisdiction
+                        </div>
+                        <input
+                          value={agencyJurisdictionFilter}
+                          onChange={(e) =>
+                            setAgencyJurisdictionFilter(e.target.value)
+                          }
+                          placeholder="e.g. Delhi, National"
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Active agency
+                      </div>
+                      <select
+                        value={selectedAgencyId ?? ""}
+                        onChange={(e) => {
+                          setSelectedAgencyId(e.target.value || null);
+                          setSelectedProvenance(null);
+                        }}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                      >
+                        {!agencyDirectoryItems.length ? (
+                          <option value="">No agencies available</option>
+                        ) : null}
+                        {agencyDirectoryItems.map((agency) => (
+                          <option key={agency.id} value={agency.id}>
+                            {agency.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    {agencyDirectoryQuery.isLoading &&
+                    agencyDirectoryItems.length === 0 ? (
+                      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading agency directory…
+                      </div>
+                    ) : agencyDirectoryItems.length === 0 ? (
                       <EmptyPanel
-                        title="No agencies extracted"
-                        body="The selected document does not yet contain structured institution entities."
+                        title="No agencies matched these filters"
+                        body="Adjust the agency search or clear the filters to widen the institution landscape."
                       />
                     ) : (
-                      (overview?.agencies ?? []).slice(0, 12).map((agency) => {
+                      agencyDirectoryItems.slice(0, 12).map((agency) => {
                         const active = agency.id === selectedAgencyId;
+                        const linkedIssuePreview = agency.linkedIssues
+                          .slice(0, 2)
+                          .map((link) => link.issue.title)
+                          .join(" • ");
+
                         return (
                           <button
                             key={agency.id}
@@ -831,17 +1104,28 @@ export default function GovernanceWorkspacePage() {
                             <div className="text-sm font-semibold text-slate-900">
                               {agency.name}
                             </div>
-                            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                              {agency.category && (
+
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                              {agency.category ? (
                                 <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
-                                  {agency.category}
+                                  {humanizeEnumValue(agency.category)}
                                 </span>
-                              )}
-                              {agency.jurisdiction && (
+                              ) : null}
+                              {agency.jurisdiction ? (
                                 <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
                                   {agency.jurisdiction}
                                 </span>
-                              )}
+                              ) : null}
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                {agency.counts.issueCount} issues
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-1">
+                                {agency.counts.relationCount} relations
+                              </span>
+                            </div>
+
+                            <div className="mt-2 text-[11px] text-slate-500">
+                              {linkedIssuePreview || "No linked issues preview"}
                             </div>
                           </button>
                         );

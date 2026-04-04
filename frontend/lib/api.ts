@@ -1634,6 +1634,65 @@ export type GovernanceAgencyLandscapeResponse = {
   }>;
 };
 
+export type GovernanceIssueDirectoryItem = GovernanceIssue & {
+  counts: {
+    agencyCount: number;
+    mandateCount: number;
+    claimCount: number;
+    eventCount: number;
+    positionCount: number;
+    gapCount: number;
+    relationCount: number;
+    timelineEntryCount: number;
+    evidenceClusterCount: number;
+  };
+  linkedAgencies: Array<{
+    roleLabel: string | null;
+    agency: GovernanceAgency;
+  }>;
+};
+
+export type GovernanceIssuesDirectoryResponse = {
+  total: number;
+  limit: number;
+  filters: {
+    query: string | null;
+    kind: string | null;
+    status: string | null;
+    agencyId: string | null;
+  };
+  items: GovernanceIssueDirectoryItem[];
+};
+
+export type GovernanceAgencyDirectoryItem = GovernanceAgency & {
+  counts: {
+    issueCount: number;
+    mandateCount: number;
+    positionCount: number;
+    gapCount: number;
+    eventCount: number;
+    relationCount: number;
+    subjectClaimCount: number;
+    timelineEntryCount: number;
+  };
+  linkedIssues: Array<{
+    roleLabel: string | null;
+    issue: GovernanceIssue;
+  }>;
+};
+
+export type GovernanceAgenciesDirectoryResponse = {
+  total: number;
+  limit: number;
+  filters: {
+    query: string | null;
+    category: string | null;
+    jurisdiction: string | null;
+    issueId: string | null;
+  };
+  items: GovernanceAgencyDirectoryItem[];
+};
+
 export type AuditResourceType =
   | "DOCUMENT"
   | "FILE"
@@ -1689,6 +1748,30 @@ export async function getDocumentGovernance(
     `/api/documents/${encodeURIComponent(documentId)}/governance${buildGovernanceQuery(
       params,
     )}`,
+  );
+}
+
+export async function getGovernanceIssuesDirectory(params?: {
+  q?: string;
+  kind?: string;
+  status?: string;
+  agencyId?: string;
+  limit?: number;
+}) {
+  return apiGet<GovernanceIssuesDirectoryResponse>(
+    `/api/issues${buildGovernanceQuery(params)}`,
+  );
+}
+
+export async function getGovernanceAgenciesDirectory(params?: {
+  q?: string;
+  category?: string;
+  jurisdiction?: string;
+  issueId?: string;
+  limit?: number;
+}) {
+  return apiGet<GovernanceAgenciesDirectoryResponse>(
+    `/api/agencies${buildGovernanceQuery(params)}`,
   );
 }
 

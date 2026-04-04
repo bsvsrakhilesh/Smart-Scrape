@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
+import { requireRole } from "../middlewares/authContext";
 import {
   getAgenciesDirectoryHandler,
   getAgencyLandscapeHandler,
@@ -12,6 +13,10 @@ import {
 } from "../controllers/governance.controller";
 
 const r = Router();
+
+const analystOrAbove = requireRole(["analyst", "editor", "admin"]);
+
+r.use(analystOrAbove);
 
 const idParams = z.object({
   id: z.string().min(1),

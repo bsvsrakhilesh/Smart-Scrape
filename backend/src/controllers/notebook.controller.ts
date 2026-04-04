@@ -33,6 +33,10 @@ import {
   listNotebookChatRuns,
 } from "../services/notebookChat.service";
 import { writeAuditLog } from "../services/audit.service";
+import {
+  buildActorAuditMetadata,
+  buildAuditActorFields,
+} from "../services/requestActor.service";
 
 const firstParam = (v: unknown): string =>
   Array.isArray(v) ? String(v[0] ?? "") : String(v ?? "");
@@ -54,9 +58,11 @@ async function logAudit(
       resourceId: args.resourceId ?? null,
       status: args.status ?? "SUCCESS",
       requestId: (req as any).requestId ?? null,
-      actorId: null,
-      actorName: null,
-      metadata: args.metadata ?? null,
+      ...buildAuditActorFields(req),
+      metadata: {
+        ...(args.metadata ?? {}),
+        ...buildActorAuditMetadata(req),
+      },
     });
   } catch {
     // audit logging must never break primary flow

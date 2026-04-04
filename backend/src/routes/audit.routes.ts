@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
+import { requireRole } from "../middlewares/authContext";
 import { getAuditLogsHandler } from "../controllers/audit.controller";
 
 const r = Router();
@@ -20,6 +21,7 @@ const auditResourceTypeSchema = z.enum([
 
 r.get(
   "/audit/logs",
+  requireRole("admin"),
   validate({
     query: z
       .object({

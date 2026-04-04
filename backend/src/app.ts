@@ -28,6 +28,7 @@ import institutionalNodeRoutes from "./routes/institutionalNode.routes";
 import governanceRoutes from "./routes/governance.routes";
 import auditRoutes from "./routes/audit.routes";
 import authRoutes from "./routes/auth.routes";
+import systemRoutes from "./routes/system.routes";
 import { authContext } from "./middlewares/authContext";
 
 dotenv.config();
@@ -220,6 +221,7 @@ app.use("/api", documentRoutes);
 app.use("/api", governanceRoutes);
 app.use("/api", authRoutes);
 app.use("/api", auditRoutes);
+app.use("/api", systemRoutes);
 app.use("/api", crawlRoutes);
 app.use("/api", institutionalNodeRoutes);
 app.use("/api", notebookRoutes);

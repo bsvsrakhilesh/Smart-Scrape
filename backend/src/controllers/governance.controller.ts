@@ -10,6 +10,10 @@ import {
   listGovernanceIssues,
 } from "../services/governanceRead.service";
 import { writeAuditLog } from "../services/audit.service";
+import {
+  buildActorAuditMetadata,
+  buildAuditActorFields,
+} from "../services/requestActor.service";
 import type { AuditResourceType } from "../generated/prisma/client";
 
 function requireStringId(req: Request): string {
@@ -49,9 +53,11 @@ async function logGovernanceAudit(
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       requestId: (req as any).requestId ?? null,
-      actorId: null,
-      actorName: null,
-      metadata: args.metadata ?? null,
+      ...buildAuditActorFields(req),
+      metadata: {
+        ...(args.metadata ?? {}),
+        ...buildActorAuditMetadata(req),
+      },
     });
   } catch {
     // never block primary flow

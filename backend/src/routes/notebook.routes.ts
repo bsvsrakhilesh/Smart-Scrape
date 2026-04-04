@@ -24,6 +24,7 @@ import {
 } from "../controllers/notebook.controller";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
+import { requireRole } from "../middlewares/authContext";
 
 const notebookTemplateKeyEnum = z.enum([
   "governance_brief",
@@ -36,6 +37,12 @@ const notebookTemplateKeyEnum = z.enum([
 
 const r = Router();
 
+const analystOrAbove = requireRole(["analyst", "editor", "admin"]);
+const editorOrAbove = requireRole(["editor", "admin"]);
+
+r.use("/notebook-templates", analystOrAbove);
+r.use("/notebooks", analystOrAbove);
+
 r.get("/notebook-templates", getNotebookTemplatesHandler);
 r.get("/notebooks", getNotebooksHandler);
 
@@ -47,6 +54,7 @@ r.post(
       description: z.string().max(2000).optional(),
     }),
   }),
+  editorOrAbove,
   postNotebookHandler,
 );
 
@@ -65,12 +73,14 @@ r.patch(
       description: z.string().max(2000).optional(),
     }),
   }),
+  editorOrAbove,
   patchNotebookHandler,
 );
 
 r.delete(
   "/notebooks/:id",
   validate({ params: z.object({ id: z.string().min(1) }) }),
+  editorOrAbove,
   deleteNotebookHandler,
 );
 
@@ -89,6 +99,7 @@ r.post(
       title: z.string().min(1).optional(),
     }),
   }),
+  editorOrAbove,
   postNotebookSourceUrlHandler,
 );
 
@@ -101,6 +112,7 @@ r.post(
       fileId: z.string().min(1),
     }),
   }),
+  editorOrAbove,
   postNotebookSourceFileHandler,
 );
 
@@ -109,6 +121,7 @@ r.delete(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
+  editorOrAbove,
   deleteNotebookSourceHandler,
 );
 
@@ -130,6 +143,7 @@ r.post(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
+  editorOrAbove,
   postNotebookSourceRetryIngestionHandler,
 );
 
@@ -138,6 +152,7 @@ r.post(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
+  editorOrAbove,
   postNotebookSourceRunOcrHandler,
 );
 
@@ -146,6 +161,7 @@ r.post(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
+  editorOrAbove,
   postNotebookSourceRetryEmbeddingHandler,
 );
 
@@ -154,6 +170,7 @@ r.post(
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
   }),
+  editorOrAbove,
   postNotebookSourceRebuildEmbeddingHandler,
 );
 
@@ -204,6 +221,7 @@ r.post(
       titleOverride: z.string().max(240).optional(),
     }),
   }),
+  editorOrAbove,
   postNotebookTemplateNoteHandler,
 );
 
@@ -217,6 +235,7 @@ r.post(
       citations: z.any().optional(),
     }),
   }),
+  editorOrAbove,
   postNotebookNoteHandler,
 );
 
@@ -238,6 +257,7 @@ r.patch(
         { message: "At least one field (title/content/citations) is required" },
       ),
   }),
+  editorOrAbove,
   patchNotebookNoteHandler,
 );
 
@@ -246,6 +266,7 @@ r.delete(
   validate({
     params: z.object({ id: z.string().min(1), noteId: z.string().min(1) }),
   }),
+  editorOrAbove,
   deleteNotebookNoteHandler,
 );
 

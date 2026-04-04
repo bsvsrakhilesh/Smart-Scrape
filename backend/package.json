@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --import tsx --test src/**/*.test.ts",
+    "test:watch": "node --import tsx --test --watch src/**/*.test.ts",
     "build": "rm -rf dist && tsc",
     "dev": "tsx watch src/index.ts",
     "worker": "tsx watch src/worker.ts",

@@ -7,6 +7,10 @@ import {
   GovernanceIssueStatus,
 } from "../generated/prisma/client";
 import { buildCaseTimelineView } from "./caseTimeline.service";
+import {
+  analyzeRelation,
+  summarizeRelationBuckets,
+} from "./contradictionAlignment.service";
 
 const agencySelect = {
   id: true,
@@ -744,6 +748,7 @@ export async function getIssueRelations(
           id: true,
           claimText: true,
           claimSummary: true,
+          scopeText: true,
         },
       },
       toClaim: {
@@ -751,6 +756,7 @@ export async function getIssueRelations(
           id: true,
           claimText: true,
           claimSummary: true,
+          scopeText: true,
         },
       },
       trace: { select: traceSelect },
@@ -763,17 +769,18 @@ export async function getIssueRelations(
     byType[key] = (byType[key] ?? 0) + 1;
   }
 
-  return {
-    issue: formatIssue(issue),
-    filters: {
-      relationType: relationType ?? null,
-      limit,
-    },
-    summary: {
-      relationCount: rows.length,
-      byType,
-    },
-    relations: rows.map((row) => ({
+  const relations = rows.map((row) => {
+    const analysis = analyzeRelation({
+      id: row.id,
+      relationType: row.relationType,
+      fromAgency: row.fromAgency,
+      toAgency: row.toAgency,
+      fromClaim: row.fromClaim,
+      toClaim: row.toClaim,
+      confidence: row.confidence ?? null,
+    });
+
+    return {
       id: row.id,
       relationType: row.relationType,
       confidence: row.confidence ?? null,
@@ -785,6 +792,7 @@ export async function getIssueRelations(
             id: row.fromClaim.id,
             claimText: row.fromClaim.claimText,
             claimSummary: row.fromClaim.claimSummary ?? null,
+            scopeText: row.fromClaim.scopeText ?? null,
           }
         : null,
       toClaim: row.toClaim
@@ -792,13 +800,29 @@ export async function getIssueRelations(
             id: row.toClaim.id,
             claimText: row.toClaim.claimText,
             claimSummary: row.toClaim.claimSummary ?? null,
+            scopeText: row.toClaim.scopeText ?? null,
           }
         : null,
+      analysis,
       metadata: row.metadata ?? null,
       createdAt: toIso(row.createdAt),
       updatedAt: toIso(row.updatedAt),
       provenance: formatTrace(row.trace),
-    })),
+    };
+  });
+
+  return {
+    issue: formatIssue(issue),
+    filters: {
+      relationType: relationType ?? null,
+      limit,
+    },
+    summary: {
+      relationCount: rows.length,
+      byType,
+      byBucket: summarizeRelationBuckets(relations),
+    },
+    relations,
   };
 }
 
@@ -1039,6 +1063,7 @@ export async function getIssueCaseWorkspace(
             id: true,
             claimText: true,
             claimSummary: true,
+            scopeText: true,
           },
         },
         toClaim: {
@@ -1046,6 +1071,7 @@ export async function getIssueCaseWorkspace(
             id: true,
             claimText: true,
             claimSummary: true,
+            scopeText: true,
           },
         },
         trace: { select: traceSelect },
@@ -1187,6 +1213,7 @@ export async function getIssueCaseWorkspace(
           id: row.fromClaim.id,
           claimText: row.fromClaim.claimText,
           claimSummary: row.fromClaim.claimSummary ?? null,
+          scopeText: row.fromClaim.scopeText ?? null,
         }
       : null,
     toClaim: row.toClaim
@@ -1194,8 +1221,18 @@ export async function getIssueCaseWorkspace(
           id: row.toClaim.id,
           claimText: row.toClaim.claimText,
           claimSummary: row.toClaim.claimSummary ?? null,
+          scopeText: row.toClaim.scopeText ?? null,
         }
       : null,
+    analysis: analyzeRelation({
+      id: row.id,
+      relationType: row.relationType,
+      fromAgency: row.fromAgency,
+      toAgency: row.toAgency,
+      fromClaim: row.fromClaim,
+      toClaim: row.toClaim,
+      confidence: row.confidence ?? null,
+    }),
     metadata: row.metadata ?? null,
     createdAt: toIso(row.createdAt),
     updatedAt: toIso(row.updatedAt),
@@ -1459,6 +1496,10 @@ export async function getIssueCaseWorkspace(
       summary: {
         relationCount: formattedRelations.length,
         byType: summarizeRelationTypes(relationRows),
+        byBucket: summarizeRelationBuckets(formattedRelations),
+        requiresAnalystReviewCount: formattedRelations.filter(
+          (row) => row.analysis?.requiresAnalystReview,
+        ).length,
       },
       contradictions: contradictionRelations,
       alignments: alignmentRelations,

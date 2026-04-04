@@ -15,7 +15,9 @@ import {
 
 import SmartCard from "../ui/SmartCard";
 import {
+  attachGovernanceSourceToNotebook,
   notebookClient as api,
+  type GovernanceNotebookSourceContext,
   type NotebookTemplateDefinition,
   type NotebookTemplateKey,
 } from "../../lib/notebookClient";
@@ -33,6 +35,7 @@ type NotebookTemplateModalProps = {
   relationType: string | null;
   workspaceMode: "map" | "case";
   sourceLabel: string | null;
+  documentContext: GovernanceNotebookSourceContext | null;
 };
 
 function iconForTemplate(key: NotebookTemplateKey) {
@@ -93,6 +96,24 @@ function buildSuggestedNoteTitle(args: {
   }
 }
 
+function describeNotebookSourceAttachment(
+  documentContext: GovernanceNotebookSourceContext | null,
+) {
+  if (!documentContext?.kind) {
+    return "No notebook source will be auto-attached because the active governance lens does not expose a source context yet.";
+  }
+
+  if (documentContext.kind === "URL") {
+    return documentContext.urlId
+      ? "The active governance URL source will be attached to the selected notebook before the note is created."
+      : "The active governance document is URL-backed, but the URL id is unavailable for automatic notebook attachment.";
+  }
+
+  return documentContext.primaryFileId
+    ? "The active governance file source will be attached to the selected notebook before the note is created."
+    : "The active governance document is file-backed, but the file id is unavailable for automatic notebook attachment.";
+}
+
 export default function NotebookTemplateModal({
   open,
   onClose,
@@ -105,6 +126,7 @@ export default function NotebookTemplateModal({
   relationType,
   workspaceMode,
   sourceLabel,
+  documentContext,
 }: NotebookTemplateModalProps) {
   const qc = useQueryClient();
 
@@ -113,6 +135,9 @@ export default function NotebookTemplateModal({
   const [selectedNotebookId, setSelectedNotebookId] = useState<string>("");
   const [titleOverride, setTitleOverride] = useState("");
   const [newNotebookTitle, setNewNotebookTitle] = useState("Governance Briefs");
+  const [sourceAttachNotice, setSourceAttachNotice] = useState<string | null>(
+    null,
+  );
 
   const templatesQ = useQuery({
     queryKey: ["nb:templates"],
@@ -131,6 +156,7 @@ export default function NotebookTemplateModal({
     setSelectedTemplateKey(defaultTemplateKey);
     setTitleOverride("");
     setNewNotebookTitle(buildSuggestedNotebookTitle(workspaceMode));
+    setSourceAttachNotice(null);
   }, [open, defaultTemplateKey, workspaceMode]);
 
   useEffect(() => {
@@ -162,6 +188,10 @@ export default function NotebookTemplateModal({
     workspaceMode,
   ]);
 
+  const sourceAttachmentPreview = useMemo(() => {
+    return describeNotebookSourceAttachment(documentContext);
+  }, [documentContext]);
+
   const contextWarnings = useMemo(() => {
     if (!selectedTemplate) return [];
     const warnings: string[] = [];
@@ -190,8 +220,29 @@ export default function NotebookTemplateModal({
   });
 
   const createTemplateNoteM = useMutation({
-    mutationFn: async () =>
-      api.createTemplateNote(selectedNotebookId, {
+    mutationFn: async () => {
+      const attachResult = await attachGovernanceSourceToNotebook(
+        selectedNotebookId,
+        documentContext,
+      );
+
+      if (attachResult.status === "attached") {
+        setSourceAttachNotice(
+          `${
+            attachResult.kind === "URL" ? "URL" : "File"
+          } source attached before note creation.`,
+        );
+      } else if (attachResult.status === "already_present") {
+        setSourceAttachNotice(
+          `${
+            attachResult.kind === "URL" ? "URL" : "File"
+          } source already exists in the selected notebook.`,
+        );
+      } else {
+        setSourceAttachNotice(attachResult.reason ?? null);
+      }
+
+      return api.createTemplateNote(selectedNotebookId, {
         templateKey: selectedTemplateKey,
         documentId: documentId || undefined,
         issueId: issueId || undefined,
@@ -199,8 +250,10 @@ export default function NotebookTemplateModal({
         relationType:
           relationType && relationType !== "all" ? relationType : undefined,
         titleOverride: titleOverride.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["nb:sources", selectedNotebookId] });
       openNotebookWithTarget({
         notebookId: selectedNotebookId,
         noteId: data.note.id,
@@ -299,14 +352,17 @@ export default function NotebookTemplateModal({
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Launch preview
-                </div>
-                <div className="mt-2 text-sm font-semibold text-slate-900">
-                  {selectedTemplate?.label ?? "Select a template"}
+                  Notebook source attachment
                 </div>
                 <div className="mt-2 text-sm leading-6 text-slate-600">
-                  Suggested note title: {suggestedTitle}
+                  {sourceAttachmentPreview}
                 </div>
+
+                {sourceAttachNotice ? (
+                  <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                    {sourceAttachNotice}
+                  </div>
+                ) : null}
               </div>
             </SmartCard>
 

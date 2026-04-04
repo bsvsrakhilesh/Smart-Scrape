@@ -285,6 +285,20 @@ export type NotebookTemplateNoteResult = {
   };
 };
 
+export type GovernanceNotebookSourceContext = {
+  documentId: string | null;
+  kind: SourceKind | null;
+  urlId?: number | null;
+  primaryFileId?: string | null;
+};
+
+export type GovernanceNotebookAttachResult = {
+  status: "attached" | "already_present" | "skipped";
+  kind: SourceKind | null;
+  sourceId?: string | null;
+  reason?: string | null;
+};
+
 export interface NotebookClient {
   listNotebooks(): Promise<Notebook[]>;
   createNotebook(p: { title: string; description?: string }): Promise<Notebook>;
@@ -419,6 +433,94 @@ async function j<T = any>(
   // 204 No Content
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
+}
+
+function isAlreadyAttachedNotebookSourceError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+
+  return /already\s+(attached|present|exists)|unique constraint/i.test(message);
+}
+
+export async function attachGovernanceSourceToNotebook(
+  notebookId: ID,
+  context: GovernanceNotebookSourceContext | null | undefined,
+): Promise<GovernanceNotebookAttachResult> {
+  if (!context?.kind) {
+    return {
+      status: "skipped",
+      kind: null,
+      reason:
+        "No governance document context is available for source attachment.",
+    };
+  }
+
+  if (context.kind === "URL") {
+    if (!context.urlId) {
+      return {
+        status: "skipped",
+        kind: "URL",
+        reason:
+          "The active governance document is URL-backed, but no URL id is available.",
+      };
+    }
+
+    try {
+      const source = await j<NBSource>(
+        "POST",
+        `/notebooks/${notebookId}/sources/url`,
+        { urlId: context.urlId },
+      );
+
+      return {
+        status: "attached",
+        kind: "URL",
+        sourceId: source.id,
+      };
+    } catch (error) {
+      if (isAlreadyAttachedNotebookSourceError(error)) {
+        return {
+          status: "already_present",
+          kind: "URL",
+          reason:
+            "The governance URL source is already attached to this notebook.",
+        };
+      }
+      throw error;
+    }
+  }
+
+  if (!context.primaryFileId) {
+    return {
+      status: "skipped",
+      kind: "FILE",
+      reason:
+        "The active governance document is file-backed, but no file id is available.",
+    };
+  }
+
+  try {
+    const source = await j<NBSource>(
+      "POST",
+      `/notebooks/${notebookId}/sources/file`,
+      { fileId: context.primaryFileId },
+    );
+
+    return {
+      status: "attached",
+      kind: "FILE",
+      sourceId: source.id,
+    };
+  } catch (error) {
+    if (isAlreadyAttachedNotebookSourceError(error)) {
+      return {
+        status: "already_present",
+        kind: "FILE",
+        reason:
+          "The governance file source is already attached to this notebook.",
+      };
+    }
+    throw error;
+  }
 }
 
 export const notebookClient: NotebookClient = {

@@ -2438,6 +2438,16 @@ export default function GovernanceWorkspacePage() {
         relationType={relationFilter === "all" ? null : relationFilter}
         workspaceMode={workspaceMode}
         sourceLabel={sourceDescriptor}
+        documentContext={
+          overview?.document
+            ? {
+                documentId: overview.document.id,
+                kind: overview.document.kind,
+                urlId: overview.document.urlId,
+                primaryFileId: overview.document.primaryFileId,
+              }
+            : null
+        }
       />
     </div>
   );

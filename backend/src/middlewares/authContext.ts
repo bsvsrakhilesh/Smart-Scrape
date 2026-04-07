@@ -96,6 +96,18 @@ function buildDevDefault(): AuthContext {
   };
 }
 
+function shouldUseDevDefaultAuth(): boolean {
+  if (env.DEV_AUTH_ENABLED) return true;
+
+  const nodeEnv = String(env.NODE_ENV || process.env.NODE_ENV || "development")
+    .trim()
+    .toLowerCase();
+
+  // Safe fallback: local/dev should work out of the box.
+  // Production remains locked unless real auth headers are provided.
+  return nodeEnv === "development";
+}
+
 export function resolveAuthContext(req: Request): AuthContext {
   const headerUserId = pickHeader(req, "x-user-id");
   const headerRoles = getHeaderRoles(req);
@@ -113,7 +125,7 @@ export function resolveAuthContext(req: Request): AuthContext {
     };
   }
 
-  if (env.DEV_AUTH_ENABLED) return buildDevDefault();
+  if (shouldUseDevDefaultAuth()) return buildDevDefault();
   return buildAnonymous();
 }
 

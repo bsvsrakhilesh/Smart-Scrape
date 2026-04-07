@@ -9,15 +9,22 @@ import { recordCaptureEvent } from "../services/provenance.service";
 import { createDom } from "../utils/dom";
 import { Readability } from "@mozilla/readability";
 import puppeteer, { Browser, LaunchOptions, Page } from "puppeteer";
-import pdfParse from "pdf-parse";
 import { scheduleAiTagForFile } from "../services/aiTagAuto.service";
 import dns from "node:dns/promises";
+import { setDefaultResultOrder } from "node:dns";
 import * as ipaddr from "ipaddr.js";
 import robotsParser from "robots-parser";
 import { log, requestMeta } from "../utils/logger";
 import { setReadableContentOnPage, hardenLivePage } from "../utils/reader";
 import { probeUrlKind } from "../services/urlProbe.service";
 import { captureViaInstitutionalNode } from "../services/institutionalCapture.service";
+import { execFile } from "node:child_process";
+
+try {
+  setDefaultResultOrder("ipv4first");
+} catch {
+  // no-op: older runtimes or restricted environments
+}
 
 function isPrivateIp(ip: string) {
   const a = ipaddr.parse(ip);
@@ -471,6 +478,84 @@ async function downloadPdfWithHeaders(
   }
 }
 
+async function downloadPdfWithWget(
+  targetUrl: string,
+  opts: { referer?: string; cookie?: string | null },
+): Promise<{ bytes: Buffer; cd: string | null; ct: string | null } | null> {
+  const args: string[] = [
+    "--quiet",
+    "--server-response",
+    "--max-redirect=10",
+    "--timeout=45",
+    "--tries=1",
+    "--inet4-only",
+    "-O",
+    "-",
+    "--user-agent",
+    BROWSER_UA,
+    "--header",
+    "Accept: application/pdf,*/*",
+  ];
+
+  if (opts.referer) {
+    args.push("--referer", opts.referer);
+  }
+
+  if (opts.cookie) {
+    args.push("--header", `Cookie: ${opts.cookie}`);
+  }
+
+  args.push(targetUrl);
+
+  const parseMeta = (stderrText: string) => {
+    const ctMatch = stderrText.match(/^\s*Content-Type:\s*(.+)$/im);
+    const cdMatch = stderrText.match(/^\s*Content-Disposition:\s*(.+)$/im);
+    return {
+      ct: ctMatch?.[1]?.trim() ?? null,
+      cd: cdMatch?.[1]?.trim() ?? null,
+    };
+  };
+
+  return await new Promise((resolve) => {
+    execFile(
+      "wget",
+      args,
+      {
+        encoding: "buffer",
+        maxBuffer: PDF_INTERCEPT_MAX_BYTES,
+      } as any,
+      (error, stdout, stderr) => {
+        const out = Buffer.isBuffer(stdout)
+          ? stdout
+          : stdout
+            ? Buffer.from(stdout as any)
+            : Buffer.alloc(0);
+
+        const errText = Buffer.isBuffer(stderr)
+          ? stderr.toString("utf8")
+          : String(stderr || "");
+
+        const meta = parseMeta(errText);
+
+        if (out.length >= 1024 && isPdfMagic(out)) {
+          return resolve({
+            bytes: out,
+            cd: meta.cd,
+            ct: meta.ct,
+          });
+        }
+
+        // wget may still hand back partial body on certain failures; only accept real PDFs.
+        if (error) {
+          return resolve(null);
+        }
+
+        return resolve(null);
+      },
+    );
+  });
+}
+
 async function tryClickPdfDownload(page: any): Promise<boolean> {
   try {
     const clicked = await page.evaluate(() => {
@@ -628,27 +713,47 @@ async function launchBrowser(): Promise<Browser> {
       "--no-zygote",
       "--hide-scrollbars",
       "--mute-audio",
+      "--disable-ipv6",
     ],
   };
   return await puppeteer.launch(opts);
 }
 
-async function navigateWithRetries(page: Page, url: string) {
+async function navigateWithRetries(
+  page: Page,
+  url: string,
+  opts: { pdfLike?: boolean } = {},
+) {
+  const { pdfLike = false } = opts;
   let tries = 0;
+
   while (tries < 3) {
     try {
       await page.goto(url, {
-        waitUntil: "networkidle2",
+        waitUntil: pdfLike ? "domcontentloaded" : "networkidle2",
         timeout: 60_000,
       } as any);
       return;
     } catch (e) {
+      const msg = String((e as any)?.message || "").toLowerCase();
+
+      // Direct PDF navigations often abort page navigation even though
+      // the response itself is valid and can still be intercepted.
+      if (pdfLike && msg.includes("net::err_aborted")) {
+        return;
+      }
+
       if (!isRetryablePptrError(e)) throw e;
       tries += 1;
       await delay(500 * tries);
     }
   }
-  throw new Error("Failed to navigate after retries");
+
+  throw new Error(
+    pdfLike
+      ? "Failed to navigate after retries (pdf-like URL)"
+      : "Failed to navigate after retries",
+  );
 }
 
 // ===================== Tag merge helper =====================
@@ -1254,6 +1359,83 @@ export async function crawlPdfHandler(
       });
     }
 
+    // ===== Secondary fast-path: wget IPv4 fallback for direct PDFs =====
+    try {
+      const direct = resolveWrappedPdfToDirect(__u);
+
+      const candidates = Array.from(
+        new Set(
+          [
+            pdfProbe?.kind === "pdf" ? pdfProbe.finalUrl : null,
+            direct && direct !== url ? direct : null,
+            url,
+          ].filter((v): v is string => Boolean(v)),
+        ),
+      );
+
+      for (const candidate of candidates) {
+        let cu: URL;
+        try {
+          cu = new URL(candidate);
+        } catch {
+          continue;
+        }
+
+        const dl = await downloadPdfWithWget(candidate, {
+          referer: `${cu.origin}/`,
+          cookie: null,
+        });
+
+        if (!dl) continue;
+
+        const derivedName = bestPdfFileName(cu, dl.cd);
+        const finalName = sanitizeName((fileName as string) || derivedName);
+
+        const desc =
+          candidate === url
+            ? `Original PDF from ${url}`
+            : `Original PDF (resolved from wrapper) from ${url}`;
+
+        const fileRec = await persistFile(
+          dl.bytes,
+          finalName.toLowerCase().endsWith(".pdf")
+            ? finalName
+            : `${finalName}.pdf`,
+          desc,
+          folderId || null,
+          {
+            captureType: "URL_PDF",
+            sourceUrl: url,
+            urlId: typeof urlId === "number" ? urlId : null,
+            captureMeta: {
+              method: "direct_fetch",
+              capturedUrl: candidate,
+              contentDisposition: dl.cd,
+              contentType: dl.ct,
+              bytes: dl.bytes.length,
+              notes: "wget_ipv4_fallback",
+            },
+          },
+        );
+
+        log.info("crawl_pdf_wget_direct_download_done", {
+          ...requestMeta(req),
+          url,
+          resolvedUrl: candidate,
+          bytes: dl.bytes.length,
+          fileId: fileRec.id,
+        });
+
+        return await postProcessAndRespond(fileRec);
+      }
+    } catch (e) {
+      log.info("crawl_pdf_wget_direct_download_fallback", {
+        ...requestMeta(req),
+        url,
+        error: String((e as any)?.message || e),
+      });
+    }
+
     // ===== Fallback: open wrapper in Puppeteer and intercept REAL PDF response bytes =====
     try {
       const b = await launchBrowser();
@@ -1355,15 +1537,23 @@ export async function crawlPdfHandler(
             await setReadableContentOnPage(page, url);
           } catch {
             await hardenLivePage(page, url);
-            await navigateWithRetries(page, url);
+            await navigateWithRetries(page, url, { pdfLike: false });
             await page.waitForSelector("body", { timeout: 30_000 } as any);
             await new Promise((r) => setTimeout(r, 700));
           }
         } else {
           await hardenLivePage(page, url);
-          await navigateWithRetries(page, url);
-          await page.waitForSelector("body", { timeout: 30_000 } as any);
-          await new Promise((r) => setTimeout(r, 700));
+          await navigateWithRetries(page, url, {
+            pdfLike: forceLiveForPdfLikeUrl,
+          });
+
+          if (!forceLiveForPdfLikeUrl) {
+            await page.waitForSelector("body", { timeout: 30_000 } as any);
+            await new Promise((r) => setTimeout(r, 700));
+          } else {
+            // Let the response interception path catch the real PDF bytes.
+            await new Promise((r) => setTimeout(r, 2500));
+          }
         }
 
         // ===== try to discover & fetch real PDFs linked/embedded on the page =====

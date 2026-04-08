@@ -119,6 +119,35 @@ const DEFAULT_REVIEW_VIEW_SIGNATURE = JSON.stringify({
   queueId: DEFAULT_QUEUE_ID,
 });
 
+function buildSavedSearchSignature(input: {
+  filter: UrlFilterState;
+  sortKey: SortKey;
+  sortOrder: SortOrder;
+  year: string;
+  selectedCollectionId?: string | null;
+  queueId: SavedUrlQueueId;
+}) {
+  return JSON.stringify({
+    filter: input.filter,
+    sortKey: input.sortKey,
+    sortOrder: input.sortOrder,
+    year: input.year,
+    selectedCollectionId: input.selectedCollectionId ?? null,
+    queueId: input.queueId,
+  });
+}
+
+function getSavedSearchPresetSignature(preset: SavedUrlSearchPreset) {
+  return buildSavedSearchSignature({
+    filter: preset.filter,
+    sortKey: preset.sortKey,
+    sortOrder: preset.sortOrder,
+    year: preset.year,
+    selectedCollectionId: preset.selectedCollectionId,
+    queueId: preset.queueId,
+  });
+}
+
 function snapshotCreatedAt(u: any): number | null {
   const s = u?.latestSnapshot;
   if (!s?.createdAt) return null;
@@ -736,30 +765,58 @@ const SavedUrlsPage: React.FC = () => {
 
   const currentSavedSearchSignature = useMemo(
     () =>
-      JSON.stringify({
+      buildSavedSearchSignature({
         filter,
         sortKey,
         sortOrder,
         year,
-        selectedCollectionId: selectedCollectionId ?? null,
+        selectedCollectionId,
         queueId: activeQueueId,
       }),
     [filter, sortKey, sortOrder, year, selectedCollectionId, activeQueueId],
   );
 
+  const currentSavedSearchMatch = useMemo(
+    () =>
+      savedSearches.find(
+        (preset) =>
+          getSavedSearchPresetSignature(preset) === currentSavedSearchSignature,
+      ) ?? null,
+    [savedSearches, currentSavedSearchSignature],
+  );
+
   const activeSavedSearchDirty = useMemo(() => {
     if (!activeSavedSearch) return false;
+    if (currentSavedSearchMatch) return false;
+
     return (
-      JSON.stringify({
-        filter: activeSavedSearch.filter,
-        sortKey: activeSavedSearch.sortKey,
-        sortOrder: activeSavedSearch.sortOrder,
-        year: activeSavedSearch.year,
-        selectedCollectionId: activeSavedSearch.selectedCollectionId ?? null,
-        queueId: activeSavedSearch.queueId,
-      }) !== currentSavedSearchSignature
+      getSavedSearchPresetSignature(activeSavedSearch) !==
+      currentSavedSearchSignature
     );
-  }, [activeSavedSearch, currentSavedSearchSignature]);
+  }, [activeSavedSearch, currentSavedSearchMatch, currentSavedSearchSignature]);
+
+  const displayedSavedSearch = currentSavedSearchMatch ?? activeSavedSearch;
+
+  const savedSearchStateLabel = useMemo(() => {
+    if (currentSavedSearchMatch) return currentSavedSearchMatch.name;
+    if (activeSavedSearch && activeSavedSearchDirty) {
+      return `Edited from ${activeSavedSearch.name}`;
+    }
+    return "Ad hoc";
+  }, [currentSavedSearchMatch, activeSavedSearch, activeSavedSearchDirty]);
+
+  useEffect(() => {
+    if (currentSavedSearchMatch) {
+      setActiveSavedSearchId((prev) =>
+        prev === currentSavedSearchMatch.id ? prev : currentSavedSearchMatch.id,
+      );
+      return;
+    }
+
+    if (!activeSavedSearch && activeSavedSearchId !== null) {
+      setActiveSavedSearchId(null);
+    }
+  }, [currentSavedSearchMatch, activeSavedSearch, activeSavedSearchId]);
 
   // Selection helpers
   const toggleSelect = useCallback((id: string) => {
@@ -872,22 +929,22 @@ const SavedUrlsPage: React.FC = () => {
 
   const saveCurrentSearch = useCallback(() => {
     const suggestedName =
-      activeSavedSearch && !activeSavedSearchDirty
-        ? activeSavedSearch.name
+      displayedSavedSearch && !activeSavedSearchDirty
+        ? displayedSavedSearch.name
         : "";
 
     setTextDialog({
       kind: "saved-search",
       value: suggestedName,
     });
-  }, [activeSavedSearch, activeSavedSearchDirty]);
+  }, [displayedSavedSearch, activeSavedSearchDirty]);
 
   const deleteActiveSavedSearch = useCallback(async () => {
-    if (!activeSavedSearch) return;
+    if (!displayedSavedSearch) return;
 
     const ok = await confirm({
       title: "Delete saved search?",
-      description: `Delete "${activeSavedSearch.name}"? This removes the preset only and does not affect your saved URLs.`,
+      description: `Delete "${displayedSavedSearch.name}"? This removes the preset only and does not affect your saved URLs.`,
       confirmText: "Delete preset",
       cancelText: "Keep preset",
       danger: true,
@@ -896,15 +953,17 @@ const SavedUrlsPage: React.FC = () => {
     if (!ok) return;
 
     setSavedSearches((prev) =>
-      prev.filter((preset) => preset.id !== activeSavedSearch.id),
+      prev.filter((preset) => preset.id !== displayedSavedSearch.id),
     );
-    setActiveSavedSearchId(null);
+    setActiveSavedSearchId((prev) =>
+      prev === displayedSavedSearch.id ? null : prev,
+    );
 
     notify({
-      text: `Deleted saved search "${activeSavedSearch.name}".`,
+      text: `Deleted saved search "${displayedSavedSearch.name}".`,
       kind: "success",
     });
-  }, [activeSavedSearch, confirm, notify]);
+  }, [displayedSavedSearch, confirm, notify]);
 
   const openCollectionDialog = useCallback(() => {
     setTextDialog({
@@ -1736,11 +1795,7 @@ const SavedUrlsPage: React.FC = () => {
             <span className="page-header-pill">
               <span className="page-header-pill-label">State</span>
               <span className="page-header-pill-value">
-                {activeSavedSearch
-                  ? activeSavedSearchDirty
-                    ? `Edited from ${activeSavedSearch.name}`
-                    : activeSavedSearch.name
-                  : "Ad hoc"}
+                {savedSearchStateLabel}
               </span>
             </span>
 
@@ -1773,7 +1828,7 @@ const SavedUrlsPage: React.FC = () => {
               Save current search
             </button>
 
-            {activeSavedSearch && (
+            {displayedSavedSearch && (
               <button
                 type="button"
                 className="btn-ghost px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/10 disabled:opacity-60"
@@ -1822,19 +1877,31 @@ const SavedUrlsPage: React.FC = () => {
 
             <div className="flex flex-wrap gap-2">
               {savedSearches.map((preset) => {
-                const active =
-                  activeSavedSearchId === preset.id && !activeSavedSearchDirty;
+                const active = currentSavedSearchMatch?.id === preset.id;
+                const editedFromThisPreset =
+                  !currentSavedSearchMatch &&
+                  activeSavedSearchDirty &&
+                  activeSavedSearch?.id === preset.id;
 
                 return (
                   <button
                     key={preset.id}
                     type="button"
                     onClick={() => applySavedSearch(preset)}
+                    title={
+                      active
+                        ? `Applied saved search: ${preset.name}`
+                        : editedFromThisPreset
+                          ? `Current view was edited from "${preset.name}"`
+                          : `Apply saved search: ${preset.name}`
+                    }
                     className={[
                       "rounded-full px-3 py-2 text-sm border transition",
                       active
                         ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
-                        : "border-black/10 dark:border-white/10 hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
+                        : editedFromThisPreset
+                          ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200"
+                          : "border-black/10 dark:border-white/10 hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
                     ].join(" ")}
                   >
                     {preset.name}

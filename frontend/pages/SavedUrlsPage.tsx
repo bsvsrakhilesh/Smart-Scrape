@@ -177,6 +177,11 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
   };
 }
 
+function upsertSavedUrl(prev: UISavedUrl[], next: UISavedUrl): UISavedUrl[] {
+  const withoutExisting = prev.filter((u) => u.id !== next.id);
+  return [next, ...withoutExisting];
+}
+
 function urlHasMissingMetadata(u: UISavedUrl) {
   return !u.publishedAt || !u.authors?.length || !u.tags?.length;
 }
@@ -1403,25 +1408,51 @@ const SavedUrlsPage: React.FC = () => {
   // Quick add
   const handleQuickAdd = async (value: string) => {
     const raw = value.trim();
-    if (!raw) return;
+    if (!raw) return false;
+
     try {
-      await apiSaveUrls([{ url: raw, title: raw, snippet: "" }]);
-      setUrls((prev) => [
-        toUISaved({
-          id: Date.now(),
-          url: raw,
-          title: raw,
-          snippet: "",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          isFavorited: false,
-          notes: "",
-          tags: [],
-        } as any),
-        ...prev,
-      ]);
-    } catch {
-      notify({ text: "Failed to save URL.", kind: "error" });
+      const result = await apiSaveUrls([{ url: raw, title: raw, snippet: "" }]);
+      const savedRef = result.rows?.[0];
+
+      if (!savedRef?.id) {
+        const rows = await apiFetchSavedUrls();
+        setUrls(rows.map(toUISaved));
+
+        notify({
+          text:
+            result.added > 0
+              ? "Saved URL."
+              : "URL already exists. Refreshed the existing record list.",
+          kind: result.added > 0 ? "success" : "info",
+        });
+
+        return true;
+      }
+
+      const fresh = await getUrlById(savedRef.id);
+
+      if (selectedCollectionId) {
+        addUrlToCollection(selectedCollectionId, fresh.url);
+      }
+
+      const hydrated = toUISaved(fresh);
+      setUrls((prev) => upsertSavedUrl(prev, hydrated));
+
+      notify({
+        text: savedRef.isNew
+          ? selectedCollection
+            ? `Saved URL and added it to "${selectedCollection.name}".`
+            : "Saved URL."
+          : selectedCollection
+            ? `URL was already saved. Refreshed it and added it to "${selectedCollection.name}".`
+            : "URL was already saved. Refreshed the existing record.",
+        kind: savedRef.isNew ? "success" : "info",
+      });
+
+      return true;
+    } catch (e: any) {
+      notify({ text: e?.message ?? "Failed to save URL.", kind: "error" });
+      return false;
     }
   };
 
@@ -1937,10 +1968,15 @@ const SavedUrlsPage: React.FC = () => {
                   aria-label="Quick add URL"
                   placeholder="Paste a URL and press Enter"
                   className="input h-11 w-full md:w-[min(100%,28rem)] rounded-lg shadow-sm transition focus:ring-2 focus:ring-brand-primary/40 focus:outline-none"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleQuickAdd((e.target as HTMLInputElement).value);
-                      (e.target as HTMLInputElement).value = "";
+                  onKeyDown={async (e) => {
+                    if (e.key !== "Enter") return;
+
+                    e.preventDefault();
+                    const input = e.currentTarget;
+                    const ok = await handleQuickAdd(input.value);
+
+                    if (ok) {
+                      input.value = "";
                     }
                   }}
                 />

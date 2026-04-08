@@ -34,6 +34,8 @@ import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
 import {
   getCollections,
   createCollection,
+  renameCollection,
+  deleteCollection,
   getUrlCollections,
   addUrlToCollection,
   setUrlCollections,
@@ -77,7 +79,12 @@ const SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
 
 type SavedUrlsViewMode = "registry" | "cards";
 type SavedUrlsTextDialog =
-  | { kind: "collection"; value: string }
+  | {
+      kind: "collection";
+      mode: "create" | "rename";
+      collectionId?: string;
+      value: string;
+    }
   | { kind: "saved-search"; value: string };
 
 const SAVED_URLS_VIEW_KEY = "saved-urls:view-mode";
@@ -205,6 +212,23 @@ const SavedUrlsPage: React.FC = () => {
   const [selectedCollectionId, setSelectedCollectionId] = useState<
     string | undefined
   >(undefined);
+
+  const collectionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+
+    for (const url of urls) {
+      for (const collectionId of url.collections || []) {
+        counts[collectionId] = (counts[collectionId] ?? 0) + 1;
+      }
+    }
+
+    return counts;
+  }, [urls]);
+
+  const selectedCollection = useMemo(
+    () => collections.find((c) => c.id === selectedCollectionId),
+    [collections, selectedCollectionId],
+  );
 
   // Filters
   const [filter, setFilter] = useState<UrlFilterState>({
@@ -880,9 +904,67 @@ const SavedUrlsPage: React.FC = () => {
   const openCollectionDialog = useCallback(() => {
     setTextDialog({
       kind: "collection",
+      mode: "create",
       value: "",
     });
   }, []);
+
+  const openRenameCollectionDialog = useCallback((collection: Collection) => {
+    setTextDialog({
+      kind: "collection",
+      mode: "rename",
+      collectionId: collection.id,
+      value: collection.name,
+    });
+  }, []);
+
+  const deleteSelectedCollection = useCallback(
+    async (collection: Collection) => {
+      const usageCount = collectionCounts[collection.id] ?? 0;
+
+      if (collection.id === "c_general") {
+        notify({
+          text: "The default General collection is protected.",
+          kind: "info",
+        });
+        return;
+      }
+
+      const ok = await confirm({
+        title: "Delete collection?",
+        description:
+          usageCount > 0
+            ? `Delete "${collection.name}"? ${usageCount} saved URL${usageCount === 1 ? "" : "s"} will be removed from this collection, but the URLs themselves will remain saved.`
+            : `Delete "${collection.name}"? The collection will be removed, but no saved URLs will be deleted.`,
+        confirmText: "Delete collection",
+        cancelText: "Keep collection",
+        danger: true,
+      });
+
+      if (!ok) return;
+
+      deleteCollection(collection.id);
+      setCollections(getCollections());
+      setUrls((prev) =>
+        prev.map((u) => ({
+          ...u,
+          collections: (u.collections || []).filter(
+            (id) => id !== collection.id,
+          ),
+        })),
+      );
+
+      if (selectedCollectionId === collection.id) {
+        setSelectedCollectionId(undefined);
+      }
+
+      notify({
+        text: `Deleted collection "${collection.name}".`,
+        kind: "success",
+      });
+    },
+    [collectionCounts, confirm, notify, selectedCollectionId],
+  );
 
   const submitTextDialog = useCallback(async () => {
     if (!textDialog) return;
@@ -890,17 +972,51 @@ const SavedUrlsPage: React.FC = () => {
     const name = textDialogValue.trim();
     if (!name) return;
 
+    const normalized = name.toLowerCase();
+
+    if (textDialog.kind === "collection") {
+      const duplicate = collections.find((c) => {
+        if (textDialog.mode === "rename" && c.id === textDialog.collectionId) {
+          return false;
+        }
+        return c.name.trim().toLowerCase() === normalized;
+      });
+
+      if (duplicate) {
+        notify({
+          text: `A collection named "${name}" already exists.`,
+          kind: "warning",
+        });
+        return;
+      }
+    }
+
     setTextDialogBusy(true);
+
     try {
       if (textDialog.kind === "collection") {
-        const created = createCollection(name);
-        setCollections(getCollections());
-        setSelectedCollectionId(created.id);
+        if (textDialog.mode === "create") {
+          const created = createCollection(name);
+          setCollections(getCollections());
+          setSelectedCollectionId(created.id);
 
-        notify({
-          text: `Created collection "${created.name}".`,
-          kind: "success",
-        });
+          notify({
+            text: `Created collection "${created.name}".`,
+            kind: "success",
+          });
+        } else {
+          if (!textDialog.collectionId) {
+            throw new Error("Missing collection id for rename.");
+          }
+
+          renameCollection(textDialog.collectionId, name);
+          setCollections(getCollections());
+
+          notify({
+            text: `Renamed collection to "${name}".`,
+            kind: "success",
+          });
+        }
       } else {
         const action = upsertSavedSearch(name);
         notify({
@@ -921,7 +1037,7 @@ const SavedUrlsPage: React.FC = () => {
     } finally {
       setTextDialogBusy(false);
     }
-  }, [textDialog, textDialogValue, notify, upsertSavedSearch]);
+  }, [textDialog, textDialogValue, collections, notify, upsertSavedSearch]);
 
   const allVisibleSelected =
     sorted.length > 0 && sorted.every((u) => selection.has(u.id));
@@ -1584,9 +1700,13 @@ const SavedUrlsPage: React.FC = () => {
             <div className="fm-panel h-full p-4 sm:p-5">
               <CollectionSidebar
                 collections={collections}
+                collectionCounts={collectionCounts}
+                totalUrlCount={urls.length}
                 selectedCollectionId={selectedCollectionId}
                 onSelect={(id) => setSelectedCollectionId(id)}
                 onCreateClick={openCollectionDialog}
+                onRenameClick={openRenameCollectionDialog}
+                onDeleteClick={deleteSelectedCollection}
               />
             </div>
           </div>
@@ -1867,25 +1987,33 @@ const SavedUrlsPage: React.FC = () => {
               }}
               title={
                 textDialog?.kind === "collection"
-                  ? "Create collection"
+                  ? textDialog.mode === "rename"
+                    ? "Rename collection"
+                    : "Create collection"
                   : activeSavedSearch && !activeSavedSearchDirty
                     ? "Update saved search"
                     : "Save current search"
               }
               description={
                 textDialog?.kind === "collection"
-                  ? "Create a collection to group related URLs for review, capture, and follow-up work."
+                  ? textDialog.mode === "rename"
+                    ? "Update the collection name everywhere it appears in your Saved URLs workspace."
+                    : "Create a collection to group related URLs for review, capture, and follow-up work."
                   : "Save the current filter, sort, collection, and queue state so you can reopen this review slice instantly."
               }
               value={textDialogValue}
               placeholder={
                 textDialog?.kind === "collection"
-                  ? "e.g. Indoor air papers"
+                  ? textDialog.mode === "rename"
+                    ? "Enter a clearer collection name"
+                    : "e.g. Indoor air papers"
                   : "e.g. Stale captures to review"
               }
               submitLabel={
                 textDialog?.kind === "collection"
-                  ? "Create collection"
+                  ? textDialog.mode === "rename"
+                    ? "Rename collection"
+                    : "Create collection"
                   : activeSavedSearch && !activeSavedSearchDirty
                     ? "Update saved search"
                     : "Save search"

@@ -614,8 +614,16 @@ export async function getFileRevisions(fileId: string, limit = 50) {
   );
 }
 
-export async function deleteUrlsBulk(ids: number[]): Promise<void> {
-  await api.delete("/api/urls", { data: { ids } });
+export type BulkDeleteUrlsResult = {
+  deleted: number[];
+  failures: Array<{ id: number; error: string }>;
+};
+
+export async function deleteUrlsBulk(
+  ids: number[],
+): Promise<BulkDeleteUrlsResult> {
+  const res = await api.delete("/api/urls", { data: { ids } });
+  return res.data as BulkDeleteUrlsResult;
 }
 
 // ---------- Collections API ----------

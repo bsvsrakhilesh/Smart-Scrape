@@ -1192,32 +1192,63 @@ const SavedUrlsPage: React.FC = () => {
 
   const onDelete = async (ids: string[]) => {
     const idsNum = ids.map(Number);
-
-    // capture URLs before optimistic UI update
-    const deletedUrls = urls
-      .filter((u) => ids.includes(u.id))
-      .map((u) => u.url);
-
     const backup = urls;
+    const targetRows = urls.filter((u) => ids.includes(u.id));
+
     setUrls((prev) => prev.filter((u) => !ids.includes(u.id)));
     setSelection(new Set());
 
     try {
-      await deleteUrlsBulk(idsNum);
+      const result = await deleteUrlsBulk(idsNum);
 
-      // Keep local collections in sync so Url Collector doesn't show stale “Saved”
-      deletedUrls.forEach((u) => setUrlCollections(u, []));
+      const deletedIdSet = new Set(result.deleted.map((id) => String(id)));
+      const failedIds = result.failures.map((failure) => String(failure.id));
+
+      const actuallyDeletedUrls = targetRows
+        .filter((u) => deletedIdSet.has(u.id))
+        .map((u) => u.url);
+
+      // Keep local collections in sync only for URLs that were truly deleted
+      actuallyDeletedUrls.forEach((u) => setUrlCollections(u, []));
+
+      if (result.failures.length === 0) {
+        notify({
+          text:
+            result.deleted.length === 1
+              ? "Deleted 1 saved URL."
+              : `Deleted ${result.deleted.length} saved URLs.`,
+          kind: "success",
+        });
+        return;
+      }
+
+      // Restore only the rows that failed deletion
+      setUrls(backup.filter((u) => !deletedIdSet.has(u.id)));
+      setSelection(new Set(failedIds));
+
+      const deletedCount = result.deleted.length;
+      const failureCount = result.failures.length;
+
+      const failedPreview = targetRows
+        .filter((u) => failedIds.includes(u.id))
+        .slice(0, 2)
+        .map((u) => u.title || u.url)
+        .join(", ");
 
       notify({
         text:
-          ids.length === 1
-            ? "Deleted 1 saved URL."
-            : `Deleted ${ids.length} saved URLs.`,
-        kind: "success",
+          deletedCount > 0
+            ? `Deleted ${deletedCount} saved URL${deletedCount === 1 ? "" : "s"}, but ${failureCount} could not be deleted.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`
+            : `No saved URLs were deleted. ${failureCount} delete operation${failureCount === 1 ? "" : "s"} failed.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`,
+        kind: deletedCount > 0 ? "warning" : "error",
       });
-    } catch {
+    } catch (e: any) {
       setUrls(backup);
-      notify({ text: "Failed to delete the selected URLs.", kind: "error" });
+      setSelection(new Set(ids));
+      notify({
+        text: e?.message ?? "Failed to delete the selected URLs.",
+        kind: "error",
+      });
     }
   };
 

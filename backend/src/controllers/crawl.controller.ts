@@ -1,4 +1,5 @@
 // backend/src/controllers/crawl.controller.ts
+// backend/src/controllers/crawl.controller.ts
 import { Request, Response, NextFunction } from "express";
 import fs from "fs";
 import path from "path";
@@ -737,9 +738,12 @@ async function navigateWithRetries(
     } catch (e) {
       const msg = String((e as any)?.message || "").toLowerCase();
 
-      // Direct PDF navigations often abort page navigation even though
-      // the response itself is valid and can still be intercepted.
-      if (pdfLike && msg.includes("net::err_aborted")) {
+      // For PDF-like URLs the browser aborts navigation (ERR_ABORTED,
+      // net:: errors, "Failed to navigate") but the PDF bytes are still
+      // delivered via the response event listener set up by the caller.
+      // Treat ANY navigation error as a soft-return so that the
+      // response-interception promise (pdfHit) can still resolve.
+      if (pdfLike) {
         return;
       }
 
@@ -749,11 +753,12 @@ async function navigateWithRetries(
     }
   }
 
-  throw new Error(
-    pdfLike
-      ? "Failed to navigate after retries (pdf-like URL)"
-      : "Failed to navigate after retries",
-  );
+  if (pdfLike) {
+    // Exhausted retries but still pdfLike — let the response listener decide.
+    return;
+  }
+
+  throw new Error("Failed to navigate after retries");
 }
 
 // ===================== Tag merge helper =====================
@@ -1542,17 +1547,26 @@ export async function crawlPdfHandler(
             await new Promise((r) => setTimeout(r, 700));
           }
         } else {
-          await hardenLivePage(page, url);
-          await navigateWithRetries(page, url, {
-            pdfLike: forceLiveForPdfLikeUrl,
-          });
+          try {
+            await hardenLivePage(page, url);
+            await navigateWithRetries(page, url, {
+              pdfLike: forceLiveForPdfLikeUrl,
+            });
+          } catch (navErr) {
+            log.info("crawl_pdf_navigation_error_continuing_intercept", {
+              ...requestMeta(req),
+              url,
+              error: String((navErr as any)?.message || navErr),
+            });
+          }
 
           if (!forceLiveForPdfLikeUrl) {
             await page.waitForSelector("body", { timeout: 30_000 } as any);
             await new Promise((r) => setTimeout(r, 700));
           } else {
             // Let the response interception path catch the real PDF bytes.
-            await new Promise((r) => setTimeout(r, 2500));
+            // Government / institutional servers can be slow — give them more time.
+            await new Promise((r) => setTimeout(r, 8000));
           }
         }
 

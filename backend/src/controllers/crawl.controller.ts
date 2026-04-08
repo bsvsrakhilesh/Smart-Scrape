@@ -495,18 +495,21 @@ async function downloadPdfWithWget(
     };
   };
 
-  const summarizeStderr = (stderrText: string) => {
-    return stderrText
+  const summarizeStderr = (stderrText: string) =>
+    stderrText
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean)
-      .slice(-10)
+      .slice(-12)
       .join(" | ")
       .slice(0, 2000);
-  };
 
   const runOne = async (
-    label: "default_stack" | "ipv4_only",
+    mode:
+      | "default_stack"
+      | "ipv4_only"
+      | "no_check_cert"
+      | "no_check_cert_ipv4",
     extraArgs: string[],
   ): Promise<{
     bytes: Buffer;
@@ -514,11 +517,12 @@ async function downloadPdfWithWget(
     ct: string | null;
   } | null> => {
     const args: string[] = [
-      "--quiet",
+      "--no-verbose",
       "--server-response",
       "--max-redirect=10",
       "--timeout=120",
       "--tries=2",
+      "--waitretry=2",
       "-O",
       "-",
       "--user-agent",
@@ -562,10 +566,12 @@ async function downloadPdfWithWget(
           if (out.length >= 1024 && isPdfMagic(out)) {
             log.info("crawl_pdf_wget_attempt_succeeded", {
               targetUrl,
-              mode: label,
+              mode,
               bytes: out.length,
               statusCode: meta.statusCode,
               contentType: meta.ct,
+              insecureTls:
+                mode === "no_check_cert" || mode === "no_check_cert_ipv4",
             });
 
             return resolve({
@@ -577,12 +583,16 @@ async function downloadPdfWithWget(
 
           log.info("crawl_pdf_wget_attempt_failed", {
             targetUrl,
-            mode: label,
+            mode,
             statusCode: meta.statusCode,
             bytes: out.length,
             contentType: meta.ct,
             error: error ? String((error as any)?.message || error) : null,
+            errorCode: (error as any)?.code ?? null,
+            signal: (error as any)?.signal ?? null,
             stderr: summarizeStderr(errText),
+            insecureTls:
+              mode === "no_check_cert" || mode === "no_check_cert_ipv4",
           });
 
           return resolve(null);
@@ -594,6 +604,11 @@ async function downloadPdfWithWget(
   return (
     (await runOne("default_stack", [])) ??
     (await runOne("ipv4_only", ["--inet4-only"])) ??
+    (await runOne("no_check_cert", ["--no-check-certificate"])) ??
+    (await runOne("no_check_cert_ipv4", [
+      "--no-check-certificate",
+      "--inet4-only",
+    ])) ??
     null
   );
 }

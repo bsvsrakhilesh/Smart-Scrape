@@ -91,10 +91,10 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
 
   useEffect(() => {
     const next = buildFilterState(initial);
-    if (filterStateSignature(next) !== filterStateSignature(state)) {
-      setState(next);
-    }
-  }, [initial, state]);
+    setState((prev) =>
+      filterStateSignature(prev) === filterStateSignature(next) ? prev : next,
+    );
+  }, [initial]);
 
   useEffect(() => {
     const nextInitial = buildFilterState(initial);
@@ -128,11 +128,12 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
     <div className="space-y-4">
       {/* Search row */}
       <div className="space-y-2">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
+          <div className="flex-1 min-w-0 xl:min-w-[520px]">
             <label className="sr-only" htmlFor="saved-urls-query">
               Search saved URLs
             </label>
+
             <input
               id="saved-urls-query"
               name="saved_urls_query"
@@ -149,15 +150,16 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                   applyFiltersNow(state);
                 }
               }}
-              className="input flex-1 rounded-lg shadow-sm focus:ring-2 focus:ring-brand-primary/40"
+              className="input w-full min-w-0 rounded-xl px-4 py-3 text-base shadow-sm focus:ring-2 focus:ring-brand-primary/40"
             />
+
             <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
               Filters update automatically. Press Enter to apply immediately.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <span className="rounded-full border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
+            <span className="rounded-full border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300 whitespace-nowrap">
               {activeFilterCount === 0
                 ? "No active filters"
                 : `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`}
@@ -167,7 +169,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
               type="button"
               disabled={isLoading}
               onClick={() => applyFiltersNow(state)}
-              className="btn-primary rounded-lg px-4 py-2 disabled:opacity-60"
+              className="btn-primary rounded-xl px-5 py-3 disabled:opacity-60 whitespace-nowrap"
               aria-label="Apply filters now"
               title="Apply filters now"
             >
@@ -178,7 +180,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
               type="button"
               disabled={activeFilterCount === 0}
               onClick={clearAllFilters}
-              className="rounded-lg border px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800"
+              className="rounded-xl border px-5 py-3 text-sm font-medium transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800 whitespace-nowrap"
               aria-label="Clear all search filters"
               title="Clear all search filters"
             >

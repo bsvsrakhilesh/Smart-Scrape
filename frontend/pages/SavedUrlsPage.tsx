@@ -46,6 +46,9 @@ import {
   isUpdatedSinceReview,
   type ReviewStampMap,
 } from "../utils/reviewState";
+import TextEntryModal from "../components/common/TextEntryModal";
+import { useToast } from "../components/providers/Toast";
+import { useConfirm } from "../components/providers/Confirm";
 
 type SortKey = "createdAt" | "updatedAt" | "title";
 type SortOrder = "asc" | "desc";
@@ -73,6 +76,9 @@ const SAVED_URLS_REVIEWED_KEY = "saved-urls:reviewed-at";
 const SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
 
 type SavedUrlsViewMode = "registry" | "cards";
+type SavedUrlsTextDialog =
+  | { kind: "collection"; value: string }
+  | { kind: "saved-search"; value: string };
 
 const SAVED_URLS_VIEW_KEY = "saved-urls:view-mode";
 
@@ -154,6 +160,8 @@ function loadSavedUrlSearchPresets(): SavedUrlSearchPreset[] {
 }
 
 const SavedUrlsPage: React.FC = () => {
+  const { notify } = useToast();
+  const { confirm } = useConfirm();
   // Data
   const [urls, setUrls] = useState<UISavedUrl[]>([]);
   const [loading, setLoading] = useState(false);
@@ -207,6 +215,12 @@ const SavedUrlsPage: React.FC = () => {
     null,
   );
 
+  const [textDialog, setTextDialog] = useState<SavedUrlsTextDialog | null>(
+    null,
+  );
+  const [textDialogValue, setTextDialogValue] = useState("");
+  const [textDialogBusy, setTextDialogBusy] = useState(false);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(
@@ -214,6 +228,10 @@ const SavedUrlsPage: React.FC = () => {
       JSON.stringify(savedSearches),
     );
   }, [savedSearches]);
+
+  useEffect(() => {
+    setTextDialogValue(textDialog?.value ?? "");
+  }, [textDialog]);
 
   const [viewMode, setViewMode] = useState<SavedUrlsViewMode>(() => {
     if (typeof window === "undefined") return "registry";
@@ -276,22 +294,32 @@ const SavedUrlsPage: React.FC = () => {
   const handleRetryFailedTagging = useCallback(async () => {
     try {
       setTagSummaryLoading(true);
-      const out = await retryFailedUrlTagging(); // default retries newest failed (limit 50)
+      const out = await retryFailedUrlTagging();
       await refreshTaggingSummary();
 
-      // refresh rows so tags/status update on screen
       const rows = await apiFetchSavedUrls();
       setUrls(rows.map(toUISaved));
 
-      if (out?.scheduled === 0) {
-        alert("No failed items to retry.");
+      if ((out?.scheduled ?? 0) === 0) {
+        notify({
+          text: "No failed URLs were queued for retry.",
+          kind: "info",
+        });
+      } else {
+        notify({
+          text: `Queued ${out.scheduled} failed URL${out.scheduled === 1 ? "" : "s"} for retry.`,
+          kind: "success",
+        });
       }
     } catch (e: any) {
-      alert(e?.message ?? "Retry failed");
+      notify({
+        text: e?.message ?? "Retry failed.",
+        kind: "error",
+      });
     } finally {
       setTagSummaryLoading(false);
     }
-  }, [refreshTaggingSummary]);
+  }, [refreshTaggingSummary, notify]);
 
   async function runPool<T>(
     items: T[],
@@ -720,63 +748,127 @@ const SavedUrlsPage: React.FC = () => {
     [clearSelection],
   );
 
+  const upsertSavedSearch = useCallback(
+    (name: string) => {
+      const existing = savedSearches.find(
+        (preset) => preset.name.toLowerCase() === name.toLowerCase(),
+      );
+
+      const nextPreset: SavedUrlSearchPreset = {
+        id: existing?.id ?? `saved-url-search-${Date.now()}`,
+        name,
+        filter: { ...filter },
+        sortKey,
+        sortOrder,
+        year,
+        selectedCollectionId,
+        queueId: activeQueueId,
+      };
+
+      setSavedSearches((prev) => {
+        if (existing) {
+          return prev.map((preset) =>
+            preset.id === existing.id ? nextPreset : preset,
+          );
+        }
+        return [nextPreset, ...prev].slice(0, 10);
+      });
+
+      setActiveSavedSearchId(nextPreset.id);
+      return existing ? "updated" : "created";
+    },
+    [
+      savedSearches,
+      filter,
+      sortKey,
+      sortOrder,
+      year,
+      selectedCollectionId,
+      activeQueueId,
+    ],
+  );
+
   const saveCurrentSearch = useCallback(() => {
     const suggestedName =
       activeSavedSearch && !activeSavedSearchDirty
         ? activeSavedSearch.name
         : "";
 
-    const raw = window.prompt(
-      "Save current Saved URLs search as",
-      suggestedName,
-    );
-    const name = raw?.trim();
-    if (!name) return;
+    setTextDialog({
+      kind: "saved-search",
+      value: suggestedName,
+    });
+  }, [activeSavedSearch, activeSavedSearchDirty]);
 
-    const existing = savedSearches.find(
-      (preset) => preset.name.toLowerCase() === name.toLowerCase(),
-    );
+  const deleteActiveSavedSearch = useCallback(async () => {
+    if (!activeSavedSearch) return;
 
-    const nextPreset: SavedUrlSearchPreset = {
-      id: existing?.id ?? `saved-url-search-${Date.now()}`,
-      name,
-      filter: { ...filter },
-      sortKey,
-      sortOrder,
-      year,
-      selectedCollectionId,
-      queueId: activeQueueId,
-    };
-
-    setSavedSearches((prev) => {
-      if (existing) {
-        return prev.map((preset) =>
-          preset.id === existing.id ? nextPreset : preset,
-        );
-      }
-      return [nextPreset, ...prev].slice(0, 10);
+    const ok = await confirm({
+      title: "Delete saved search?",
+      description: `Delete "${activeSavedSearch.name}"? This removes the preset only and does not affect your saved URLs.`,
+      confirmText: "Delete preset",
+      cancelText: "Keep preset",
+      danger: true,
     });
 
-    setActiveSavedSearchId(nextPreset.id);
-  }, [
-    activeSavedSearch,
-    activeSavedSearchDirty,
-    savedSearches,
-    filter,
-    sortKey,
-    sortOrder,
-    year,
-    selectedCollectionId,
-    activeQueueId,
-  ]);
+    if (!ok) return;
 
-  const deleteActiveSavedSearch = useCallback(() => {
-    if (!activeSavedSearch) return;
     setSavedSearches((prev) =>
       prev.filter((preset) => preset.id !== activeSavedSearch.id),
     );
     setActiveSavedSearchId(null);
-  }, [activeSavedSearch]);
+
+    notify({
+      text: `Deleted saved search "${activeSavedSearch.name}".`,
+      kind: "success",
+    });
+  }, [activeSavedSearch, confirm, notify]);
+
+  const openCollectionDialog = useCallback(() => {
+    setTextDialog({
+      kind: "collection",
+      value: "",
+    });
+  }, []);
+
+  const submitTextDialog = useCallback(async () => {
+    if (!textDialog) return;
+
+    const name = textDialogValue.trim();
+    if (!name) return;
+
+    setTextDialogBusy(true);
+    try {
+      if (textDialog.kind === "collection") {
+        const created = createCollection(name);
+        setCollections(getCollections());
+        setSelectedCollectionId(created.id);
+
+        notify({
+          text: `Created collection "${created.name}".`,
+          kind: "success",
+        });
+      } else {
+        const action = upsertSavedSearch(name);
+        notify({
+          text:
+            action === "updated"
+              ? `Updated saved search "${name}".`
+              : `Saved search "${name}".`,
+          kind: "success",
+        });
+      }
+
+      setTextDialog(null);
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Unable to save right now.",
+        kind: "error",
+      });
+    } finally {
+      setTextDialogBusy(false);
+    }
+  }, [textDialog, textDialogValue, notify, upsertSavedSearch]);
 
   const allVisibleSelected =
     sorted.length > 0 && sorted.every((u) => selection.has(u.id));
@@ -797,7 +889,7 @@ const SavedUrlsPage: React.FC = () => {
           x.id === u.id ? { ...x, isFavorited: u.isFavorited } : x,
         ),
       );
-      alert("Failed to update favorite");
+      notify({ text: "Failed to update favorite.", kind: "error" });
     }
   };
 
@@ -811,7 +903,7 @@ const SavedUrlsPage: React.FC = () => {
       setUrls((prev) =>
         prev.map((x) => (x.id === id ? { ...x, notes: before } : x)),
       );
-      alert("Failed to save notes");
+      notify({ text: "Failed to save notes.", kind: "error" });
     }
   };
 
@@ -825,7 +917,7 @@ const SavedUrlsPage: React.FC = () => {
       setUrls((prev) =>
         prev.map((x) => (x.id === id ? { ...x, tags: before } : x)),
       );
-      alert("Failed to update tags");
+      notify({ text: "Failed to update tags.", kind: "error" });
     }
   };
 
@@ -840,7 +932,7 @@ const SavedUrlsPage: React.FC = () => {
         idsNum.map((id) => patchUrl(id, { isFavorited: true })),
       );
     } catch {
-      alert("Some favorites failed to update");
+      notify({ text: "Some favorites failed to update.", kind: "warning" });
     }
   };
   // Bulk AI auto-tag selected URLs
@@ -920,7 +1012,7 @@ const SavedUrlsPage: React.FC = () => {
         }),
       );
     } catch {
-      alert("Failed to add tag to some items");
+      notify({ text: "Failed to add a tag to some items.", kind: "warning" });
     }
   };
 
@@ -941,9 +1033,17 @@ const SavedUrlsPage: React.FC = () => {
 
       // Keep local collections in sync so Url Collector doesn't show stale “Saved”
       deletedUrls.forEach((u) => setUrlCollections(u, []));
+
+      notify({
+        text:
+          ids.length === 1
+            ? "Deleted 1 saved URL."
+            : `Deleted ${ids.length} saved URLs.`,
+        kind: "success",
+      });
     } catch {
       setUrls(backup);
-      alert("Failed to delete selected");
+      notify({ text: "Failed to delete the selected URLs.", kind: "error" });
     }
   };
 
@@ -972,7 +1072,10 @@ const SavedUrlsPage: React.FC = () => {
   const handlePaste = useCallback(async () => {
     if (!clipboard) return;
     if (!selectedCollectionId) {
-      alert("Choose a category on the left to paste into.");
+      notify({
+        text: "Choose a collection on the left before pasting.",
+        kind: "warning",
+      });
       return;
     }
     try {
@@ -1038,7 +1141,7 @@ const SavedUrlsPage: React.FC = () => {
         ...prev,
       ]);
     } catch {
-      alert("Failed to save URL");
+      notify({ text: "Failed to save URL.", kind: "error" });
     }
   };
 
@@ -1420,11 +1523,7 @@ const SavedUrlsPage: React.FC = () => {
                 collections={collections}
                 selectedCollectionId={selectedCollectionId}
                 onSelect={(id) => setSelectedCollectionId(id)}
-                onCreate={(name) => {
-                  const created = createCollection(name);
-                  setCollections(getCollections());
-                  setSelectedCollectionId(created.id);
-                }}
+                onCreateClick={openCollectionDialog}
               />
             </div>
           </div>
@@ -1698,6 +1797,41 @@ const SavedUrlsPage: React.FC = () => {
             )}
 
             {/* Modals */}
+            <TextEntryModal
+              open={!!textDialog}
+              onClose={() => {
+                if (!textDialogBusy) setTextDialog(null);
+              }}
+              title={
+                textDialog?.kind === "collection"
+                  ? "Create collection"
+                  : activeSavedSearch && !activeSavedSearchDirty
+                    ? "Update saved search"
+                    : "Save current search"
+              }
+              description={
+                textDialog?.kind === "collection"
+                  ? "Create a collection to group related URLs for review, capture, and follow-up work."
+                  : "Save the current filter, sort, collection, and queue state so you can reopen this review slice instantly."
+              }
+              value={textDialogValue}
+              placeholder={
+                textDialog?.kind === "collection"
+                  ? "e.g. Indoor air papers"
+                  : "e.g. Stale captures to review"
+              }
+              submitLabel={
+                textDialog?.kind === "collection"
+                  ? "Create collection"
+                  : activeSavedSearch && !activeSavedSearchDirty
+                    ? "Update saved search"
+                    : "Save search"
+              }
+              busy={textDialogBusy}
+              onChange={setTextDialogValue}
+              onSubmit={submitTextDialog}
+            />
+
             <CollectionPickerModal
               isOpen={collPickerOpen}
               collections={collections}
@@ -1719,11 +1853,7 @@ const SavedUrlsPage: React.FC = () => {
                 setCollPickerOpen(false);
                 setMoveIds([]);
               }}
-              onCreate={(name) => {
-                const created = createCollection(name);
-                setCollections(getCollections());
-                return created;
-              }}
+              onRequestCreate={openCollectionDialog}
             />
 
             <FolderPickerModal
@@ -1811,7 +1941,10 @@ const SavedUrlsPage: React.FC = () => {
                     error: e,
                   });
 
-                  alert(`Capture failed: ${msg}`);
+                  notify({
+                    text: `Capture failed: ${msg}`,
+                    kind: "error",
+                  });
                 }
               }}
             />

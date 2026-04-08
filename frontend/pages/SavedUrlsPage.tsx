@@ -540,7 +540,17 @@ const SavedUrlsPage: React.FC = () => {
 
       if (filter.query) {
         const q = filter.query.toLowerCase();
-        const hay = `${u.title} ${u.url} ${u.description ?? ""}`.toLowerCase();
+        const hay = [
+          u.title,
+          u.url,
+          u.description ?? "",
+          u.domain ?? "",
+          u.notes ?? "",
+          ...(u.tags ?? []),
+        ]
+          .join(" ")
+          .toLowerCase();
+
         if (!hay.includes(q)) return false;
       }
       if (filter.dateFrom) {

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useDebounce } from "../../hooks/useDebounce";
 
 export interface UrlFilterState {
   query: string;
@@ -43,6 +44,23 @@ const filterStateSignature = (state: UrlFilterState) =>
     tags: [...(state.tags || [])].sort(),
   });
 
+const countActiveFilters = (state: UrlFilterState) => {
+  let count = 0;
+
+  if (state.query.trim()) count += 1;
+  if (state.domains.length) count += 1;
+  if (state.tags.length) count += 1;
+  if (state.visibility !== "all") count += 1;
+  if (state.dateFrom) count += 1;
+  if (state.dateTo) count += 1;
+  if (state.favoritesOnly) count += 1;
+  if ((state.snapshotStatus ?? "all") !== "all") count += 1;
+  if ((state.taggingStatus ?? "all") !== "all") count += 1;
+  if ((state.metadataState ?? "all") !== "all") count += 1;
+
+  return count;
+};
+
 const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   availableDomains,
   availableTags,
@@ -54,12 +72,39 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
     buildFilterState(initial),
   );
 
+  const debouncedState = useDebounce(state, 250);
+
+  const activeFilterCount = useMemo(() => countActiveFilters(state), [state]);
+
+  const applyFiltersNow = useCallback(
+    (next: UrlFilterState) => {
+      onChange(next);
+    },
+    [onChange],
+  );
+
+  const clearAllFilters = useCallback(() => {
+    const next = buildFilterState();
+    setState(next);
+    onChange(next);
+  }, [onChange]);
+
   useEffect(() => {
     const next = buildFilterState(initial);
     if (filterStateSignature(next) !== filterStateSignature(state)) {
       setState(next);
     }
   }, [initial, state]);
+
+  useEffect(() => {
+    const nextInitial = buildFilterState(initial);
+
+    if (
+      filterStateSignature(debouncedState) !== filterStateSignature(nextInitial)
+    ) {
+      onChange(debouncedState);
+    }
+  }, [debouncedState, initial, onChange]);
 
   const toggleDomain = (d: string) =>
     setState((s) => ({
@@ -82,30 +127,64 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   return (
     <div className="space-y-4">
       {/* Search row */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <label className="sr-only" htmlFor="saved-urls-query">
-          Search saved URLs
-        </label>
-        <input
-          id="saved-urls-query"
-          name="saved_urls_query"
-          aria-label="Search saved URLs"
-          type="text"
-          placeholder=" Search by title, URL, tags..."
-          value={state.query}
-          onChange={(e) => setState((s) => ({ ...s, query: e.target.value }))}
-          className="input flex-1 rounded-lg shadow-sm focus:ring-2 focus:ring-brand-primary/40"
-        />
-        <div className="flex gap-2 flex-wrap">
-          <button
-            disabled={isLoading}
-            onClick={() => onChange(state)}
-            className="btn-primary rounded-lg px-4 py-2 disabled:opacity-60"
-            aria-label="Search"
-            title="Search"
-          >
-            {isLoading ? "Searching…" : "Search"}
-          </button>
+      <div className="space-y-2">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+          <div className="flex-1 min-w-0">
+            <label className="sr-only" htmlFor="saved-urls-query">
+              Search saved URLs
+            </label>
+            <input
+              id="saved-urls-query"
+              name="saved_urls_query"
+              aria-label="Search saved URLs"
+              type="text"
+              placeholder="Search title, URL, description, domain, or tags"
+              value={state.query}
+              onChange={(e) =>
+                setState((s) => ({ ...s, query: e.target.value }))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applyFiltersNow(state);
+                }
+              }}
+              className="input flex-1 rounded-lg shadow-sm focus:ring-2 focus:ring-brand-primary/40"
+            />
+            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              Filters update automatically. Press Enter to apply immediately.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <span className="rounded-full border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+              {activeFilterCount === 0
+                ? "No active filters"
+                : `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`}
+            </span>
+
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => applyFiltersNow(state)}
+              className="btn-primary rounded-lg px-4 py-2 disabled:opacity-60"
+              aria-label="Apply filters now"
+              title="Apply filters now"
+            >
+              {isLoading ? "Applying…" : "Apply now"}
+            </button>
+
+            <button
+              type="button"
+              disabled={activeFilterCount === 0}
+              onClick={clearAllFilters}
+              className="rounded-lg border px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800"
+              aria-label="Clear all search filters"
+              title="Clear all search filters"
+            >
+              Reset filters
+            </button>
+          </div>
         </div>
       </div>
 
@@ -174,7 +253,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
           <div className="font-semibold mb-2">Other</div>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0">
                 <label
                   className="block text-xs mb-1"
                   htmlFor="saved-urls-date-from"

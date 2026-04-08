@@ -5,7 +5,7 @@ export interface UrlFilterState {
   query: string;
   domains: string[];
   tags: string[];
-  visibility: "all" | "public" | "private" | "shared";
+  visibility: "all" | "public" | "private";
   dateFrom?: string;
   dateTo?: string;
   favoritesOnly: boolean;
@@ -392,7 +392,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                 className="block text-xs mb-1"
                 htmlFor="saved-urls-visibility"
               >
-                Visibility
+                Access
               </label>
               <select
                 id="saved-urls-visibility"
@@ -406,10 +406,9 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                 }
                 className="input w-full rounded-lg px-3 py-2"
               >
-                <option value="all">All</option>
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-                <option value="shared">Shared</option>
+                <option value="all">All access levels</option>
+                <option value="private">Private only</option>
+                <option value="public">Public only</option>
               </select>
             </div>
           </div>

@@ -85,6 +85,33 @@ const SAVED_URLS_VIEW_KEY = "saved-urls:view-mode";
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const DEFAULT_URL_FILTER: UrlFilterState = {
+  query: "",
+  favoritesOnly: false,
+  tags: [],
+  domains: [],
+  visibility: "all",
+  dateFrom: "",
+  dateTo: "",
+  snapshotStatus: "all",
+  taggingStatus: "all",
+  metadataState: "all",
+};
+
+const DEFAULT_SORT_KEY: SortKey = "createdAt";
+const DEFAULT_SORT_ORDER: SortOrder = "desc";
+const DEFAULT_YEAR = "all";
+const DEFAULT_QUEUE_ID: SavedUrlQueueId = "all";
+
+const DEFAULT_REVIEW_VIEW_SIGNATURE = JSON.stringify({
+  filter: DEFAULT_URL_FILTER,
+  sortKey: DEFAULT_SORT_KEY,
+  sortOrder: DEFAULT_SORT_ORDER,
+  year: DEFAULT_YEAR,
+  selectedCollectionId: null,
+  queueId: DEFAULT_QUEUE_ID,
+});
+
 function snapshotCreatedAt(u: any): number | null {
   const s = u?.latestSnapshot;
   if (!s?.createdAt) return null;
@@ -181,24 +208,16 @@ const SavedUrlsPage: React.FC = () => {
 
   // Filters
   const [filter, setFilter] = useState<UrlFilterState>({
-    query: "",
-    favoritesOnly: false,
-    tags: [],
-    domains: [],
-    visibility: "all",
-    dateFrom: "",
-    dateTo: "",
-    snapshotStatus: "all",
-    taggingStatus: "all",
-    metadataState: "all",
+    ...DEFAULT_URL_FILTER,
   });
 
   // Sort + Year
-  const [sortKey, setSortKey] = useState<SortKey>("createdAt");
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
-  const [year, setYear] = useState<string>("all"); // 'all' or 'YYYY'
+  const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY);
+  const [sortOrder, setSortOrder] = useState<SortOrder>(DEFAULT_SORT_ORDER);
+  const [year, setYear] = useState<string>(DEFAULT_YEAR); // 'all' or 'YYYY'
 
-  const [activeQueueId, setActiveQueueId] = useState<SavedUrlQueueId>("all");
+  const [activeQueueId, setActiveQueueId] =
+    useState<SavedUrlQueueId>(DEFAULT_QUEUE_ID);
 
   const [reviewedAtById, setReviewedAtById] = useState<ReviewStampMap>(() =>
     loadReviewStampMap(SAVED_URLS_REVIEWED_KEY),
@@ -733,6 +752,30 @@ const SavedUrlsPage: React.FC = () => {
     [sorted],
   );
   const clearSelection = useCallback(() => setSelection(new Set()), []);
+
+  const hasActiveReviewView = useMemo(() => {
+    return (
+      currentSavedSearchSignature !== DEFAULT_REVIEW_VIEW_SIGNATURE ||
+      activeSavedSearchId !== null
+    );
+  }, [currentSavedSearchSignature, activeSavedSearchId]);
+
+  const resetReviewView = useCallback(() => {
+    setFilter({ ...DEFAULT_URL_FILTER });
+    setSortKey(DEFAULT_SORT_KEY);
+    setSortOrder(DEFAULT_SORT_ORDER);
+    setYear(DEFAULT_YEAR);
+    setSelectedCollectionId(undefined);
+    setActiveQueueId(DEFAULT_QUEUE_ID);
+    setActiveSavedSearchId(null);
+    setSelection(new Set());
+    setDetail(null);
+
+    notify({
+      text: "Reset filters, queue, collection, saved search context, and sorting.",
+      kind: "success",
+    });
+  }, [notify]);
 
   const markVisibleReviewed = useCallback(() => {
     if (!sorted.length) return;
@@ -1420,6 +1463,16 @@ const SavedUrlsPage: React.FC = () => {
               title="Mark every visible result as reviewed right now"
             >
               Mark visible reviewed
+            </button>
+
+            <button
+              type="button"
+              className="btn-ghost px-3 py-2 rounded-lg disabled:opacity-50"
+              onClick={resetReviewView}
+              disabled={!hasActiveReviewView}
+              title="Reset filters, selected collection, queue, saved-search context, year, and sort"
+            >
+              Reset review view
             </button>
 
             <button

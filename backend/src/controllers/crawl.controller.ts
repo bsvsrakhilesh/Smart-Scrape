@@ -1285,31 +1285,62 @@ export async function crawlPdfHandler(
           continue;
         }
 
-        const sniff = await fetchWithTimeout(candidate, 15_000, {
-          Range: "bytes=0-4095",
-          Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
-          "User-Agent": BROWSER_UA,
-          "Accept-Language": "en-US,en;q=0.9",
-          Referer: `${cu.origin}/`,
-        });
-
-        const sniffCt = (sniff.headers.get("content-type") || "").toLowerCase();
-        const sniffBuf = Buffer.from(await sniff.arrayBuffer());
-
         const likelyPdf = looksLikePdfUrl(cu);
-        const isPdf =
-          sniffCt.includes("application/pdf") ||
-          isPdfMagic(sniffBuf) ||
-          likelyPdf;
+        let isPdf = likelyPdf;
+
+        // For obvious PDF URLs, do not depend on a fragile Range sniff first.
+        if (!likelyPdf) {
+          try {
+            const sniff = await fetchWithTimeout(candidate, 30_000, {
+              Range: "bytes=0-4095",
+              Accept: "application/pdf,*/*;q=0.9,text/html;q=0.8,*/*;q=0.7",
+              "User-Agent": BROWSER_UA,
+              "Accept-Language": "en-US,en;q=0.9",
+              Referer: `${cu.origin}/`,
+            });
+
+            const sniffCt = (
+              sniff.headers.get("content-type") || ""
+            ).toLowerCase();
+            const sniffBuf = Buffer.from(await sniff.arrayBuffer());
+
+            isPdf =
+              likelyPdf ||
+              sniffCt.includes("application/pdf") ||
+              isPdfMagic(sniffBuf);
+          } catch (e) {
+            log.info("crawl_pdf_direct_sniff_failed", {
+              ...requestMeta(req),
+              url,
+              candidate,
+              error: String((e as any)?.message || e),
+            });
+
+            // Sniff failure should not abort the whole direct-download fast-path.
+            continue;
+          }
+        }
 
         if (!isPdf) continue;
 
-        const full = await fetchWithTimeout(candidate, 90_000, {
-          Accept: "application/pdf,*/*",
-          "User-Agent": BROWSER_UA,
-          "Accept-Language": "en-US,en;q=0.9",
-          Referer: `${cu.origin}/`,
-        });
+        let full: Awaited<ReturnType<typeof fetchWithTimeout>>;
+        try {
+          full = await fetchWithTimeout(candidate, 120_000, {
+            Accept: "application/pdf,*/*",
+            "User-Agent": BROWSER_UA,
+            "Accept-Language": "en-US,en;q=0.9",
+            Referer: `${cu.origin}/`,
+          });
+        } catch (e) {
+          log.info("crawl_pdf_full_fetch_failed", {
+            ...requestMeta(req),
+            url,
+            candidate,
+            error: String((e as any)?.message || e),
+          });
+          continue;
+        }
+
         if (!full.ok) continue;
 
         const pdfBytes = Buffer.from(await full.arrayBuffer());

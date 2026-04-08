@@ -5,8 +5,8 @@ import { RefObject, useEffect } from "react";
 type Options = {
   isOpen: boolean;
   onClose: () => void;
-  dialogRef: RefObject<HTMLElement>;
-  initialFocusRef?: RefObject<HTMLElement>;
+  dialogRef: RefObject<HTMLElement | null>;
+  initialFocusRef?: RefObject<HTMLElement | null>;
   closeOnEsc?: boolean; // default true
   closeOnOutsideClick?: boolean; // default true
 };
@@ -14,14 +14,14 @@ type Options = {
 function getFocusable(root: HTMLElement): HTMLElement[] {
   const nodes = root.querySelectorAll<HTMLElement>(
     [
-      'a[href]',
-      'button:not([disabled])',
-      'input:not([disabled])',
-      'select:not([disabled])',
-      'textarea:not([disabled])',
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
       '[tabindex]:not([tabindex="-1"])',
-      'summary',
-    ].join(",")
+      "summary",
+    ].join(","),
   );
   return Array.from(nodes).filter((el) => {
     const style = window.getComputedStyle(el);
@@ -52,9 +52,7 @@ export function useDialogA11y({
 
     // 3) initial focus
     const focusTarget =
-      initialFocusRef?.current ??
-      getFocusable(dialogEl)[0] ??
-      dialogEl;
+      initialFocusRef?.current ?? getFocusable(dialogEl)[0] ?? dialogEl;
 
     // ensure dialog itself can be focused
     if (!dialogEl.hasAttribute("tabindex")) {

@@ -69,7 +69,16 @@ function Row({
           mono ? "font-mono" : ""
         }`}
       >
-        <div className="truncate max-w-[240px]">{value}</div>
+        <div
+          className={[
+            "max-w-[320px]",
+            mono
+              ? "break-all whitespace-pre-wrap"
+              : "break-words whitespace-pre-wrap",
+          ].join(" ")}
+        >
+          {value}
+        </div>
       </div>
     </div>
   );

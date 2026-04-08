@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { SavedUrl } from "../../lib/types";
 import { createPortal } from "react-dom";
 import { formatDate } from "../../utils/fileHelpers";
@@ -20,6 +20,7 @@ import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
 import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
+import { useDialogA11y } from "../common/useDialogA11y";
 
 interface SavedUrlDetailModalProps {
   url: SavedUrl;
@@ -156,6 +157,23 @@ function getUrlIntegritySummary(
   };
 }
 
+function evidencePillClass(
+  tone: "green" | "blue" | "violet" | "slate" | "ghost",
+) {
+  switch (tone) {
+    case "green":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300";
+    case "blue":
+      return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-300";
+    case "violet":
+      return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-300";
+    case "slate":
+      return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300";
+    default:
+      return "border-black/10 bg-white text-neutral-700 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-300";
+  }
+}
+
 const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   url,
   isOpen,
@@ -165,6 +183,10 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   onNotesChange,
   onUrlHydrate,
 }) => {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogTitleId = useId();
+
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [snapshotsError, setSnapshotsError] = useState<string | null>(null);
@@ -198,6 +220,13 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   }, [url.tags]);
 
   const { notify } = useToast();
+
+  useDialogA11y({
+    isOpen,
+    onClose,
+    dialogRef,
+    initialFocusRef: closeButtonRef,
+  });
 
   const [metaRefreshing, setMetaRefreshing] = useState(false);
   const [publishedAt, setPublishedAt] = useState<string | null>(
@@ -390,15 +419,6 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     window.location.href = "/notebook";
   }
 
-  // Prevent background scroll when modal is open
-  useEffect(() => {
-    if (isOpen) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   // Handlers for adding/removing tags
@@ -541,7 +561,19 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
   const evidenceIntelligenceRows = [
     { label: "Domain", value: sourceHost },
-    { label: "Source URL", value: url.url },
+    {
+      label: "Source URL",
+      value: (
+        <a
+          href={url.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 underline break-all dark:text-blue-400"
+        >
+          {url.url}
+        </a>
+      ),
+    },
     {
       label: "Published",
       value: publishedAt ? formatDateTime(publishedAt) : "—",
@@ -559,6 +591,36 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
       value: latestSnapshot?.captureType ?? "—",
     },
   ];
+
+  const copySourceUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(url.url);
+      notify({ text: "Source URL copied.", kind: "success" });
+    } catch {
+      notify({ text: "Failed to copy the source URL.", kind: "error" });
+    }
+  };
+
+  const visibleTaggingError =
+    url.taggingStatus === "FAILED"
+      ? url.taggingError || "Retry tagging from this record."
+      : null;
+
+  const modalHeaderPills = useMemo(
+    () =>
+      evidencePills.map((pill, idx) => (
+        <span
+          key={`${pill.label}-${idx}`}
+          className={[
+            "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+            evidencePillClass(pill.tone),
+          ].join(" ")}
+        >
+          {pill.label}
+        </span>
+      )),
+    [evidencePills],
+  );
 
   const evidenceProvenanceRows = [
     { label: "URL ID", value: url.id, mono: true },
@@ -593,447 +655,640 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   ];
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/50 p-4">
-      <div className="relative max-w-7xl w-full bg-white dark:bg-gray-900 rounded-2xl shadow-xl flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold">{url.title}</h2>
-            <div className="text-sm text-gray-500 truncate">{url.domain}</div>
-          </div>
-          <button onClick={onClose} aria-label="Close">
-            <CloseIcon className="w-6 h-6" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/55 backdrop-blur-[2px]">
+      <div className="flex min-h-full items-start justify-center p-4 md:p-6">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          className="relative flex w-full max-w-7xl max-h-[calc(100vh-2rem)] md:max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-gray-900"
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-20 border-b border-black/10 bg-white/95 px-5 py-4 backdrop-blur dark:border-white/10 dark:bg-gray-900/95 md:px-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start gap-3">
+                  {url.faviconUrl ? (
+                    <img
+                      src={url.faviconUrl}
+                      alt=""
+                      className="mt-1 h-8 w-8 shrink-0 rounded-sm"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="mt-1 h-8 w-8 shrink-0 rounded-sm bg-neutral-200 dark:bg-neutral-800" />
+                  )}
 
-        {/* Body */}
-        <div className="p-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Left: Main details */}
-          <div className="xl:col-span-2 space-y-4 min-w-0">
-            {/* URL & Favorite */}
-            <div className="flex justify-between items-start">
-              <div className="flex gap-4">
-                {url.faviconUrl && (
-                  <img
-                    src={url.faviconUrl}
-                    alt="favicon"
-                    className="w-8 h-8 rounded-sm"
-                  />
-                )}
-                <div>
-                  <div className="text-sm text-gray-500">URL</div>
-                  <a
-                    href={url.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 underline break-all"
-                  >
-                    {url.url}
-                  </a>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={openGovernanceView}
-                  className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
-                >
-                  Open governance
-                </button>
-                <button
-                  onClick={() => onFavoriteToggle(url)}
-                  className="px-3 py-2 border rounded-xl flex items-center gap-1 bg-white shadow-sm"
-                >
-                  {url.isFavorited ? "Unfavorite" : "Favorite"}
-                </button>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <div className="text-sm text-gray-500">Description / Notes</div>
-              <textarea
-                defaultValue={url.notes}
-                onBlur={(e) => onNotesChange?.(url.id, e.target.value)}
-                className="w-full border rounded p-2 min-h-[120px]"
-              />
-            </div>
-
-            {/* Tags - Editable */}
-            <div>
-              <div className="text-sm text-gray-500">Tags</div>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {localTags.map((t) => (
-                  <div
-                    key={t}
-                    className="flex items-center gap-1 text-xs px-2 py-1 bg-indigo-100 rounded-full"
-                  >
-                    <span>{t}</span>
-                    <button
-                      onClick={() => removeTag(t)}
-                      aria-label={`Remove tag ${t}`}
-                      className="text-xs"
+                  <div className="min-w-0 flex-1">
+                    <h2
+                      id={dialogTitleId}
+                      className="text-lg font-semibold text-neutral-950 dark:text-neutral-100 md:text-xl"
                     >
-                      ×
-                    </button>
+                      {url.title}
+                    </h2>
+
+                    <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 break-words">
+                      {sourceHost} • saved {formatDateTime(url.createdAt)}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {modalHeaderPills}
+                    </div>
                   </div>
-                ))}
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    placeholder="Add tag"
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addTag();
-                      }
-                    }}
-                    className="px-2 py-1 border rounded text-xs"
-                  />
-                  <button
-                    onClick={addTag}
-                    className="px-2 py-1 border rounded text-xs"
-                  >
-                    Add
-                  </button>
-                  <AITagButton
-                    kind="url"
-                    id={Number(url.id)} // SavedUrl.id is string in UI; backend expects number
-                    onMerge={(aiTags) => {
-                      const merged = Array.from(
-                        new Set([...(url.tags || []), ...aiTags]),
-                      );
-                      setLocalTags(merged);
-                      onTagUpdate?.(url.id, merged); // persists via your page handler
-                    }}
-                  />
                 </div>
-              </div>
-            </div>
-
-            {/* Metadata */}
-            <div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-gray-500">Metadata</div>
-                <button
-                  type="button"
-                  className="px-2 py-1 border rounded text-xs disabled:opacity-50"
-                  disabled={metaRefreshing}
-                  onClick={async () => {
-                    try {
-                      setMetaRefreshing(true);
-                      await refreshUrlMetadata(Number(url.id));
-                      const fresh = await getUrlById(Number(url.id));
-                      onUrlHydrate?.(fresh);
-                      setPublishedAt((fresh as any).publishedAt ?? null);
-                      setPublishedAtMeta(
-                        (fresh as any)?.tagsMetaRaw?.publishedAtMeta ??
-                          (fresh as any)?.tagsMeta?.publishedAtMeta ??
-                          null,
-                      );
-                      setAuthors(
-                        Array.isArray((fresh as any).authors)
-                          ? (fresh as any).authors
-                          : [],
-                      );
-                      notify("Metadata refreshed");
-                    } catch (e: any) {
-                      notify(e?.message || "Failed to refresh metadata");
-                    } finally {
-                      setMetaRefreshing(false);
-                    }
-                  }}
-                  title="Re-fetch published date and author(s) from the live page"
-                >
-                  {metaRefreshing ? "Refreshing…" : "Refresh metadata"}
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-xs mt-1">
-                <div>
-                  <strong>Created:</strong> {formatDate(url.createdAt)}
-                </div>
-                <div>
-                  <strong>Last visited:</strong>{" "}
-                  {url.lastVisitedAt ? formatDate(url.lastVisitedAt) : "—"}
-                </div>
-                <div>
-                  <strong>Visits:</strong> {url.visitCount}
-                </div>
-                <div>
-                  <strong>Visibility:</strong> {url.visibility}
-                </div>
-                <div>
-                  <strong>Published:</strong>{" "}
-                  <span className="inline-flex items-center gap-2">
-                    <span>{publishedAt ? formatDate(publishedAt) : "—"}</span>
-
-                    {publishedAt &&
-                      publishedAtMeta?.source &&
-                      publishedAtMeta.source !== "unknown" &&
-                      publishedAtMeta.source !== "jsonld" && (
-                        <span
-                          className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold bg-gray-50"
-                          title={`Inferred from: ${publishedAtMeta.source}\nConfidence: ${Math.round(
-                            (publishedAtMeta.confidence ?? 0) * 100,
-                          )}%`}
-                        >
-                          Inferred
-                        </span>
-                      )}
-                  </span>
-                </div>
-                <div>
-                  <strong>Authors:</strong>{" "}
-                  {authors.length ? authors.join(", ") : "—"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Unified evidence inspector + revision tools */}
-          <div className="space-y-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto xl:pr-1">
-            <div className="rounded-2xl border border-[hsl(var(--border))] bg-white/80 shadow-sm backdrop-blur p-4">
-              <EvidenceOverviewPanel
-                eyebrow="Source evidence"
-                title={url.title}
-                subtitle={`${sourceHost} • registry entry`}
-                pills={evidencePills}
-                actions={[
-                  {
-                    label: "Open source",
-                    onClick: () => {
-                      window.open(url.url, "_blank", "noopener,noreferrer");
-                    },
-                    title: "Open source URL",
-                  },
-                  {
-                    label: "Copy URL",
-                    onClick: async () => {
-                      try {
-                        await navigator.clipboard.writeText(url.url);
-                        notify({ text: "Source URL copied", kind: "success" });
-                      } catch {
-                        notify({ text: "Copy failed", kind: "error" });
-                      }
-                    },
-                    title: "Copy source URL",
-                  },
-                  ...(notebookFileId
-                    ? [
-                        {
-                          label: "Use in notebook",
-                          onClick: () => useRevisionInNotebook(notebookFileId),
-                          primary: true,
-                          title: "Use latest evidence revision in Notebook",
-                        },
-                      ]
-                    : []),
-                ]}
-                summaryCards={evidenceSummaryCards}
-                aiCard={evidenceAiCard}
-                timelineItems={evidenceTimeline}
-                structured={evidenceStructured}
-                intelligenceRows={evidenceIntelligenceRows}
-                provenanceRows={evidenceProvenanceRows}
-              />
-            </div>
-
-            {/* Re-capture (creates a new canonical revision) */}
-            <div className="border rounded-xl p-3 bg-white">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-semibold text-sm">Re-capture</div>
-
-                <select
-                  className="border rounded-lg px-2 py-1 text-xs"
-                  value={recaptureMode}
-                  onChange={(e) =>
-                    setRecaptureMode(e.target.value as "text" | "pdf")
-                  }
-                  disabled={recaptureLoading || isPdf}
-                >
-                  <option value="text" disabled={isPdf}>
-                    Text
-                  </option>
-                  <option value="pdf">PDF</option>
-                </select>
-              </div>
-
-              <div className="text-xs text-gray-500 mt-1">
-                Creates a new revision from the current live URL. Use this when
-                a news article is updated or a judgment gets amended.
               </div>
 
               <button
-                className="mt-2 w-full px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
-                onClick={recaptureNow}
-                disabled={recaptureLoading}
+                ref={closeButtonRef}
                 type="button"
+                onClick={onClose}
+                aria-label="Close saved URL details"
+                className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
               >
-                {recaptureLoading ? "Re-capturing…" : "Re-capture now"}
+                <span className="inline-flex items-center gap-2">
+                  <CloseIcon className="h-4 w-4" />
+                  Close
+                </span>
               </button>
             </div>
+          </div>
 
-            <div>
-              {revisionsLoading ? (
-                <div className="text-sm text-gray-500">
-                  Loading revision history…
-                </div>
-              ) : revisionsError ? (
-                <div className="text-sm text-red-600">{revisionsError}</div>
-              ) : (
-                <RevisionHistoryPanel
-                  revisions={revisions}
-                  onOpen={(storedFileId) =>
-                    window.open(
-                      apiUrl(`/api/files/${storedFileId}/preview`),
-                      "_blank",
-                    )
-                  }
-                  onSetA={(storedFileId) => setLeftSnapId(storedFileId)}
-                  onSetB={(storedFileId) => setRightSnapId(storedFileId)}
-                  currentA={leftSnapId}
-                  currentB={rightSnapId}
-                  onCompareWithPrev={async (currentId, prevId) => {
-                    setLeftSnapId(prevId);
-                    setRightSnapId(currentId);
-                    await runCompare(prevId, currentId);
-                  }}
-                  onUseInNotebook={(storedFileId) =>
-                    useRevisionInNotebook(storedFileId)
-                  }
-                />
-              )}
-            </div>
+          {/* Body */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 gap-6 p-5 xl:grid-cols-3 md:p-6">
+              {/* Left: editable / operator area */}
+              <div className="min-w-0 space-y-4 xl:col-span-2">
+                {/* Source URL + main actions */}
+                <section className="rounded-2xl border border-black/10 bg-neutral-50/80 p-4 dark:border-white/10 dark:bg-neutral-950/40">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Source URL
+                      </div>
 
-            <div>
-              <div className="font-semibold mb-2">Snapshots</div>
-              {snapshotsLoading && (
-                <div className="text-sm text-gray-500">Loading…</div>
-              )}
+                      <a
+                        href={url.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 block break-all rounded-xl border border-black/10 bg-white px-3 py-3 text-sm text-blue-700 underline dark:border-white/10 dark:bg-neutral-900 dark:text-blue-400"
+                      >
+                        {url.url}
+                      </a>
 
-              {snapshotsError && (
-                <div className="text-sm text-red-600">{snapshotsError}</div>
-              )}
-
-              {!snapshotsLoading &&
-                !snapshotsError &&
-                snapshots.length === 0 && (
-                  <div className="text-sm text-gray-500">No snapshots yet.</div>
-                )}
-
-              <div className="space-y-2">
-                {snapshots.map((s) => (
-                  <div
-                    key={s.id}
-                    className="border rounded-lg p-2 text-sm flex items-start justify-between gap-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{s.fileName}</div>
-                      <div className="text-xs text-gray-500">
-                        {s.captureType} • {formatDate(s.createdAt)}
+                      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+                        Open the live source, copy the exact URL, or route the
+                        canonical evidence into governance/notebook workflows.
                       </div>
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
+                    <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-[18rem]">
                       <button
-                        className="px-2 py-1 border rounded text-xs"
+                        type="button"
                         onClick={() =>
-                          window.open(
-                            apiUrl(`/api/files/${s.id}/preview`),
-                            "_blank",
-                          )
+                          window.open(url.url, "_blank", "noopener,noreferrer")
                         }
-                        title="Open preview"
+                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
                       >
-                        Open
+                        Open source
                       </button>
+
                       <button
-                        className="px-2 py-1 border rounded text-xs"
-                        onClick={() =>
-                          window.open(
-                            apiUrl(`/api/files/${s.id}/download`),
-                            "_blank",
-                          )
-                        }
-                        title="Download"
+                        type="button"
+                        onClick={copySourceUrl}
+                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
                       >
-                        Download
+                        Copy URL
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={openGovernanceView}
+                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      >
+                        Open governance
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onFavoriteToggle(url)}
+                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      >
+                        {url.isFavorited ? "Remove favorite" : "Add favorite"}
+                      </button>
+
+                      {notebookFileId && (
+                        <button
+                          type="button"
+                          onClick={() => useRevisionInNotebook(notebookFileId)}
+                          className="sm:col-span-2 rounded-xl bg-brand-primary px-3 py-2 text-sm font-medium text-white transition hover:opacity-95"
+                        >
+                          Use latest evidence in notebook
+                        </button>
+                      )}
                     </div>
                   </div>
-                ))}
+                </section>
+
+                {/* Notes */}
+                <section className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        Notes
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        These notes stay attached to this saved URL record.
+                      </div>
+                    </div>
+                  </div>
+
+                  <textarea
+                    defaultValue={url.notes}
+                    onBlur={(e) => onNotesChange?.(url.id, e.target.value)}
+                    className="mt-3 min-h-[140px] w-full rounded-xl border border-black/10 bg-white p-3 text-sm outline-none transition focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 dark:border-white/10 dark:bg-neutral-900"
+                    placeholder="Add context, review notes, follow-up tasks, or why this source matters."
+                  />
+                </section>
+
+                {/* Tags */}
+                <section className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        Tags
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        {localTags.length === 0
+                          ? "No tags yet."
+                          : `${localTags.length} tag${localTags.length === 1 ? "" : "s"} attached to this source.`}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0">
+                      <AITagButton
+                        kind="url"
+                        id={Number(url.id)}
+                        onMerge={(aiTags) => {
+                          const merged = Array.from(
+                            new Set([...(url.tags || []), ...aiTags]),
+                          );
+                          setLocalTags(merged);
+                          onTagUpdate?.(url.id, merged);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {localTags.map((t) => (
+                      <div
+                        key={t}
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-300"
+                      >
+                        <span className="break-all">{t}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeTag(t)}
+                          aria-label={`Remove tag ${t}`}
+                          className="rounded-full px-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      placeholder="Add a tag"
+                      value={newTagInput}
+                      onChange={(e) => setNewTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-primary focus:ring-4 focus:ring-brand-primary/10 dark:border-white/10 dark:bg-neutral-900"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={addTag}
+                      className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+                    >
+                      Add tag
+                    </button>
+                  </div>
+
+                  {visibleTaggingError && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                      {visibleTaggingError}
+                    </div>
+                  )}
+                </section>
+
+                {/* Metadata */}
+                <section className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        Metadata
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        Publication and registry metadata for this saved source.
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium transition hover:bg-neutral-50 disabled:opacity-50 dark:border-white/10 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+                      disabled={metaRefreshing}
+                      onClick={async () => {
+                        try {
+                          setMetaRefreshing(true);
+                          await refreshUrlMetadata(Number(url.id));
+                          const fresh = await getUrlById(Number(url.id));
+                          onUrlHydrate?.(fresh);
+                          setPublishedAt((fresh as any).publishedAt ?? null);
+                          setPublishedAtMeta(
+                            (fresh as any)?.tagsMetaRaw?.publishedAtMeta ??
+                              (fresh as any)?.tagsMeta?.publishedAtMeta ??
+                              null,
+                          );
+                          setAuthors(
+                            Array.isArray((fresh as any).authors)
+                              ? (fresh as any).authors
+                              : [],
+                          );
+                          notify({
+                            text: "Metadata refreshed.",
+                            kind: "success",
+                          });
+                        } catch (e: any) {
+                          notify({
+                            text: e?.message || "Failed to refresh metadata.",
+                            kind: "error",
+                          });
+                        } finally {
+                          setMetaRefreshing(false);
+                        }
+                      }}
+                      title="Re-fetch published date and authors from the live page"
+                    >
+                      {metaRefreshing ? "Refreshing…" : "Refresh metadata"}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Created
+                      </div>
+                      <div className="mt-1 break-words text-neutral-900 dark:text-neutral-100">
+                        {formatDate(url.createdAt)}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Last visited
+                      </div>
+                      <div className="mt-1 break-words text-neutral-900 dark:text-neutral-100">
+                        {url.lastVisitedAt
+                          ? formatDate(url.lastVisitedAt)
+                          : "—"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Visit count
+                      </div>
+                      <div className="mt-1 text-neutral-900 dark:text-neutral-100">
+                        {url.visitCount}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Visibility
+                      </div>
+                      <div className="mt-1 text-neutral-900 dark:text-neutral-100">
+                        {url.visibility}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Published
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-neutral-900 dark:text-neutral-100">
+                        <span>
+                          {publishedAt ? formatDate(publishedAt) : "—"}
+                        </span>
+
+                        {publishedAt &&
+                          publishedAtMeta?.source &&
+                          publishedAtMeta.source !== "unknown" &&
+                          publishedAtMeta.source !== "jsonld" && (
+                            <span
+                              className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold bg-white dark:bg-neutral-950"
+                              title={`Inferred from: ${publishedAtMeta.source}\nConfidence: ${Math.round(
+                                (publishedAtMeta.confidence ?? 0) * 100,
+                              )}%`}
+                            >
+                              Inferred
+                            </span>
+                          )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 px-3 py-3 dark:border-white/10 dark:bg-neutral-900">
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+                        Authors
+                      </div>
+                      <div className="mt-1 break-words text-neutral-900 dark:text-neutral-100">
+                        {authors.length ? authors.join(", ") : "—"}
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </div>
-            </div>
 
-            <div className="mt-3 space-y-2">
-              <div className="font-semibold text-sm">Compare snapshots</div>
+              {/* Right: evidence and revision tools */}
+              <div className="space-y-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto xl:pr-1">
+                <div className="rounded-2xl border border-[hsl(var(--border))] bg-white/80 p-4 shadow-sm backdrop-blur dark:bg-neutral-950/20">
+                  <EvidenceOverviewPanel
+                    eyebrow="Source evidence"
+                    title={url.title}
+                    subtitle={`${sourceHost} • registry entry`}
+                    pills={evidencePills}
+                    actions={[
+                      {
+                        label: "Open source",
+                        onClick: () => {
+                          window.open(url.url, "_blank", "noopener,noreferrer");
+                        },
+                        title: "Open source URL",
+                      },
+                      {
+                        label: "Copy URL",
+                        onClick: copySourceUrl,
+                        title: "Copy source URL",
+                      },
+                      ...(notebookFileId
+                        ? [
+                            {
+                              label: "Use in notebook",
+                              onClick: () =>
+                                useRevisionInNotebook(notebookFileId),
+                              primary: true,
+                              title: "Use latest evidence revision in Notebook",
+                            },
+                          ]
+                        : []),
+                    ]}
+                    summaryCards={evidenceSummaryCards}
+                    aiCard={evidenceAiCard}
+                    timelineItems={evidenceTimeline}
+                    structured={evidenceStructured}
+                    intelligenceRows={evidenceIntelligenceRows}
+                    provenanceRows={evidenceProvenanceRows}
+                  />
+                </div>
 
-              <div className="grid grid-cols-1 gap-2">
-                <select
-                  className="border rounded px-2 py-1 text-sm"
-                  value={leftSnapId}
-                  onChange={(e) => setLeftSnapId(e.target.value)}
-                >
-                  <option value="">Select snapshot A…</option>
-                  {snapshots.map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.captureType} • {formatDate(s.createdAt)}
-                    </option>
-                  ))}
-                </select>
+                <div className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        Re-capture
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        Create a new revision from the current live URL.
+                      </div>
+                    </div>
 
-                <select
-                  className="border rounded px-2 py-1 text-sm"
-                  value={rightSnapId}
-                  onChange={(e) => setRightSnapId(e.target.value)}
-                >
-                  <option value="">Select snapshot B…</option>
-                  {snapshots.map((s: any) => (
-                    <option key={s.id} value={s.id}>
-                      {s.captureType} • {formatDate(s.createdAt)}
-                    </option>
-                  ))}
-                </select>
+                    <select
+                      className="rounded-lg border border-black/10 px-2 py-1 text-xs dark:border-white/10 dark:bg-neutral-900"
+                      value={recaptureMode}
+                      onChange={(e) =>
+                        setRecaptureMode(e.target.value as "text" | "pdf")
+                      }
+                      disabled={recaptureLoading || isPdf}
+                    >
+                      <option value="text" disabled={isPdf}>
+                        Text
+                      </option>
+                      <option value="pdf">PDF</option>
+                    </select>
+                  </div>
 
-                <button
-                  className="mt-2 w-full px-3 py-2 border rounded-lg text-sm disabled:opacity-50"
-                  onClick={() => runCompare()}
-                  disabled={!leftSnapId || !rightSnapId || compareLoading}
-                  type="button"
-                >
-                  {compareLoading ? "Comparing…" : "Compare"}
-                </button>
+                  <button
+                    className="mt-3 w-full rounded-xl border border-black/10 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/10"
+                    onClick={recaptureNow}
+                    disabled={recaptureLoading}
+                    type="button"
+                  >
+                    {recaptureLoading ? "Re-capturing…" : "Re-capture now"}
+                  </button>
+                </div>
 
-                {compareError && (
-                  <div className="text-sm text-red-600">{compareError}</div>
-                )}
+                <div>
+                  {revisionsLoading ? (
+                    <div className="text-sm text-gray-500">
+                      Loading revision history…
+                    </div>
+                  ) : revisionsError ? (
+                    <div className="text-sm text-red-600">{revisionsError}</div>
+                  ) : (
+                    <RevisionHistoryPanel
+                      revisions={revisions}
+                      onOpen={(storedFileId) =>
+                        window.open(
+                          apiUrl(`/api/files/${storedFileId}/preview`),
+                          "_blank",
+                        )
+                      }
+                      onSetA={(storedFileId) => setLeftSnapId(storedFileId)}
+                      onSetB={(storedFileId) => setRightSnapId(storedFileId)}
+                      currentA={leftSnapId}
+                      currentB={rightSnapId}
+                      onCompareWithPrev={async (currentId, prevId) => {
+                        setLeftSnapId(prevId);
+                        setRightSnapId(currentId);
+                        await runCompare(prevId, currentId);
+                      }}
+                      onUseInNotebook={(storedFileId) =>
+                        useRevisionInNotebook(storedFileId)
+                      }
+                    />
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="mb-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                    Snapshots
+                  </div>
+
+                  {snapshotsLoading && (
+                    <div className="text-sm text-gray-500">Loading…</div>
+                  )}
+
+                  {snapshotsError && (
+                    <div className="text-sm text-red-600">{snapshotsError}</div>
+                  )}
+
+                  {!snapshotsLoading &&
+                    !snapshotsError &&
+                    snapshots.length === 0 && (
+                      <div className="text-sm text-gray-500">
+                        No snapshots yet.
+                      </div>
+                    )}
+
+                  <div className="space-y-2">
+                    {snapshots.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-start justify-between gap-3 rounded-xl border border-black/10 p-3 text-sm dark:border-white/10"
+                      >
+                        <div className="min-w-0">
+                          <div className="break-words font-medium">
+                            {s.fileName}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {s.captureType} • {formatDate(s.createdAt)}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            className="rounded-lg border border-black/10 px-2 py-1 text-xs dark:border-white/10"
+                            onClick={() =>
+                              window.open(
+                                apiUrl(`/api/files/${s.id}/preview`),
+                                "_blank",
+                              )
+                            }
+                            title="Open preview"
+                          >
+                            Open
+                          </button>
+                          <button
+                            className="rounded-lg border border-black/10 px-2 py-1 text-xs dark:border-white/10"
+                            onClick={() =>
+                              window.open(
+                                apiUrl(`/api/files/${s.id}/download`),
+                                "_blank",
+                              )
+                            }
+                            title="Download"
+                          >
+                            Download
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-black/10 bg-white p-4 dark:border-white/10 dark:bg-neutral-950/20">
+                  <div className="mb-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                    Compare snapshots
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2">
+                    <select
+                      className="rounded-lg border border-black/10 px-2 py-2 text-sm dark:border-white/10 dark:bg-neutral-900"
+                      value={leftSnapId}
+                      onChange={(e) => setLeftSnapId(e.target.value)}
+                    >
+                      <option value="">Select snapshot A…</option>
+                      {snapshots.map((s: any) => (
+                        <option key={s.id} value={s.id}>
+                          {s.captureType} • {formatDate(s.createdAt)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      className="rounded-lg border border-black/10 px-2 py-2 text-sm dark:border-white/10 dark:bg-neutral-900"
+                      value={rightSnapId}
+                      onChange={(e) => setRightSnapId(e.target.value)}
+                    >
+                      <option value="">Select snapshot B…</option>
+                      {snapshots.map((s: any) => (
+                        <option key={s.id} value={s.id}>
+                          {s.captureType} • {formatDate(s.createdAt)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      className="mt-1 w-full rounded-xl border border-black/10 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/10"
+                      onClick={() => runCompare()}
+                      disabled={!leftSnapId || !rightSnapId || compareLoading}
+                      type="button"
+                    >
+                      {compareLoading ? "Comparing…" : "Compare"}
+                    </button>
+
+                    {compareError && (
+                      <div className="text-sm text-red-600">{compareError}</div>
+                    )}
+                  </div>
+
+                  {leftPayload && rightPayload && (
+                    <div className="mt-4">
+                      <DiffViewer
+                        leftTitle={
+                          leftPayload.fileName +
+                          (leftPayload.truncated ? " (truncated)" : "")
+                        }
+                        rightTitle={
+                          rightPayload.fileName +
+                          (rightPayload.truncated ? " (truncated)" : "")
+                        }
+                        leftText={leftPayload.text}
+                        rightText={rightPayload.text}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
-
-              {leftPayload && rightPayload && (
-                <DiffViewer
-                  leftTitle={
-                    leftPayload.fileName +
-                    (leftPayload.truncated ? " (truncated)" : "")
-                  }
-                  rightTitle={
-                    rightPayload.fileName +
-                    (rightPayload.truncated ? " (truncated)" : "")
-                  }
-                  leftText={leftPayload.text}
-                  rightText={rightPayload.text}
-                />
-              )}
             </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="px-6 py-3 border-t flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 border rounded-md">
-            Close
-          </button>
+          {/* Footer */}
+          <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-black/10 bg-white/95 px-5 py-3 backdrop-blur dark:border-white/10 dark:bg-gray-900/95 md:px-6">
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">
+              Review source details, update notes/tags, and manage evidence
+              snapshots from one place.
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  window.open(url.url, "_blank", "noopener,noreferrer")
+                }
+                className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              >
+                Open source
+              </button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>,

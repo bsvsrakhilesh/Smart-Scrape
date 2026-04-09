@@ -41,8 +41,6 @@ import {
   createCollection,
   renameCollection,
   deleteCollection,
-  getUrlCollections,
-  addUrlToCollection,
   setUrlCollections,
   reconcileUrlCollections,
   hydrateCollectionsFromBackend,
@@ -201,7 +199,10 @@ function faviconFor(u: string): string {
 
 function toUISaved(row: BackendUrlRow): UISavedUrl {
   const domain = getDomain(row.url);
-  const collections = getUrlCollections(row.url);
+  const collections = Array.isArray(row.collections)
+    ? Array.from(new Set(row.collections.map(String).filter(Boolean)))
+    : [];
+
   return {
     id: String(row.id),
     url: row.url,
@@ -372,6 +373,24 @@ const SavedUrlsPage: React.FC = () => {
   >([]);
   const bulkAbortRef = useRef(false);
 
+  const refreshCollectionsFromServer = useCallback(async () => {
+    await hydrateCollectionsFromBackend();
+    setCollections(getCollections());
+  }, []);
+
+  const refreshUrlsFromServer = useCallback(async () => {
+    const rows = await apiFetchSavedUrls();
+    setUrls(rows.map(toUISaved));
+    return rows;
+  }, []);
+
+  const refreshSavedUrlsWorkspace = useCallback(async () => {
+    await Promise.all([
+      refreshCollectionsFromServer(),
+      refreshUrlsFromServer(),
+    ]);
+  }, [refreshCollectionsFromServer, refreshUrlsFromServer]);
+
   const refreshTaggingSummary = useCallback(async () => {
     try {
       const s = await getUrlTaggingSummary();
@@ -536,11 +555,7 @@ const SavedUrlsPage: React.FC = () => {
     (async () => {
       setLoading(true);
       try {
-        await hydrateCollectionsFromBackend();
-        setCollections(getCollections());
-
-        const rows = await apiFetchSavedUrls();
-        setUrls(rows.map(toUISaved));
+        await refreshSavedUrlsWorkspace();
         await refreshTaggingSummary();
         setError(null);
       } catch (e: any) {
@@ -549,7 +564,7 @@ const SavedUrlsPage: React.FC = () => {
         setLoading(false);
       }
     })();
-  }, [refreshTaggingSummary]);
+  }, [refreshSavedUrlsWorkspace, refreshTaggingSummary]);
 
   useEffect(() => {
     hydrateSavedSearchesFromBackend().catch((e: any) => {
@@ -1078,26 +1093,25 @@ const SavedUrlsPage: React.FC = () => {
       if (!ok) return;
 
       await deleteCollection(collection.id);
-      setCollections(getCollections());
-      setUrls((prev) =>
-        prev.map((u) => ({
-          ...u,
-          collections: (u.collections || []).filter(
-            (id) => id !== collection.id,
-          ),
-        })),
-      );
 
       if (selectedCollectionId === collection.id) {
         setSelectedCollectionId(undefined);
       }
+
+      await refreshSavedUrlsWorkspace();
 
       notify({
         text: `Deleted collection "${collection.name}".`,
         kind: "success",
       });
     },
-    [collectionCounts, confirm, notify, selectedCollectionId],
+    [
+      collectionCounts,
+      confirm,
+      notify,
+      refreshSavedUrlsWorkspace,
+      selectedCollectionId,
+    ],
   );
 
   const submitTextDialog = useCallback(async () => {
@@ -1131,7 +1145,7 @@ const SavedUrlsPage: React.FC = () => {
       if (textDialog.kind === "collection") {
         if (textDialog.mode === "create") {
           const created = await createCollection(name);
-          setCollections(getCollections());
+          await refreshCollectionsFromServer();
           setSelectedCollectionId(created.id);
 
           notify({
@@ -1144,7 +1158,7 @@ const SavedUrlsPage: React.FC = () => {
           }
 
           await renameCollection(textDialog.collectionId, name);
-          setCollections(getCollections());
+          await refreshCollectionsFromServer();
 
           notify({
             text: `Renamed collection to "${name}".`,
@@ -1171,7 +1185,14 @@ const SavedUrlsPage: React.FC = () => {
     } finally {
       setTextDialogBusy(false);
     }
-  }, [textDialog, textDialogValue, collections, notify, upsertSavedSearch]);
+  }, [
+    textDialog,
+    textDialogValue,
+    collections,
+    notify,
+    refreshCollectionsFromServer,
+    upsertSavedSearch,
+  ]);
 
   const allVisibleSelected =
     sorted.length > 0 && sorted.every((u) => selection.has(u.id));
@@ -1408,21 +1429,19 @@ const SavedUrlsPage: React.FC = () => {
       try {
         if (mode === "add") {
           await Promise.all(
-            items.map((u) => addUrlToCollection(collectionId, u.url)),
-          );
-
-          setUrls((prev) =>
-            prev.map((u) =>
-              ids.includes(u.id)
-                ? {
-                    ...u,
-                    collections: Array.from(
-                      new Set([...(u.collections || []), collectionId]),
-                    ),
-                  }
-                : u,
+            items.map((u) =>
+              setUrlCollections(
+                u.url,
+                Array.from(new Set([...(u.collections || []), collectionId])),
+                {
+                  title: u.title,
+                  snippet: u.description || null,
+                },
+              ),
             ),
           );
+
+          await refreshUrlsFromServer();
 
           notify({
             text:
@@ -1433,14 +1452,15 @@ const SavedUrlsPage: React.FC = () => {
           });
         } else {
           await Promise.all(
-            items.map((u) => setUrlCollections(u.url, [collectionId])),
-          );
-
-          setUrls((prev) =>
-            prev.map((u) =>
-              ids.includes(u.id) ? { ...u, collections: [collectionId] } : u,
+            items.map((u) =>
+              setUrlCollections(u.url, [collectionId], {
+                title: u.title,
+                snippet: u.description || null,
+              }),
             ),
           );
+
+          await refreshUrlsFromServer();
 
           notify({
             text:
@@ -1460,7 +1480,7 @@ const SavedUrlsPage: React.FC = () => {
         });
       }
     },
-    [byIds, collections, notify],
+    [byIds, collections, notify, refreshUrlsFromServer],
   );
 
   const handleCopy = useCallback(
@@ -1517,21 +1537,21 @@ const SavedUrlsPage: React.FC = () => {
     try {
       if (clipboard.mode === "copy") {
         await Promise.all(
-          items.map((u) => addUrlToCollection(selectedCollectionId, u.url)),
-        );
-
-        setUrls((prev) =>
-          prev.map((u) =>
-            items.some((it) => it.id === u.id)
-              ? {
-                  ...u,
-                  collections: Array.from(
-                    new Set([...(u.collections || []), selectedCollectionId]),
-                  ),
-                }
-              : u,
+          items.map((u) =>
+            setUrlCollections(
+              u.url,
+              Array.from(
+                new Set([...(u.collections || []), selectedCollectionId]),
+              ),
+              {
+                title: u.title,
+                snippet: u.description || null,
+              },
+            ),
           ),
         );
+
+        await refreshUrlsFromServer();
 
         notify({
           text:
@@ -1555,16 +1575,15 @@ const SavedUrlsPage: React.FC = () => {
         if (!ok) return;
 
         await Promise.all(
-          items.map((u) => setUrlCollections(u.url, [selectedCollectionId])),
-        );
-
-        setUrls((prev) =>
-          prev.map((u) =>
-            items.some((it) => it.id === u.id)
-              ? { ...u, collections: [selectedCollectionId] }
-              : u,
+          items.map((u) =>
+            setUrlCollections(u.url, [selectedCollectionId], {
+              title: u.title,
+              snippet: u.description || null,
+            }),
           ),
         );
+
+        await refreshUrlsFromServer();
 
         notify({
           text:
@@ -1582,7 +1601,14 @@ const SavedUrlsPage: React.FC = () => {
         kind: "error",
       });
     }
-  }, [clipboard, selectedCollectionId, selectedCollection, notify, confirm]);
+  }, [
+    clipboard,
+    confirm,
+    notify,
+    refreshUrlsFromServer,
+    selectedCollection,
+    selectedCollectionId,
+  ]);
 
   const handleMoveTo = useCallback((ids: string[]) => {
     if (!ids.length) return;
@@ -1622,10 +1648,19 @@ const SavedUrlsPage: React.FC = () => {
         return true;
       }
 
-      const fresh = await getUrlById(savedRef.id);
+      let fresh = await getUrlById(savedRef.id);
 
       if (selectedCollectionId) {
-        await addUrlToCollection(selectedCollectionId, fresh.url);
+        const nextCollectionIds = Array.from(
+          new Set([...(fresh.collections || []), selectedCollectionId]),
+        );
+
+        await setUrlCollections(fresh.url, nextCollectionIds, {
+          title: fresh.title,
+          snippet: fresh.snippet ?? null,
+        });
+
+        fresh = await getUrlById(savedRef.id);
       }
 
       const hydrated = toUISaved(fresh);

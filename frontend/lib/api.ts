@@ -278,6 +278,7 @@ export type BackendUrlRow = {
   taggingStatus?: "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
   taggingJobId?: string | null;
   taggingError?: string | null;
+  collections?: string[] | null;
   latestSnapshot?: {
     id: string;
     fileName: string;

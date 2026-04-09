@@ -52,6 +52,25 @@ function buildYearWhere(year?: string): Prisma.UrlWhereInput | undefined {
   return { createdAt: { gte: start, lt: end } };
 }
 
+type UrlWithCollectionLinks = Prisma.UrlGetPayload<{
+  include: {
+    collections: {
+      select: { collectionId: true };
+    };
+  };
+}>;
+
+function serializeUrlRow(
+  url: UrlWithCollectionLinks,
+  latestSnapshot: any = null,
+) {
+  return {
+    ...url,
+    collections: (url.collections || []).map((link) => link.collectionId),
+    latestSnapshot,
+  };
+}
+
 /* ------------------------------ queries ------------------------------ */
 
 /** List URLs with optional year + tag filters and sorting */
@@ -73,11 +92,16 @@ export async function getAllUrls(opts: GetAllOpts) {
   const urls = await prisma.url.findMany({
     where,
     orderBy,
+    include: {
+      collections: {
+        select: { collectionId: true },
+      },
+    },
   });
 
   // Attach latest snapshot info (if any)
   const ids = urls.map((u) => u.id);
-  if (ids.length === 0) return urls as any;
+  if (ids.length === 0) return urls.map((u) => serializeUrlRow(u)) as any;
 
   const snaps = await prisma.storedFile.findMany({
     where: { urlId: { in: ids } },
@@ -98,10 +122,9 @@ export async function getAllUrls(opts: GetAllOpts) {
       latestByUrl.set(s.urlId as number, s);
   }
 
-  return urls.map((u) => ({
-    ...u,
-    latestSnapshot: latestByUrl.get(u.id) ?? null,
-  })) as any;
+  return urls.map((u) =>
+    serializeUrlRow(u, latestByUrl.get(u.id) ?? null),
+  ) as any;
 }
 
 // ------------------------------ pagination + search ------------------------------
@@ -145,14 +168,29 @@ export async function getUrlsPaged(opts: GetPagedUrlsOpts) {
   const skip = (page - 1) * pageSize;
 
   const [urls, total] = await Promise.all([
-    prisma.url.findMany({ where, orderBy, skip, take: pageSize }),
+    prisma.url.findMany({
+      where,
+      orderBy,
+      skip,
+      take: pageSize,
+      include: {
+        collections: {
+          select: { collectionId: true },
+        },
+      },
+    }),
     prisma.url.count({ where }),
   ]);
 
   // Attach latest snapshot info (if any) — only for the returned page
   const ids = urls.map((u) => u.id);
   if (ids.length === 0) {
-    return { items: [] as any[], total, page, pageSize };
+    return {
+      items: urls.map((u) => serializeUrlRow(u)) as any[],
+      total,
+      page,
+      pageSize,
+    };
   }
 
   const snaps = await prisma.storedFile.findMany({
@@ -174,24 +212,30 @@ export async function getUrlsPaged(opts: GetPagedUrlsOpts) {
       latestByUrl.set(s.urlId as number, s);
   }
 
-  const items = urls.map((u) => ({
-    ...u,
-    latestSnapshot: latestByUrl.get(u.id) ?? null,
-  })) as any;
+  const items = urls.map((u) =>
+    serializeUrlRow(u, latestByUrl.get(u.id) ?? null),
+  ) as any[];
 
   return { items, total, page, pageSize };
 }
 
 /** Get one URL by id */
 export async function getUrlById(id: number) {
-  const rec = await prisma.url.findUnique({ where: { id } });
+  const rec = await prisma.url.findUnique({
+    where: { id },
+    include: {
+      collections: {
+        select: { collectionId: true },
+      },
+    },
+  });
   if (!rec) {
     const err = Object.assign(new Error(`URL with id ${id} not found`), {
       status: 404,
     });
     throw err;
   }
-  return rec;
+  return serializeUrlRow(rec);
 }
 
 // NEW: List snapshots for a URL (timeline)

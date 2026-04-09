@@ -39,6 +39,8 @@ import {
   getUrlCollections,
   addUrlToCollection,
   setUrlCollections,
+  reconcileUrlCollections,
+  hydrateCollectionsFromBackend,
 } from "../utils/collections";
 import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 import {
@@ -475,6 +477,9 @@ const SavedUrlsPage: React.FC = () => {
     (async () => {
       setLoading(true);
       try {
+        await hydrateCollectionsFromBackend();
+        setCollections(getCollections());
+
         const rows = await apiFetchSavedUrls();
         setUrls(rows.map(toUISaved));
         await refreshTaggingSummary();
@@ -1007,7 +1012,7 @@ const SavedUrlsPage: React.FC = () => {
 
       if (!ok) return;
 
-      deleteCollection(collection.id);
+      await deleteCollection(collection.id);
       setCollections(getCollections());
       setUrls((prev) =>
         prev.map((u) => ({
@@ -1060,7 +1065,7 @@ const SavedUrlsPage: React.FC = () => {
     try {
       if (textDialog.kind === "collection") {
         if (textDialog.mode === "create") {
-          const created = createCollection(name);
+          const created = await createCollection(name);
           setCollections(getCollections());
           setSelectedCollectionId(created.id);
 
@@ -1073,7 +1078,7 @@ const SavedUrlsPage: React.FC = () => {
             throw new Error("Missing collection id for rename.");
           }
 
-          renameCollection(textDialog.collectionId, name);
+          await renameCollection(textDialog.collectionId, name);
           setCollections(getCollections());
 
           notify({
@@ -1277,7 +1282,7 @@ const SavedUrlsPage: React.FC = () => {
         .map((u) => u.url);
 
       // Keep local collections in sync only for URLs that were truly deleted
-      actuallyDeletedUrls.forEach((u) => setUrlCollections(u, []));
+      actuallyDeletedUrls.forEach((u) => reconcileUrlCollections(u));
 
       if (result.failures.length === 0) {
         notify({
@@ -1327,7 +1332,7 @@ const SavedUrlsPage: React.FC = () => {
   );
 
   const applyCollectionAssignment = useCallback(
-    (ids: string[], collectionId: string, mode: "add" | "move") => {
+    async (ids: string[], collectionId: string, mode: "add" | "move") => {
       const items = byIds(ids);
       if (!items.length) return;
 
@@ -1335,47 +1340,60 @@ const SavedUrlsPage: React.FC = () => {
         collections.find((c) => c.id === collectionId)?.name ??
         "selected collection";
 
-      if (mode === "add") {
-        items.forEach((u) => addUrlToCollection(collectionId, u.url));
-        setUrls((prev) =>
-          prev.map((u) =>
-            ids.includes(u.id)
-              ? {
-                  ...u,
-                  collections: Array.from(
-                    new Set([...(u.collections || []), collectionId]),
-                  ),
-                }
-              : u,
-          ),
-        );
+      try {
+        if (mode === "add") {
+          await Promise.all(
+            items.map((u) => addUrlToCollection(collectionId, u.url)),
+          );
 
-        notify({
-          text:
-            items.length === 1
-              ? `Added 1 URL to "${targetCollectionName}" without removing its other collections.`
-              : `Added ${items.length} URLs to "${targetCollectionName}" without removing their other collections.`,
-          kind: "success",
-        });
-      } else {
-        items.forEach((u) => setUrlCollections(u.url, [collectionId]));
-        setUrls((prev) =>
-          prev.map((u) =>
-            ids.includes(u.id) ? { ...u, collections: [collectionId] } : u,
-          ),
-        );
+          setUrls((prev) =>
+            prev.map((u) =>
+              ids.includes(u.id)
+                ? {
+                    ...u,
+                    collections: Array.from(
+                      new Set([...(u.collections || []), collectionId]),
+                    ),
+                  }
+                : u,
+            ),
+          );
 
+          notify({
+            text:
+              items.length === 1
+                ? `Added 1 URL to "${targetCollectionName}" without removing its other collections.`
+                : `Added ${items.length} URLs to "${targetCollectionName}" without removing their other collections.`,
+            kind: "success",
+          });
+        } else {
+          await Promise.all(
+            items.map((u) => setUrlCollections(u.url, [collectionId])),
+          );
+
+          setUrls((prev) =>
+            prev.map((u) =>
+              ids.includes(u.id) ? { ...u, collections: [collectionId] } : u,
+            ),
+          );
+
+          notify({
+            text:
+              items.length === 1
+                ? `Moved 1 URL into "${targetCollectionName}" as its only collection.`
+                : `Moved ${items.length} URLs into "${targetCollectionName}" as their only collection.`,
+            kind: "success",
+          });
+        }
+
+        setCollPickerOpen(false);
+        setMoveIds([]);
+      } catch (e: any) {
         notify({
-          text:
-            items.length === 1
-              ? `Moved 1 URL into "${targetCollectionName}" as its only collection.`
-              : `Moved ${items.length} URLs into "${targetCollectionName}" as their only collection.`,
-          kind: "success",
+          text: e?.message ?? "Failed to update collection membership.",
+          kind: "error",
         });
       }
-
-      setCollPickerOpen(false);
-      setMoveIds([]);
     },
     [byIds, collections, notify],
   );
@@ -1433,7 +1451,10 @@ const SavedUrlsPage: React.FC = () => {
 
     try {
       if (clipboard.mode === "copy") {
-        items.forEach((u) => addUrlToCollection(selectedCollectionId, u.url));
+        await Promise.all(
+          items.map((u) => addUrlToCollection(selectedCollectionId, u.url)),
+        );
+
         setUrls((prev) =>
           prev.map((u) =>
             items.some((it) => it.id === u.id)
@@ -1468,7 +1489,10 @@ const SavedUrlsPage: React.FC = () => {
 
         if (!ok) return;
 
-        items.forEach((u) => setUrlCollections(u.url, [selectedCollectionId]));
+        await Promise.all(
+          items.map((u) => setUrlCollections(u.url, [selectedCollectionId])),
+        );
+
         setUrls((prev) =>
           prev.map((u) =>
             items.some((it) => it.id === u.id)
@@ -1485,8 +1509,13 @@ const SavedUrlsPage: React.FC = () => {
           kind: "success",
         });
       }
-    } finally {
+
       setClipboard(null);
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Failed to paste into the selected collection.",
+        kind: "error",
+      });
     }
   }, [clipboard, selectedCollectionId, selectedCollection, notify, confirm]);
 
@@ -1531,7 +1560,7 @@ const SavedUrlsPage: React.FC = () => {
       const fresh = await getUrlById(savedRef.id);
 
       if (selectedCollectionId) {
-        addUrlToCollection(selectedCollectionId, fresh.url);
+        await addUrlToCollection(selectedCollectionId, fresh.url);
       }
 
       const hydrated = toUISaved(fresh);

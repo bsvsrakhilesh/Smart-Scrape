@@ -6,7 +6,8 @@ import {
   getCollections,
   getUrlCollections,
   removeUrlFromCollection,
-  setUrlCollections,
+  reconcileUrlCollections,
+  hydrateCollectionsFromBackend,
 } from "../../utils/collections";
 import { SearchResult } from "../../lib/types";
 import {
@@ -609,6 +610,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       return;
     }
 
+    await hydrateCollectionsFromBackend();
     setPendingRows(rows);
     setCollections(getCollections());
     setCollectionPickerOpen(true);
@@ -616,9 +618,12 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   const saveSingle = async (r: SearchResult) => {
     if (rowSaved[r.url]) return;
+
     const rows: SaveUrlsRequestRow[] = [
       { url: r.url, title: r.title ?? r.url, snippet: r.snippet ?? "" },
     ];
+
+    await hydrateCollectionsFromBackend();
     setPendingRows(rows);
     setCollections(getCollections());
     setCollectionPickerOpen(true);
@@ -640,10 +645,15 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     try {
       const res: SaveUrlsResponse = await saveUrls(pendingRows);
 
-      // local category assignment
-      pendingRows.forEach((r) => addUrlToCollection(collectionId, r.url));
+      await Promise.all(
+        pendingRows.map((r) =>
+          addUrlToCollection(collectionId, r.url, {
+            title: r.title,
+            snippet: r.snippet,
+          }),
+        ),
+      );
 
-      // optimistic saved UI
       setRowSaved((prev) => {
         const next = { ...prev };
         pendingRows.forEach((r) => (next[r.url] = true));
@@ -655,8 +665,8 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         `Saved ${res.added} URL${res.added === 1 ? "" : "s"} (skipped ${res.skipped}).`,
       );
 
-      // refresh to get backend ids
       await refreshBackendSavedIndex(results);
+      setCollections(getCollections());
     } catch (e: any) {
       pushNotice(
         "error",
@@ -714,7 +724,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       removeSaved(rawUrl);
 
       // 3) Remove from all local categories
-      setUrlCollections(rawUrl, []);
+      reconcileUrlCollections(rawUrl);
 
       // 4) UI update
       setRowSaved((prev) => ({ ...prev, [rawUrl]: false }));
@@ -730,7 +740,8 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   };
 
   // Remove from a single category
-  const openRemoveFromCategory = (url: string) => {
+  const openRemoveFromCategory = async (url: string) => {
+    await hydrateCollectionsFromBackend();
     setCollections(getCollections());
     setRemoveTargetUrl(url);
     setRemovePickerOpen(true);
@@ -741,23 +752,30 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     setRemoveTargetUrl(null);
   };
 
-  const onRemoveConfirm = (collectionId: string) => {
+  const onRemoveConfirm = async (collectionId: string) => {
     if (!removeTargetUrl) return;
 
-    removeUrlFromCollection(collectionId, removeTargetUrl);
+    try {
+      await removeUrlFromCollection(collectionId, removeTargetUrl);
 
-    const canon = canonicalizeSaved(removeTargetUrl);
-    const stillBackendSaved = backendSetRef.current.has(canon);
-    const stillInAnyCategory = getUrlCollections(removeTargetUrl).length > 0;
+      const canon = canonicalizeSaved(removeTargetUrl);
+      const stillBackendSaved = backendSetRef.current.has(canon);
+      const stillInAnyCategory = getUrlCollections(removeTargetUrl).length > 0;
 
-    setRowSaved((prev) => ({
-      ...prev,
-      [removeTargetUrl]: stillBackendSaved || stillInAnyCategory,
-    }));
+      setRowSaved((prev) => ({
+        ...prev,
+        [removeTargetUrl]: stillBackendSaved || stillInAnyCategory,
+      }));
 
-    pushNotice("info", "Removed from category.");
-    setRemovePickerOpen(false);
-    setRemoveTargetUrl(null);
+      pushNotice("info", "Removed from category.");
+      setRemovePickerOpen(false);
+      setRemoveTargetUrl(null);
+    } catch (e: any) {
+      pushNotice(
+        "error",
+        `Could not remove from category: ${e?.message ?? "Unknown error"}`,
+      );
+    }
   };
 
   // open modal to choose destination + filename
@@ -1551,9 +1569,20 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         collections={collections}
         onCancel={onPickCancel}
         onConfirm={onPickConfirm}
-        onCreate={(name) => {
-          createCollection(name);
-          setCollections(getCollections());
+        onRequestCreate={async () => {
+          const name = window.prompt("Create category", "")?.trim();
+          if (!name) return;
+
+          try {
+            await createCollection(name);
+            await hydrateCollectionsFromBackend();
+            setCollections(getCollections());
+          } catch (e: any) {
+            pushNotice(
+              "error",
+              `Could not create category: ${e?.message ?? "Unknown error"}`,
+            );
+          }
         }}
       />
 

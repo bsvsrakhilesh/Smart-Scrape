@@ -174,7 +174,27 @@ model Collection {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  urls CollectionUrl[]
+  urls                CollectionUrl[]
+  savedSearchPresets  SavedUrlSearchPreset[]
+}
+
+model SavedUrlSearchPreset {
+  id                   String   @id @default(cuid())
+  ownerId              String
+  name                 String
+  filter               Json
+  sortKey              String
+  sortOrder            String
+  year                 String
+  selectedCollectionId String?
+  queueId              String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  selectedCollection Collection? @relation(fields: [selectedCollectionId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerId, name])
+  @@index([ownerId, updatedAt])
 }
 
 model CollectionUrl {

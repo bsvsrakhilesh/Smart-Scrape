@@ -185,6 +185,67 @@ function isSnapshotStale(u: any, nowMs: number): boolean {
   return nowMs - t > SNAPSHOT_STALE_DAYS * DAY_MS;
 }
 
+function parseLocalDateInput(value: string): {
+  year: number;
+  monthIndex: number;
+  day: number;
+} | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(monthIndex) ||
+    !Number.isInteger(day) ||
+    monthIndex < 0 ||
+    monthIndex > 11 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  return { year, monthIndex, day };
+}
+
+function startOfLocalDayMs(value: string): number | null {
+  const parts = parseLocalDateInput(value);
+  if (!parts) return null;
+
+  const ms = new Date(
+    parts.year,
+    parts.monthIndex,
+    parts.day,
+    0,
+    0,
+    0,
+    0,
+  ).getTime();
+
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function endOfLocalDayMs(value: string): number | null {
+  const parts = parseLocalDateInput(value);
+  if (!parts) return null;
+
+  const ms = new Date(
+    parts.year,
+    parts.monthIndex,
+    parts.day,
+    23,
+    59,
+    59,
+    999,
+  ).getTime();
+
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function getDomain(u: string): string {
   try {
     return new URL(u).hostname;
@@ -726,15 +787,17 @@ const SavedUrlsPage: React.FC = () => {
 
         if (!hay.includes(q)) return false;
       }
+      const createdAtMs = new Date(u.createdAt).getTime();
+      if (!Number.isFinite(createdAtMs)) return false;
+
       if (filter.dateFrom) {
-        const d = new Date(u.createdAt).getTime();
-        const from = new Date(filter.dateFrom).getTime();
-        if (d < from) return false;
+        const from = startOfLocalDayMs(filter.dateFrom);
+        if (from !== null && createdAtMs < from) return false;
       }
+
       if (filter.dateTo) {
-        const d = new Date(u.createdAt).getTime();
-        const to = new Date(filter.dateTo).getTime();
-        if (d > to) return false;
+        const to = endOfLocalDayMs(filter.dateTo);
+        if (to !== null && createdAtMs > to) return false;
       }
       // Snapshot filter
       const snap = (filter as any).snapshotStatus || "all";

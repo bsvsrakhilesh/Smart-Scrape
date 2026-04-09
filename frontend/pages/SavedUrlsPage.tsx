@@ -22,6 +22,7 @@ import {
   deleteUrlsBulk,
   type BackendUrlRow,
   type UrlTaggingSummary,
+  type BackendSavedUrlSearchPreset,
   getUrlTaggingSummary,
   retryFailedUrlTagging,
   crawlSavePdf,
@@ -29,6 +30,10 @@ import {
   getUrlTagJob,
   startUrlTagJob,
   getUrlById,
+  fetchSavedUrlSearchPresets,
+  createSavedUrlSearchPreset,
+  updateSavedUrlSearchPreset,
+  deleteSavedUrlSearchPreset,
 } from "../lib/api";
 import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
 import {
@@ -77,7 +82,7 @@ type SavedUrlSearchPreset = {
 };
 
 const SAVED_URLS_REVIEWED_KEY = "saved-urls:reviewed-at";
-const SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
+const LEGACY_SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
 
 type SavedUrlsViewMode = "registry" | "cards";
 type SavedUrlsTextDialog =
@@ -150,6 +155,21 @@ function getSavedSearchPresetSignature(preset: SavedUrlSearchPreset) {
   });
 }
 
+function toSavedUrlSearchPreset(
+  row: BackendSavedUrlSearchPreset,
+): SavedUrlSearchPreset {
+  return {
+    id: row.id,
+    name: row.name,
+    filter: row.filter as UrlFilterState,
+    sortKey: row.sortKey,
+    sortOrder: row.sortOrder,
+    year: row.year,
+    selectedCollectionId: row.selectedCollectionId ?? undefined,
+    queueId: row.queueId,
+  };
+}
+
 function snapshotCreatedAt(u: any): number | null {
   const s = u?.latestSnapshot;
   if (!s?.createdAt) return null;
@@ -217,10 +237,10 @@ function urlHasMissingMetadata(u: UISavedUrl) {
   return !u.publishedAt || !u.authors?.length || !u.tags?.length;
 }
 
-function loadSavedUrlSearchPresets(): SavedUrlSearchPreset[] {
+function loadLegacySavedUrlSearchPresets(): SavedUrlSearchPreset[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(SAVED_URLS_SEARCHES_KEY);
+    const raw = localStorage.getItem(LEGACY_SAVED_URLS_SEARCHES_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -288,7 +308,7 @@ const SavedUrlsPage: React.FC = () => {
   }, [reviewedAtById]);
 
   const [savedSearches, setSavedSearches] = useState<SavedUrlSearchPreset[]>(
-    () => loadSavedUrlSearchPresets(),
+    [],
   );
   const [activeSavedSearchId, setActiveSavedSearchId] = useState<string | null>(
     null,
@@ -299,14 +319,6 @@ const SavedUrlsPage: React.FC = () => {
   );
   const [textDialogValue, setTextDialogValue] = useState("");
   const [textDialogBusy, setTextDialogBusy] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(
-      SAVED_URLS_SEARCHES_KEY,
-      JSON.stringify(savedSearches),
-    );
-  }, [savedSearches]);
 
   useEffect(() => {
     setTextDialogValue(textDialog?.value ?? "");
@@ -369,6 +381,53 @@ const SavedUrlsPage: React.FC = () => {
       setTagSummaryError(e?.message ?? "Failed to load tagging summary");
     }
   }, []);
+
+  const refreshSavedSearchesFromBackend = useCallback(async () => {
+    const rows = await fetchSavedUrlSearchPresets();
+    setSavedSearches(rows.map(toSavedUrlSearchPreset));
+    return rows;
+  }, []);
+
+  const hydrateSavedSearchesFromBackend = useCallback(async () => {
+    const existing = await refreshSavedSearchesFromBackend();
+    if (existing.length > 0) return;
+
+    const legacy = loadLegacySavedUrlSearchPresets().slice(0, 10);
+    if (!legacy.length) return;
+
+    let imported = 0;
+
+    for (const preset of legacy) {
+      try {
+        await createSavedUrlSearchPreset({
+          name: preset.name,
+          filter: preset.filter,
+          sortKey: preset.sortKey,
+          sortOrder: preset.sortOrder,
+          year: preset.year,
+          selectedCollectionId: preset.selectedCollectionId ?? null,
+          queueId: preset.queueId,
+        });
+        imported += 1;
+      } catch (e: any) {
+        if (e?.response?.status === 409) continue;
+        throw e;
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(LEGACY_SAVED_URLS_SEARCHES_KEY);
+    }
+
+    await refreshSavedSearchesFromBackend();
+
+    if (imported > 0) {
+      notify({
+        text: `Imported ${imported} saved search${imported === 1 ? "" : "es"} from this browser.`,
+        kind: "success",
+      });
+    }
+  }, [refreshSavedSearchesFromBackend, notify]);
 
   const handleRetryFailedTagging = useCallback(async () => {
     try {
@@ -491,6 +550,15 @@ const SavedUrlsPage: React.FC = () => {
       }
     })();
   }, [refreshTaggingSummary]);
+
+  useEffect(() => {
+    hydrateSavedSearchesFromBackend().catch((e: any) => {
+      notify({
+        text: e?.message ?? "Failed to load saved searches.",
+        kind: "error",
+      });
+    });
+  }, [hydrateSavedSearchesFromBackend, notify]);
 
   useEffect(() => {
     if (!tagSummary || tagSummary.inProgress <= 0) return;
@@ -893,32 +961,28 @@ const SavedUrlsPage: React.FC = () => {
   );
 
   const upsertSavedSearch = useCallback(
-    (name: string) => {
+    async (name: string) => {
       const existing = savedSearches.find(
         (preset) => preset.name.toLowerCase() === name.toLowerCase(),
       );
 
-      const nextPreset: SavedUrlSearchPreset = {
-        id: existing?.id ?? `saved-url-search-${Date.now()}`,
+      const body = {
         name,
         filter: { ...filter },
         sortKey,
         sortOrder,
         year,
-        selectedCollectionId,
+        selectedCollectionId: selectedCollectionId ?? null,
         queueId: activeQueueId,
       };
 
-      setSavedSearches((prev) => {
-        if (existing) {
-          return prev.map((preset) =>
-            preset.id === existing.id ? nextPreset : preset,
-          );
-        }
-        return [nextPreset, ...prev].slice(0, 10);
-      });
+      const saved = existing
+        ? await updateSavedUrlSearchPreset(existing.id, body)
+        : await createSavedUrlSearchPreset(body);
 
-      setActiveSavedSearchId(nextPreset.id);
+      await refreshSavedSearchesFromBackend();
+      setActiveSavedSearchId(saved.id);
+
       return existing ? "updated" : "created";
     },
     [
@@ -929,6 +993,7 @@ const SavedUrlsPage: React.FC = () => {
       year,
       selectedCollectionId,
       activeQueueId,
+      refreshSavedSearchesFromBackend,
     ],
   );
 
@@ -957,9 +1022,9 @@ const SavedUrlsPage: React.FC = () => {
 
     if (!ok) return;
 
-    setSavedSearches((prev) =>
-      prev.filter((preset) => preset.id !== displayedSavedSearch.id),
-    );
+    await deleteSavedUrlSearchPreset(displayedSavedSearch.id);
+    await refreshSavedSearchesFromBackend();
+
     setActiveSavedSearchId((prev) =>
       prev === displayedSavedSearch.id ? null : prev,
     );
@@ -968,7 +1033,7 @@ const SavedUrlsPage: React.FC = () => {
       text: `Deleted saved search "${displayedSavedSearch.name}".`,
       kind: "success",
     });
-  }, [displayedSavedSearch, confirm, notify]);
+  }, [displayedSavedSearch, confirm, notify, refreshSavedSearchesFromBackend]);
 
   const openCollectionDialog = useCallback(() => {
     setTextDialog({
@@ -1087,7 +1152,7 @@ const SavedUrlsPage: React.FC = () => {
           });
         }
       } else {
-        const action = upsertSavedSearch(name);
+        const action = await upsertSavedSearch(name);
         notify({
           text:
             action === "updated"

@@ -689,6 +689,78 @@ export async function fetchCollectionsUrlMapFor(
   return res.data as { map: Record<string, string[]> };
 }
 
+export type BackendSavedUrlSearchPreset = {
+  id: string;
+  ownerId: string;
+  name: string;
+  filter: any;
+  sortKey: "createdAt" | "updatedAt" | "title";
+  sortOrder: "asc" | "desc";
+  year: string;
+  selectedCollectionId?: string | null;
+  queueId:
+    | "all"
+    | "never-captured"
+    | "stale-capture"
+    | "ai-failed"
+    | "metadata-missing"
+    | "updated-since-review";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function fetchSavedUrlSearchPresets(): Promise<
+  BackendSavedUrlSearchPreset[]
+> {
+  const res = await api.get("/api/saved-url-searches");
+  return res.data as BackendSavedUrlSearchPreset[];
+}
+
+export async function createSavedUrlSearchPreset(body: {
+  name: string;
+  filter: any;
+  sortKey: "createdAt" | "updatedAt" | "title";
+  sortOrder: "asc" | "desc";
+  year: string;
+  selectedCollectionId?: string | null;
+  queueId:
+    | "all"
+    | "never-captured"
+    | "stale-capture"
+    | "ai-failed"
+    | "metadata-missing"
+    | "updated-since-review";
+}): Promise<BackendSavedUrlSearchPreset> {
+  const res = await api.post("/api/saved-url-searches", body);
+  return res.data as BackendSavedUrlSearchPreset;
+}
+
+export async function updateSavedUrlSearchPreset(
+  id: string,
+  body: {
+    name: string;
+    filter: any;
+    sortKey: "createdAt" | "updatedAt" | "title";
+    sortOrder: "asc" | "desc";
+    year: string;
+    selectedCollectionId?: string | null;
+    queueId:
+      | "all"
+      | "never-captured"
+      | "stale-capture"
+      | "ai-failed"
+      | "metadata-missing"
+      | "updated-since-review";
+  },
+): Promise<BackendSavedUrlSearchPreset> {
+  const res = await api.patch(`/api/saved-url-searches/${id}`, body);
+  return res.data as BackendSavedUrlSearchPreset;
+}
+
+export async function deleteSavedUrlSearchPreset(id: string): Promise<void> {
+  await api.delete(`/api/saved-url-searches/${id}`);
+}
+
 export type UrlTaggingSummary = {
   total: number;
   untagged: number;

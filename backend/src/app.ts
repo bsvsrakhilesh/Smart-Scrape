@@ -23,6 +23,7 @@ import crawlRoutes from "./routes/crawl.routes";
 import aiTagRoutes from "./routes/aiTag.routes";
 import chunkRoutes from "./routes/chunk.routes";
 import collectionRoutes from "./routes/collection.routes";
+import savedUrlSearchRoutes from "./routes/savedUrlSearch.routes";
 import faviconRoutes from "./routes/favicon.routes";
 import institutionalNodeRoutes from "./routes/institutionalNode.routes";
 import governanceRoutes from "./routes/governance.routes";
@@ -214,6 +215,7 @@ app.use("/api/files/upload", uploadLimiter);
 // -------- Routes --------
 app.use("/api", urlRoutes);
 app.use("/api", collectionRoutes);
+app.use("/api", savedUrlSearchRoutes);
 app.use("/api/search", searchLimiter, searchRoutes);
 
 app.use("/api", fileRoutes);

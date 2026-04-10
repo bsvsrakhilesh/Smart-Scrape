@@ -530,6 +530,14 @@ export type SavedUrlFacetSummary = {
   years: string[];
 };
 
+export type SavedUrlReviewQueueSummary = {
+  all: number;
+  neverCaptured: number;
+  staleCapture: number;
+  aiFailed: number;
+  metadataMissing: number;
+};
+
 export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
   const res = await api.get("/api/urls");
   return res.data;
@@ -559,6 +567,19 @@ export async function fetchSavedUrlFacets(
     },
   });
   return res.data as SavedUrlFacetSummary;
+}
+
+export async function fetchSavedUrlReviewQueueSummary(
+  params: FetchSavedUrlsParams,
+): Promise<SavedUrlReviewQueueSummary> {
+  const res = await api.get("/api/urls/queue-summary", {
+    params: {
+      ...params,
+      tags: params.tags?.length ? params.tags.join(",") : undefined,
+      domains: params.domains?.length ? params.domains.join(",") : undefined,
+    },
+  });
+  return res.data as SavedUrlReviewQueueSummary;
 }
 
 export async function saveUrls(

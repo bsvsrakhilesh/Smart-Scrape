@@ -18,6 +18,7 @@ import SourceRegistryTable from "../components/savedurls/SourceRegistryTable";
 import {
   fetchSavedUrlsPage as apiFetchSavedUrlsPage,
   fetchSavedUrlFacets as apiFetchSavedUrlFacets,
+  fetchSavedUrlReviewQueueSummary as apiFetchSavedUrlReviewQueueSummary,
   saveUrls as apiSaveUrls,
   patchUrl,
   deleteUrlsBulk,
@@ -292,10 +293,6 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
   };
 }
 
-function urlHasMissingMetadata(u: UISavedUrl) {
-  return !u.publishedAt || !u.authors?.length || !u.tags?.length;
-}
-
 function loadLegacySavedUrlSearchPresets(): SavedUrlSearchPreset[] {
   if (typeof window === "undefined") return [];
   try {
@@ -375,6 +372,20 @@ const SavedUrlsPage: React.FC = () => {
     years: [],
   });
 
+  const [queueSummary, setQueueSummary] = useState<{
+    all: number;
+    neverCaptured: number;
+    staleCapture: number;
+    aiFailed: number;
+    metadataMissing: number;
+  }>({
+    all: 0,
+    neverCaptured: 0,
+    staleCapture: 0,
+    aiFailed: 0,
+    metadataMissing: 0,
+  });
+
   const [activeQueueId, setActiveQueueId] =
     useState<SavedUrlQueueId>(DEFAULT_QUEUE_ID);
 
@@ -399,6 +410,39 @@ const SavedUrlsPage: React.FC = () => {
     const ms = endOfLocalDayMs(filter.dateTo);
     return ms === null ? undefined : new Date(ms).toISOString();
   }, [filter.dateTo]);
+
+  const queueSummaryServerQuery = useMemo(() => {
+    return {
+      q: filter.query.trim() || undefined,
+      year: year !== "all" ? year : undefined,
+      tags: filter.tags.length ? filter.tags : undefined,
+      domains: filter.domains.length ? filter.domains : undefined,
+      collectionId: selectedCollectionId || undefined,
+      favoritesOnly: filter.favoritesOnly || undefined,
+      dateFrom: serverDateFrom,
+      dateTo: serverDateTo,
+      snapshotStatus:
+        filter.snapshotStatus !== "all" ? filter.snapshotStatus : undefined,
+      taggingStatus:
+        filter.taggingStatus !== "all" ? filter.taggingStatus : undefined,
+      metadataState:
+        filter.metadataState !== "all" ? filter.metadataState : undefined,
+    };
+  }, [
+    filter.dateFrom,
+    filter.dateTo,
+    filter.domains,
+    filter.favoritesOnly,
+    filter.metadataState,
+    filter.query,
+    filter.snapshotStatus,
+    filter.taggingStatus,
+    filter.tags,
+    selectedCollectionId,
+    serverDateFrom,
+    serverDateTo,
+    year,
+  ]);
 
   const baseServerQuery = useMemo(() => {
     const snapshotStatus =
@@ -562,6 +606,14 @@ const SavedUrlsPage: React.FC = () => {
     return out;
   }, [baseServerQuery]);
 
+  const refreshQueueSummary = useCallback(async () => {
+    const out = await apiFetchSavedUrlReviewQueueSummary(
+      queueSummaryServerQuery,
+    );
+    setQueueSummary(out);
+    return out;
+  }, [queueSummaryServerQuery]);
+
   const refreshUrlsFromServer = useCallback(
     async (pageOverride?: number) => {
       const requestedPage = Math.max(1, pageOverride ?? page);
@@ -601,6 +653,7 @@ const SavedUrlsPage: React.FC = () => {
         refreshCollectionsFromServer(),
         refreshLibraryTotalCount(),
         refreshFacetSummary(),
+        refreshQueueSummary(),
         refreshUrlsFromServer(pageOverride),
       ]);
     },
@@ -608,6 +661,7 @@ const SavedUrlsPage: React.FC = () => {
       refreshCollectionsFromServer,
       refreshFacetSummary,
       refreshLibraryTotalCount,
+      refreshQueueSummary,
       refreshUrlsFromServer,
     ],
   );
@@ -813,6 +867,12 @@ const SavedUrlsPage: React.FC = () => {
   }, [refreshFacetSummary]);
 
   useEffect(() => {
+    refreshQueueSummary().catch((e: any) => {
+      console.error("Failed to load saved URL queue summary", e);
+    });
+  }, [refreshQueueSummary]);
+
+  useEffect(() => {
     hydrateSavedSearchesFromBackend().catch((e: any) => {
       notify({
         text: e?.message ?? "Failed to load saved searches.",
@@ -958,8 +1018,6 @@ const SavedUrlsPage: React.FC = () => {
   // Keep only the local "updated since review" queue on the client because it
   // depends on browser-local review stamps.
 
-  const filteredByCollection = useMemo(() => urls, [urls]);
-
   const queueFiltered = useMemo(() => {
     if (activeQueueId !== "updated-since-review") return urls;
     return urls.filter((u) =>
@@ -970,53 +1028,49 @@ const SavedUrlsPage: React.FC = () => {
   const sorted = useMemo(() => queueFiltered, [queueFiltered]);
 
   const reviewQueues = useMemo(() => {
-    const nowMs = Date.now();
-    const base = filteredByCollection;
+    const updatedSinceReviewCount = urls.filter((u) =>
+      isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
+    ).length;
 
     return [
       {
         id: "all" as SavedUrlQueueId,
         label: "All",
-        count: base.length,
-        help: "Everything in the current scope",
+        count: queueSummary.all,
+        help: "Everything in the current filtered scope",
       },
       {
         id: "never-captured" as SavedUrlQueueId,
         label: "Never captured",
-        count: base.filter((u) => isSnapshotMissing(u)).length,
+        count: queueSummary.neverCaptured,
         help: "No snapshot stored yet",
       },
       {
         id: "stale-capture" as SavedUrlQueueId,
         label: "Stale capture",
-        count: base.filter(
-          (u) => !isSnapshotMissing(u) && isSnapshotStale(u, nowMs),
-        ).length,
+        count: queueSummary.staleCapture,
         help: `Snapshot older than ${SNAPSHOT_STALE_DAYS} days`,
       },
       {
         id: "ai-failed" as SavedUrlQueueId,
         label: "AI failed",
-        count: base.filter((u) => (u.taggingStatus ?? "NONE") === "FAILED")
-          .length,
+        count: queueSummary.aiFailed,
         help: "Background AI tagging failed",
       },
       {
         id: "metadata-missing" as SavedUrlQueueId,
         label: "Metadata missing",
-        count: base.filter((u) => urlHasMissingMetadata(u)).length,
+        count: queueSummary.metadataMissing,
         help: "Missing published date, authors, or tags",
       },
       {
         id: "updated-since-review" as SavedUrlQueueId,
         label: "Updated since review",
-        count: base.filter((u) =>
-          isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
-        ).length,
-        help: "New or changed since the last review pass",
+        count: updatedSinceReviewCount,
+        help: "Local browser review state for the currently loaded page",
       },
     ];
-  }, [filteredByCollection, reviewedAtById]);
+  }, [queueSummary, reviewedAtById, urls]);
 
   const activeSavedSearch = useMemo(
     () => savedSearches.find((s) => s.id === activeSavedSearchId) ?? null,

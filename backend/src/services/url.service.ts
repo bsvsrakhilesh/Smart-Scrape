@@ -53,6 +53,14 @@ export type UrlFacetSummary = {
   years: string[];
 };
 
+export type UrlReviewQueueSummary = {
+  all: number;
+  neverCaptured: number;
+  staleCapture: number;
+  aiFailed: number;
+  metadataMissing: number;
+};
+
 function buildOrderBy(
   sortKey: GetAllOpts["sortKey"] = "createdAt",
   sortOrder: GetAllOpts["sortOrder"] = "desc",
@@ -175,6 +183,21 @@ function buildListWhere(opts: GetAllOpts): Prisma.UrlWhereInput {
   return and.length ? { AND: and } : {};
 }
 
+function andWhere(
+  base: Prisma.UrlWhereInput,
+  extra: Prisma.UrlWhereInput,
+): Prisma.UrlWhereInput {
+  const clauses: Prisma.UrlWhereInput[] = [];
+
+  if (base && Object.keys(base).length) clauses.push(base);
+  if (extra && Object.keys(extra).length) clauses.push(extra);
+
+  if (clauses.length === 0) return {};
+  if (clauses.length === 1) return clauses[0];
+
+  return { AND: clauses };
+}
+
 function safeHostnameFromUrl(rawUrl: string): string | null {
   try {
     const hostname = new URL(rawUrl).hostname.trim().toLowerCase();
@@ -234,6 +257,53 @@ export async function getUrlFacets(opts: GetAllOpts): Promise<UrlFacetSummary> {
   ).sort(sortYearDesc);
 
   return { domains, tags, years };
+}
+
+export async function getUrlReviewQueueSummary(
+  opts: GetAllOpts,
+): Promise<UrlReviewQueueSummary> {
+  const baseWhere = buildListWhere(opts);
+  const staleCutoff = new Date(Date.now() - SNAPSHOT_STALE_DAYS * DAY_MS);
+
+  const metadataMissingWhere: Prisma.UrlWhereInput = {
+    OR: [
+      { publishedAt: null },
+      { authors: { isEmpty: true } },
+      { tags: { isEmpty: true } },
+    ],
+  };
+
+  const staleCaptureWhere: Prisma.UrlWhereInput = {
+    AND: [
+      { snapshots: { some: {} } },
+      { snapshots: { none: { createdAt: { gte: staleCutoff } } } },
+    ],
+  };
+
+  const [all, neverCaptured, staleCapture, aiFailed, metadataMissing] =
+    await Promise.all([
+      prisma.url.count({ where: baseWhere }),
+      prisma.url.count({
+        where: andWhere(baseWhere, { snapshots: { none: {} } }),
+      }),
+      prisma.url.count({
+        where: andWhere(baseWhere, staleCaptureWhere),
+      }),
+      prisma.url.count({
+        where: andWhere(baseWhere, { taggingStatus: TaggingStatus.FAILED }),
+      }),
+      prisma.url.count({
+        where: andWhere(baseWhere, metadataMissingWhere),
+      }),
+    ]);
+
+  return {
+    all,
+    neverCaptured,
+    staleCapture,
+    aiFailed,
+    metadataMissing,
+  };
 }
 
 type UrlWithCollectionLinks = Prisma.UrlGetPayload<{

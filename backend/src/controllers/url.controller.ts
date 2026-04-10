@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import {
   getAllUrls,
   getUrlsPaged,
+  getUrlFacets,
   getUrlById,
   createManyUrls,
   urlsExist,
@@ -231,6 +232,57 @@ export async function getUrlsHandler(
 
     // Back-compat (older clients expect an array)
     const data = await getAllUrls({
+      year,
+      q: typeof q === "string" ? q : undefined,
+      sortKey: (sortKey as GetAllOpts["sortKey"]) ?? "createdAt",
+      sortOrder: (sortOrder as GetAllOpts["sortOrder"]) ?? "desc",
+      tags,
+      domains,
+      collectionId:
+        typeof collectionId === "string" && collectionId.trim()
+          ? collectionId
+          : undefined,
+      favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
+      dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
+      dateTo: typeof dateTo === "string" ? dateTo : undefined,
+      snapshotStatus: parsedSnapshotStatus,
+      taggingStatus: parsedTaggingStatus,
+      metadataState: parsedMetadataState,
+    });
+
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getUrlFacetsHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const {
+      year,
+      sortKey = "createdAt",
+      sortOrder = "desc",
+      q,
+      collectionId,
+      favoritesOnly,
+      dateFrom,
+      dateTo,
+      snapshotStatus,
+      taggingStatus,
+      metadataState,
+    } = req.query as any;
+
+    const tags = parseMultiValueQuery(req.query.tags);
+    const domains = parseMultiValueQuery(req.query.domains);
+    const parsedSnapshotStatus = parseSnapshotStatusQuery(snapshotStatus);
+    const parsedTaggingStatus = parseTaggingStatusQuery(taggingStatus);
+    const parsedMetadataState = parseMetadataStateQuery(metadataState);
+
+    const data = await getUrlFacets({
       year,
       q: typeof q === "string" ? q : undefined,
       sortKey: (sortKey as GetAllOpts["sortKey"]) ?? "createdAt",

@@ -524,6 +524,12 @@ export type PagedSavedUrlsResponse = {
   pageSize: number;
 };
 
+export type SavedUrlFacetSummary = {
+  domains: string[];
+  tags: string[];
+  years: string[];
+};
+
 export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
   const res = await api.get("/api/urls");
   return res.data;
@@ -540,6 +546,19 @@ export async function fetchSavedUrlsPage(
     },
   });
   return res.data as PagedSavedUrlsResponse;
+}
+
+export async function fetchSavedUrlFacets(
+  params: FetchSavedUrlsParams,
+): Promise<SavedUrlFacetSummary> {
+  const res = await api.get("/api/urls/facets", {
+    params: {
+      ...params,
+      tags: params.tags?.length ? params.tags.join(",") : undefined,
+      domains: params.domains?.length ? params.domains.join(",") : undefined,
+    },
+  });
+  return res.data as SavedUrlFacetSummary;
 }
 
 export async function saveUrls(

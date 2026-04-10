@@ -47,6 +47,12 @@ export type GetAllOpts = {
   metadataState?: MetadataStateFilter;
 };
 
+export type UrlFacetSummary = {
+  domains: string[];
+  tags: string[];
+  years: string[];
+};
+
 function buildOrderBy(
   sortKey: GetAllOpts["sortKey"] = "createdAt",
   sortOrder: GetAllOpts["sortOrder"] = "desc",
@@ -167,6 +173,67 @@ function buildListWhere(opts: GetAllOpts): Prisma.UrlWhereInput {
   }
 
   return and.length ? { AND: and } : {};
+}
+
+function safeHostnameFromUrl(rawUrl: string): string | null {
+  try {
+    const hostname = new URL(rawUrl).hostname.trim().toLowerCase();
+    return hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+function sortTextAsc(a: string, b: string) {
+  return a.localeCompare(b);
+}
+
+function sortYearDesc(a: string, b: string) {
+  return Number(b) - Number(a);
+}
+
+export async function getUrlFacets(opts: GetAllOpts): Promise<UrlFacetSummary> {
+  const [domainRows, tagRows, yearRows] = await Promise.all([
+    prisma.url.findMany({
+      where: buildListWhere({ ...opts, domains: undefined }),
+      select: { url: true },
+    }),
+    prisma.url.findMany({
+      where: buildListWhere({ ...opts, tags: undefined }),
+      select: { tags: true },
+    }),
+    prisma.url.findMany({
+      where: buildListWhere({ ...opts, year: undefined }),
+      select: { createdAt: true },
+    }),
+  ]);
+
+  const domains = Array.from(
+    new Set(
+      domainRows
+        .map((row) => safeHostnameFromUrl(row.url))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).sort(sortTextAsc);
+
+  const tags = Array.from(
+    new Set(
+      tagRows
+        .flatMap((row) => (Array.isArray(row.tags) ? row.tags : []))
+        .map((tag) => String(tag).trim())
+        .filter(Boolean),
+    ),
+  ).sort(sortTextAsc);
+
+  const years = Array.from(
+    new Set(
+      yearRows
+        .map((row) => String(new Date(row.createdAt).getUTCFullYear()))
+        .filter((year) => /^\d{4}$/.test(year)),
+    ),
+  ).sort(sortYearDesc);
+
+  return { domains, tags, years };
 }
 
 type UrlWithCollectionLinks = Prisma.UrlGetPayload<{

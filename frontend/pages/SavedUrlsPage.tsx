@@ -17,6 +17,7 @@ import BulkActionBar from "../components/common/BulkActionBar";
 import SourceRegistryTable from "../components/savedurls/SourceRegistryTable";
 import {
   fetchSavedUrlsPage as apiFetchSavedUrlsPage,
+  fetchSavedUrlFacets as apiFetchSavedUrlFacets,
   saveUrls as apiSaveUrls,
   patchUrl,
   deleteUrlsBulk,
@@ -364,6 +365,16 @@ const SavedUrlsPage: React.FC = () => {
   const [totalResults, setTotalResults] = useState(0);
   const [libraryTotalCount, setLibraryTotalCount] = useState(0);
 
+  const [facetSummary, setFacetSummary] = useState<{
+    domains: string[];
+    tags: string[];
+    years: string[];
+  }>({
+    domains: [],
+    tags: [],
+    years: [],
+  });
+
   const [activeQueueId, setActiveQueueId] =
     useState<SavedUrlQueueId>(DEFAULT_QUEUE_ID);
 
@@ -545,6 +556,12 @@ const SavedUrlsPage: React.FC = () => {
     return out.total;
   }, []);
 
+  const refreshFacetSummary = useCallback(async () => {
+    const out = await apiFetchSavedUrlFacets(baseServerQuery);
+    setFacetSummary(out);
+    return out;
+  }, [baseServerQuery]);
+
   const refreshUrlsFromServer = useCallback(
     async (pageOverride?: number) => {
       const requestedPage = Math.max(1, pageOverride ?? page);
@@ -583,11 +600,13 @@ const SavedUrlsPage: React.FC = () => {
       await Promise.all([
         refreshCollectionsFromServer(),
         refreshLibraryTotalCount(),
+        refreshFacetSummary(),
         refreshUrlsFromServer(pageOverride),
       ]);
     },
     [
       refreshCollectionsFromServer,
+      refreshFacetSummary,
       refreshLibraryTotalCount,
       refreshUrlsFromServer,
     ],
@@ -788,6 +807,12 @@ const SavedUrlsPage: React.FC = () => {
   }, [page, refreshUrlsFromServer]);
 
   useEffect(() => {
+    refreshFacetSummary().catch((e: any) => {
+      console.error("Failed to load saved URL facets", e);
+    });
+  }, [refreshFacetSummary]);
+
+  useEffect(() => {
     hydrateSavedSearchesFromBackend().catch((e: any) => {
       notify({
         text: e?.message ?? "Failed to load saved searches.",
@@ -855,15 +880,63 @@ const SavedUrlsPage: React.FC = () => {
     return stop;
   }, [refreshUrlsFromServer, urls]);
 
-  // Domain/Tag options
-  const availableDomains = useMemo(
-    () => Array.from(new Set(urls.map((u) => u.domain).filter(Boolean))).sort(),
-    [urls],
-  );
-  const availableTags = useMemo(
-    () => Array.from(new Set(urls.flatMap((u) => u.tags || []))).sort(),
-    [urls],
-  );
+  // Global facet options from the backend query scope.
+  // Keep currently-selected values merged in so users can always see/remove them
+  // even during transient refreshes.
+  const availableDomains = useMemo(() => {
+    const fallbackDomains = Array.from(
+      new Set(urls.map((u) => u.domain).filter(Boolean)),
+    );
+
+    const merged = new Set<string>(
+      (facetSummary.domains.length
+        ? facetSummary.domains
+        : fallbackDomains
+      ).filter(Boolean),
+    );
+
+    for (const domain of filter.domains) {
+      if (domain) merged.add(domain);
+    }
+
+    return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  }, [facetSummary.domains, filter.domains, urls]);
+
+  const availableTags = useMemo(() => {
+    const fallbackTags = Array.from(new Set(urls.flatMap((u) => u.tags || [])));
+
+    const merged = new Set<string>(
+      (facetSummary.tags.length ? facetSummary.tags : fallbackTags).filter(
+        Boolean,
+      ),
+    );
+
+    for (const tag of filter.tags) {
+      if (tag) merged.add(tag);
+    }
+
+    return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  }, [facetSummary.tags, filter.tags, urls]);
+
+  const availableYears = useMemo(() => {
+    const fallbackYears = Array.from(
+      new Set(
+        urls
+          .map((u) => String(new Date(u.createdAt).getFullYear()))
+          .filter((y) => /^\d{4}$/.test(y)),
+      ),
+    );
+
+    const merged = new Set<string>(
+      (facetSummary.years.length ? facetSummary.years : fallbackYears).filter(
+        (y) => y !== "all",
+      ),
+    );
+
+    if (year !== "all") merged.add(year);
+
+    return ["all", ...Array.from(merged).sort((a, b) => Number(b) - Number(a))];
+  }, [facetSummary.years, urls, year]);
 
   const snapshotHealth = useMemo(() => {
     const nowMs = Date.now();
@@ -877,16 +950,6 @@ const SavedUrlsPage: React.FC = () => {
       missingCount: missing.length,
       staleCount: stale.length,
     };
-  }, [urls]);
-
-  // Years from createdAt
-  const availableYears = useMemo(() => {
-    const s = new Set<string>();
-    urls.forEach((u) => {
-      const y = new Date(u.createdAt).getFullYear();
-      if (!Number.isNaN(y)) s.add(String(y));
-    });
-    return ["all", ...Array.from(s).sort((a, b) => Number(b) - Number(a))];
   }, [urls]);
 
   // The server now owns the primary query pipeline:

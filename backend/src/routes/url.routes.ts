@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getUrlsHandler,
+  getUrlFacetsHandler,
   getUrlByIdHandler,
   createUrlsHandler,
   urlsExistHandler,
@@ -84,6 +85,7 @@ r.post("/urls/preview", validate({ body: previewUrlBody }), previewUrlHandler);
 r.get("/urls/probe", validate({ query: probeUrlQuery }), probeUrlHandler);
 r.get("/urls/:id/probe", probeUrlByIdHandler);
 r.get("/urls", validate({ query: listUrlsQuery }), getUrlsHandler);
+r.get("/urls/facets", validate({ query: listUrlsQuery }), getUrlFacetsHandler);
 
 r.get("/urls/tagging/summary", getUrlTaggingSummaryHandler);
 r.post(

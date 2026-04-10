@@ -1132,7 +1132,7 @@ const SavedUrlsPage: React.FC = () => {
     }
   }, [currentSavedSearchMatch, activeSavedSearch, activeSavedSearchId]);
 
-  // Selection helpers
+  // Selection helpers (page-scoped)
   const toggleSelect = useCallback((id: string) => {
     setSelection((prev) => {
       const next = new Set(prev);
@@ -1141,16 +1141,33 @@ const SavedUrlsPage: React.FC = () => {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    const visibleIds = new Set(sorted.map((u) => u.id));
+
+    setSelection((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+
+      prev.forEach((id) => {
+        if (visibleIds.has(id)) next.add(id);
+        else changed = true;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [sorted]);
+
   const selectedItems = useMemo(
-    () => urls.filter((u) => selection.has(u.id)),
-    [urls, selection],
+    () => sorted.filter((u) => selection.has(u.id)),
+    [sorted, selection],
   );
 
-  // Select all (filtered) & clear
-  const selectAllFiltered = useCallback(
+  const selectAllPage = useCallback(
     () => setSelection(new Set(sorted.map((u) => u.id))),
     [sorted],
   );
+
   const clearSelection = useCallback(() => setSelection(new Set()), []);
 
   const hasActiveReviewView = useMemo(() => {
@@ -1420,7 +1437,7 @@ const SavedUrlsPage: React.FC = () => {
     upsertSavedSearch,
   ]);
 
-  const allVisibleSelected =
+  const allPageRowsSelected =
     sorted.length > 0 && sorted.every((u) => selection.has(u.id));
 
   // Persisted actions
@@ -1977,12 +1994,16 @@ const SavedUrlsPage: React.FC = () => {
 
         <div className="page-header-meta">
           <div className="page-header-pill">
-            <span className="page-header-pill-label">Links</span>
-            <span className="page-header-pill-value">{urls.length}</span>
+            <span className="page-header-pill-label">Page rows</span>
+            <span className="page-header-pill-value">{sorted.length}</span>
+          </div>
+          <div className="page-header-pill">
+            <span className="page-header-pill-label">Matches</span>
+            <span className="page-header-pill-value">{totalResults}</span>
           </div>
           {selection.size > 0 && (
             <div className="page-header-pill page-header-pill--accent">
-              <span className="page-header-pill-label">Selected</span>
+              <span className="page-header-pill-label">Selected on page</span>
               <span className="page-header-pill-value">{selection.size}</span>
             </div>
           )}
@@ -2447,26 +2468,33 @@ const SavedUrlsPage: React.FC = () => {
 
             {/* Selection controls */}
             {sorted.length > 0 && (
-              <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+              <div className="flex flex-col gap-3 text-sm text-gray-600 dark:text-gray-300 md:flex-row md:items-center md:justify-between">
                 <div>
-                  {selection.size > 0
-                    ? `${selection.size} selected`
-                    : "No selection"}
+                  <div>
+                    {selection.size > 0
+                      ? `${selection.size} selected on this page`
+                      : "No rows selected on this page"}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    Bulk actions below apply only to the currently visible page
+                    selection.
+                  </div>
                 </div>
-                <div className="flex gap-2">
+
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={selectAllFiltered}
+                    onClick={selectAllPage}
                     className="btn-ghost px-2 py-1 rounded-lg transition hover:translate-y-[-1px] focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                    title="Select all items that match current filters"
+                    title="Select every row on the current page"
                   >
-                    Select all ({sorted.length})
+                    Select page ({sorted.length})
                   </button>
                   <button
                     type="button"
                     onClick={clearSelection}
                     className="btn-ghost px-2 py-1 rounded-lg transition hover:translate-y-[-1px] focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                    title="Clear current selection"
+                    title="Clear the current page selection"
                   >
                     Clear selection
                   </button>
@@ -2474,8 +2502,9 @@ const SavedUrlsPage: React.FC = () => {
                     onClick={() =>
                       onAutoTagSelected(selectedItems.map((u) => u.id))
                     }
-                    className="btn-primary inline-flex items-center gap-2 px-3 py-2 rounded-lg shadow-sm transition hover:translate-y-[-1px] focus:outline-none focus:ring-2 focus:ring-brand-primary/40 disabled:opacity-50"
-                    title="Run AI auto-tag on selected URLs"
+                    disabled={selectedItems.length === 0}
+                    className="btn-primary inline-flex items-center gap-2 px-3 py-2 rounded-lg shadow-sm transition hover:translate-y-[-1px] focus:outline-none focus:ring-2 focus:ring-brand-primary/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Run AI auto-tag on the selected rows on this page"
                   >
                     AI Auto-Tag selected
                   </button>
@@ -2619,9 +2648,9 @@ const SavedUrlsPage: React.FC = () => {
               <SourceRegistryTable
                 rows={sorted}
                 selection={selection}
-                allVisibleSelected={allVisibleSelected}
+                allPageRowsSelected={allPageRowsSelected}
                 onToggleSelect={toggleSelect}
-                onSelectAllVisible={selectAllFiltered}
+                onSelectAllPage={selectAllPage}
                 onClearSelection={clearSelection}
                 onOpenDetail={(x) => setDetailId(x.id)}
                 onFavoriteToggle={handleFavoriteToggle}

@@ -6,9 +6,9 @@ import { BookmarkIcon } from "../icons";
 type Props = {
   rows: SavedUrl[];
   selection: Set<string>;
-  allVisibleSelected: boolean;
+  allPageRowsSelected: boolean;
   onToggleSelect: (id: string) => void;
-  onSelectAllVisible: () => void;
+  onSelectAllPage: () => void;
   onClearSelection: () => void;
   onOpenDetail: (url: SavedUrl) => void;
   onFavoriteToggle: (url: SavedUrl) => void;
@@ -109,9 +109,9 @@ function stopPropagation(e: React.SyntheticEvent) {
 const SourceRegistryTable: React.FC<Props> = ({
   rows,
   selection,
-  allVisibleSelected,
+  allPageRowsSelected,
   onToggleSelect,
-  onSelectAllVisible,
+  onSelectAllPage,
   onClearSelection,
   onOpenDetail,
   onFavoriteToggle,
@@ -127,8 +127,8 @@ const SourceRegistryTable: React.FC<Props> = ({
   useEffect(() => {
     if (!headerCheckboxRef.current) return;
     headerCheckboxRef.current.indeterminate =
-      someVisibleSelected && !allVisibleSelected;
-  }, [someVisibleSelected, allVisibleSelected]);
+      someVisibleSelected && !allPageRowsSelected;
+  }, [someVisibleSelected, allPageRowsSelected]);
 
   return (
     <div className="overflow-hidden rounded-2xl border border-black/10 dark:border-white/10 bg-white/90 dark:bg-neutral-950/70 shadow-sm">
@@ -140,13 +140,11 @@ const SourceRegistryTable: React.FC<Props> = ({
                 <input
                   ref={headerCheckboxRef}
                   type="checkbox"
-                  checked={allVisibleSelected && rows.length > 0}
+                  checked={allPageRowsSelected && rows.length > 0}
                   onChange={() =>
-                    allVisibleSelected
-                      ? onClearSelection()
-                      : onSelectAllVisible()
+                    allPageRowsSelected ? onClearSelection() : onSelectAllPage()
                   }
-                  aria-label="Select all visible sources"
+                  aria-label="Select all rows on the current page"
                   className="h-4 w-4"
                 />
               </th>

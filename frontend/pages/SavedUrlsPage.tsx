@@ -1562,6 +1562,26 @@ const SavedUrlsPage: React.FC = () => {
     [activeQueueId, filter.query, sortKey],
   );
 
+  const formatBulkFailurePreview = useCallback(
+    (
+      rows: Array<{ id: string; title?: string; url: string }>,
+      failedIds: string[],
+    ) => {
+      if (!failedIds.length) return "";
+
+      const preview = rows
+        .filter((row) => failedIds.includes(row.id))
+        .slice(0, 2)
+        .map((row) => row.title || row.url)
+        .join(", ");
+
+      if (!preview) return "";
+
+      return `${preview}${failedIds.length > 2 ? "…" : ""}`;
+    },
+    [],
+  );
+
   // Persisted actions
   const handleFavoriteToggle = async (u: UISavedUrl) => {
     const idNum = Number(u.id);
@@ -1630,25 +1650,78 @@ const SavedUrlsPage: React.FC = () => {
 
   // Bulk actions
   const onFavorite = async (ids: string[]) => {
-    const idsNum = ids.map(Number);
+    if (!ids.length) return;
+
+    const targetRows = urls.filter((u) => ids.includes(u.id));
+    const beforeById = new Map(
+      targetRows.map((row) => [row.id, row.isFavorited] as const),
+    );
+
     setUrls((prev) =>
       prev.map((u) => (ids.includes(u.id) ? { ...u, isFavorited: true } : u)),
     );
-    try {
-      await Promise.all(
-        idsNum.map((id) => patchUrl(id, { isFavorited: true })),
-      );
 
+    const results = await Promise.allSettled(
+      ids.map((id) => patchUrl(Number(id), { isFavorited: true })),
+    );
+
+    const failedIds = ids.filter(
+      (_, index) => results[index].status === "rejected",
+    );
+    const successCount = ids.length - failedIds.length;
+
+    if (failedIds.length === 0) {
       if (shouldRefetchAfterFavoriteMutation) {
         await refreshUrlsFromServer();
       }
-    } catch {
+
       notify({
-        text: "Some selected rows on this page could not be marked as favorite.",
+        text:
+          successCount === 1
+            ? "Marked 1 selected row on this page as favorite."
+            : `Marked ${successCount} selected rows on this page as favorite.`,
+        kind: "success",
+      });
+      return;
+    }
+
+    setUrls((prev) =>
+      prev.map((u) =>
+        failedIds.includes(u.id)
+          ? {
+              ...u,
+              isFavorited: beforeById.get(u.id) ?? u.isFavorited,
+            }
+          : u,
+      ),
+    );
+
+    setSelection(new Set(failedIds));
+
+    const failedPreview = formatBulkFailurePreview(targetRows, failedIds);
+
+    if (successCount > 0) {
+      if (shouldRefetchAfterFavoriteMutation) {
+        await refreshUrlsFromServer();
+      }
+
+      notify({
+        text:
+          `Marked ${successCount} selected row${successCount === 1 ? "" : "s"} on this page as favorite, but ${failedIds.length} failed.` +
+          (failedPreview ? ` Failed: ${failedPreview}` : ""),
         kind: "warning",
       });
+      return;
     }
+
+    notify({
+      text:
+        `Could not mark ${failedIds.length} selected row${failedIds.length === 1 ? "" : "s"} on this page as favorite.` +
+        (failedPreview ? ` Failed: ${failedPreview}` : ""),
+      kind: "error",
+    });
   };
+
   // Bulk AI auto-tag selected URLs
   const onAutoTagSelected = useCallback(
     async (ids: string[]) => {
@@ -1831,8 +1904,13 @@ const SavedUrlsPage: React.FC = () => {
   );
 
   const onAddTag = async (ids: string[], tag: string) => {
-    if (!tag) return;
-    const idsNum = ids.map(Number);
+    if (!tag || !ids.length) return;
+
+    const targetRows = urls.filter((u) => ids.includes(u.id));
+    const beforeTagsById = new Map(
+      targetRows.map((row) => [row.id, row.tags ?? []] as const),
+    );
+
     setUrls((prev) =>
       prev.map((u) =>
         ids.includes(u.id)
@@ -1840,22 +1918,59 @@ const SavedUrlsPage: React.FC = () => {
           : u,
       ),
     );
-    try {
-      await Promise.all(
-        idsNum.map((id) => {
-          const current = urls.find((u) => u.id === String(id))?.tags ?? [];
-          const next = Array.from(new Set([...current, tag]));
-          return patchUrl(id, { tags: next });
-        }),
-      );
 
+    const results = await Promise.allSettled(
+      ids.map((id) => {
+        const current = beforeTagsById.get(id) ?? [];
+        const next = Array.from(new Set([...current, tag]));
+        return patchUrl(Number(id), { tags: next });
+      }),
+    );
+
+    const failedIds = ids.filter(
+      (_, index) => results[index].status === "rejected",
+    );
+    const successCount = ids.length - failedIds.length;
+
+    if (failedIds.length === 0) {
       await refreshRowsAndFacetsAndQueue();
-    } catch {
+
       notify({
-        text: "Failed to add a tag to some selected rows on this page.",
-        kind: "warning",
+        text:
+          successCount === 1
+            ? `Added tag "${tag}" to 1 selected row on this page.`
+            : `Added tag "${tag}" to ${successCount} selected rows on this page.`,
+        kind: "success",
       });
+      return;
     }
+
+    setUrls((prev) =>
+      prev.map((u) =>
+        failedIds.includes(u.id)
+          ? {
+              ...u,
+              tags: [...(beforeTagsById.get(u.id) ?? u.tags ?? [])],
+            }
+          : u,
+      ),
+    );
+
+    setSelection(new Set(failedIds));
+
+    if (successCount > 0) {
+      await refreshRowsAndFacetsAndQueue();
+    }
+
+    const failedPreview = formatBulkFailurePreview(targetRows, failedIds);
+
+    notify({
+      text:
+        successCount > 0
+          ? `Added tag "${tag}" to ${successCount} selected row${successCount === 1 ? "" : "s"} on this page, but ${failedIds.length} failed.${failedPreview ? ` Failed: ${failedPreview}` : ""}`
+          : `Could not add tag "${tag}" to ${failedIds.length} selected row${failedIds.length === 1 ? "" : "s"} on this page.${failedPreview ? ` Failed: ${failedPreview}` : ""}`,
+      kind: successCount > 0 ? "warning" : "error",
+    });
   };
 
   const onDelete = async (ids: string[]) => {
@@ -2866,7 +2981,8 @@ const SavedUrlsPage: React.FC = () => {
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     Bulk actions below apply only to the currently visible page
-                    selection.
+                    selection. If a bulk action partially fails, only the failed
+                    rows stay selected so you can retry them.
                   </div>
                 </div>
 

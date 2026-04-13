@@ -39,6 +39,7 @@ import type { NotebookTemplateKey } from "../lib/notebookClient";
 import {
   consumeGovernanceWorkspaceIntent,
   type GovernanceWorkspaceIntent,
+  type GovernanceWorkspaceSourceScope,
 } from "../lib/governanceWorkspace";
 
 type RelationFilter = "all" | GovernanceRelationType;
@@ -161,6 +162,65 @@ const governanceAgencyCategoryOptions = [
   "PRIVATE_SECTOR",
   "OTHER",
 ] as const;
+
+const sourceScopeOptions: Array<{
+  value: GovernanceWorkspaceSourceScope;
+  label: string;
+  help: string;
+}> = [
+  {
+    value: "files",
+    label: "File Manager",
+    help: "Prefer file-backed evidence as the starting retrieval scope.",
+  },
+  {
+    value: "urls",
+    label: "Saved URLs",
+    help: "Prefer URL-backed evidence as the starting retrieval scope.",
+  },
+  {
+    value: "mixed",
+    label: "Mixed anchors",
+    help: "Start from both file and URL anchors together.",
+  },
+  {
+    value: "all",
+    label: "All sources",
+    help: "Do not constrain retrieval to a single source family.",
+  },
+];
+
+function formatSourceScopeLabel(scope: GovernanceWorkspaceSourceScope) {
+  switch (scope) {
+    case "files":
+      return "File Manager";
+    case "urls":
+      return "Saved URLs";
+    case "mixed":
+      return "Mixed anchors";
+    default:
+      return "All sources";
+  }
+}
+
+function getPrimaryAnchorDocumentId(intent?: GovernanceWorkspaceIntent | null) {
+  return (
+    intent?.anchorDocumentIds?.find((id) => String(id).trim().length > 0) ??
+    (typeof intent?.documentId === "string" &&
+    intent.documentId.trim().length > 0
+      ? intent.documentId.trim()
+      : null)
+  );
+}
+
+function getPrimaryAnchorUrlId(intent?: GovernanceWorkspaceIntent | null) {
+  return (
+    intent?.anchorUrlIds?.find((id) => Number.isFinite(id)) ??
+    (typeof intent?.urlId === "number" && Number.isFinite(intent.urlId)
+      ? intent.urlId
+      : null)
+  );
+}
 
 function humanizeEnumValue(value?: string | null, fallback = "Unspecified") {
   const text = String(value || "").trim();
@@ -342,6 +402,9 @@ export default function GovernanceWorkspacePage() {
   const [launchIntent, setLaunchIntent] =
     useState<GovernanceWorkspaceIntent | null>(null);
   const [documentInput, setDocumentInput] = useState("");
+  const [workspaceQuestion, setWorkspaceQuestion] = useState("");
+  const [sourceScope, setSourceScope] =
+    useState<GovernanceWorkspaceSourceScope>("all");
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [selectedAgencyId, setSelectedAgencyId] = useState<string | null>(null);
@@ -379,10 +442,14 @@ export default function GovernanceWorkspacePage() {
     if (!pending) return;
 
     setLaunchIntent(pending);
+    setSourceScope(pending.sourceScope ?? "all");
+    setWorkspaceQuestion(pending.question ?? "");
 
-    if (pending.documentId) {
-      setDocumentInput(pending.documentId);
-      setActiveDocumentId(pending.documentId);
+    const primaryAnchorDocumentId = getPrimaryAnchorDocumentId(pending);
+
+    if (primaryAnchorDocumentId) {
+      setDocumentInput(primaryAnchorDocumentId);
+      setActiveDocumentId(primaryAnchorDocumentId);
     }
 
     if (pending.selectedIssueId) {
@@ -392,12 +459,21 @@ export default function GovernanceWorkspacePage() {
     if (pending.selectedAgencyId) {
       setSelectedAgencyId(pending.selectedAgencyId);
     }
+
+    if (
+      pending.preferredMode === "case_trace" ||
+      pending.preferredMode === "contradiction"
+    ) {
+      setWorkspaceMode("case");
+    }
   }, []);
 
+  const primaryAnchorUrlId = getPrimaryAnchorUrlId(launchIntent);
+
   const urlResolutionQuery = useQuery({
-    queryKey: ["governance-workspace", "resolve-url", launchIntent?.urlId],
-    enabled: Boolean(launchIntent?.urlId) && !activeDocumentId,
-    queryFn: async () => getUrlRevisions(Number(launchIntent?.urlId), 1),
+    queryKey: ["governance-workspace", "resolve-url", primaryAnchorUrlId],
+    enabled: Boolean(primaryAnchorUrlId) && !activeDocumentId,
+    queryFn: async () => getUrlRevisions(Number(primaryAnchorUrlId), 1),
   });
 
   useEffect(() => {
@@ -595,6 +671,10 @@ export default function GovernanceWorkspacePage() {
     launchIntent?.sourceLabel ??
     overview?.document.kind ??
     "Bring in a document from File Manager or Saved URLs";
+
+  const sourceScopeLabel = formatSourceScopeLabel(sourceScope);
+  const anchorDocumentCount = launchIntent?.anchorDocumentIds?.length ?? 0;
+  const anchorUrlCount = launchIntent?.anchorUrlIds?.length ?? 0;
 
   const documentSummary = overview?.summary ?? {
     agencyCount: 0,
@@ -888,55 +968,105 @@ export default function GovernanceWorkspacePage() {
             </p>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),auto] lg:min-w-[480px]">
+          <div className="grid gap-3 lg:min-w-[580px]">
             <label className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Document ID
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Governance question
+                </div>
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                  Retrieval anchor intake
+                </span>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <Search className="h-4 w-4 text-slate-400" />
-                <input
-                  value={documentInput}
-                  onChange={(e) => setDocumentInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      loadDocumentFromInput();
-                    }
-                  }}
-                  placeholder="Paste a canonical document id"
-                  className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                />
+
+              <textarea
+                value={workspaceQuestion}
+                onChange={(e) => setWorkspaceQuestion(e.target.value)}
+                rows={3}
+                placeholder='Ask a question like: "What is currently in force for industrial emissions in Faridabad?"'
+                className="mt-3 w-full resize-none bg-transparent text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400"
+              />
+
+              <div className="mt-3 text-xs leading-5 text-slate-500">
+                File Manager documents and Saved URLs should act as anchor
+                evidence. Retrieval can expand beyond them in the next backend
+                step.
               </div>
             </label>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={loadDocumentFromInput}
-                className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-900"
-              >
-                Load dossier
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void issueDirectoryQuery.refetch();
-                  void agencyDirectoryQuery.refetch();
+            <div className="flex flex-wrap gap-2">
+              {sourceScopeOptions.map((option) => {
+                const active = option.value === sourceScope;
 
-                  if (activeDocumentId) {
-                    void documentQuery.refetch();
-                    if (selectedIssueId) void timelineQuery.refetch();
-                    if (selectedIssueId) void relationsQuery.refetch();
-                    if (selectedAgencyId) void agencyLandscapeQuery.refetch();
-                  }
-                }}
-                className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/70 bg-white/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white"
-                title="Refresh workspace data"
-              >
-                <RefreshCcw className="mr-2 h-4 w-4" />
-                Refresh
-              </button>
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSourceScope(option.value)}
+                    className={[
+                      "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                      active
+                        ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                        : "border-white/70 bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900",
+                    ].join(" ")}
+                    title={option.help}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),auto]">
+              <label className="rounded-2xl border border-white/70 bg-white/85 p-3 shadow-sm">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Document ID (advanced)
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Search className="h-4 w-4 text-slate-400" />
+                  <input
+                    value={documentInput}
+                    onChange={(e) => setDocumentInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        loadDocumentFromInput();
+                      }
+                    }}
+                    placeholder="Paste a canonical document id"
+                    className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                </div>
+              </label>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadDocumentFromInput}
+                  className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-900"
+                >
+                  Load dossier
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void issueDirectoryQuery.refetch();
+                    void agencyDirectoryQuery.refetch();
+
+                    if (activeDocumentId) {
+                      void documentQuery.refetch();
+                      if (selectedIssueId) void timelineQuery.refetch();
+                      if (selectedIssueId) void relationsQuery.refetch();
+                      if (selectedAgencyId) void agencyLandscapeQuery.refetch();
+                    }
+                  }}
+                  className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/70 bg-white/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white"
+                  title="Refresh workspace data"
+                >
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                  Refresh
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -945,11 +1075,38 @@ export default function GovernanceWorkspacePage() {
           <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 shadow-sm">
             Launch source: {sourceDescriptor}
           </span>
+
+          <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 shadow-sm">
+            Source scope: {sourceScopeLabel}
+          </span>
+
+          {workspaceQuestion.trim() ? (
+            <span className="inline-flex max-w-full items-center rounded-full border border-sky-200/80 bg-sky-50/80 px-3 py-1 shadow-sm">
+              <span className="font-medium text-sky-900">Question:</span>
+              <span className="ml-1 max-w-[34rem] truncate text-sky-800">
+                {workspaceQuestion.trim()}
+              </span>
+            </span>
+          ) : null}
+
+          {anchorDocumentCount > 0 && (
+            <span className="inline-flex items-center rounded-full border border-emerald-200/80 bg-emerald-50/80 px-3 py-1 shadow-sm">
+              File anchors: {anchorDocumentCount}
+            </span>
+          )}
+
+          {anchorUrlCount > 0 && (
+            <span className="inline-flex items-center rounded-full border border-violet-200/80 bg-violet-50/80 px-3 py-1 shadow-sm">
+              URL anchors: {anchorUrlCount}
+            </span>
+          )}
+
           {activeDocumentId && (
             <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 shadow-sm">
               Active document: {activeDocumentId}
             </span>
           )}
+
           {launchIntent?.title && (
             <span className="inline-flex items-center rounded-full border border-emerald-200/80 bg-emerald-50/80 px-3 py-1 shadow-sm">
               Context: {launchIntent.title}

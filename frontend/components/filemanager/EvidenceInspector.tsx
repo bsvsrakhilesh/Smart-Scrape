@@ -203,9 +203,10 @@ export default function EvidenceInspector({ file }: Props) {
       }
 
       openGovernanceWorkspace({
-        documentId: resolvedDocumentId,
+        anchorDocumentIds: [resolvedDocumentId],
         title: file.title,
         sourceLabel: file.sourceUrl ?? file.captureEvent?.sourceUrl ?? null,
+        sourceScope: "files",
         origin: "file-manager",
       });
     } catch (e: any) {

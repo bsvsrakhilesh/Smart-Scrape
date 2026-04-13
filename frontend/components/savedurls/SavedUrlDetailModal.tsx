@@ -292,10 +292,11 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
       }
 
       openGovernanceWorkspace({
-        documentId,
-        urlId: Number(url.id),
+        anchorDocumentIds: [documentId],
+        anchorUrlIds: [Number(url.id)],
         title: url.title,
         sourceLabel: url.url,
+        sourceScope: "mixed",
         origin: "saved-urls",
       });
     } catch (e: any) {

@@ -2,12 +2,14 @@ import prisma from "../config/database";
 import { Prisma, DocumentKind } from "../generated/prisma/client";
 
 type GovernanceWorkspaceSourceScope = "all" | "files" | "urls" | "mixed";
+type GovernanceWorkspaceWorkflowMode = "auto" | "landscape" | "case_trace";
 
 type GovernanceWorkspaceQueryInput = {
   question?: string | null;
   anchorDocumentIds?: string[];
   anchorUrlIds?: number[];
   sourceScope?: GovernanceWorkspaceSourceScope;
+  workflowMode?: GovernanceWorkspaceWorkflowMode;
   limit?: number;
 };
 
@@ -147,11 +149,117 @@ function normalizeScope(value: unknown): GovernanceWorkspaceSourceScope {
     : "all";
 }
 
+function normalizeWorkflowMode(
+  value: unknown,
+): GovernanceWorkspaceWorkflowMode {
+  return value === "landscape" || value === "case_trace" || value === "auto"
+    ? value
+    : "auto";
+}
+
+function resolveWorkflowPlan(args: {
+  requestedMode: GovernanceWorkspaceWorkflowMode;
+  question: string;
+  tokens: string[];
+  anchorDocumentIds: string[];
+  anchorUrlIds: number[];
+}) {
+  if (args.requestedMode === "landscape") {
+    return {
+      requestedMode: args.requestedMode,
+      resolvedMode: "landscape" as const,
+      rationale:
+        "Landscape mode was chosen explicitly, so retrieval will optimize for broad governance scoping across agencies, directions, and compliance records.",
+      expectedOutputs: [
+        "Agency and jurisdiction map",
+        "Active directions or orders",
+        "Follow-up actions and compliance gaps",
+      ],
+    };
+  }
+
+  if (args.requestedMode === "case_trace") {
+    return {
+      requestedMode: args.requestedMode,
+      resolvedMode: "case_trace" as const,
+      rationale:
+        "Case tracing mode was chosen explicitly, so retrieval will optimize for one-unit chronology, conflicting positions, and contradiction-ready evidence.",
+      expectedOutputs: [
+        "Chronological case trail",
+        "Contradiction and override candidates",
+        "Escalation-ready evidence pack",
+      ],
+    };
+  }
+
+  const haystack = `${args.question} ${args.tokens.join(" ")}`.toLowerCase();
+
+  const caseSignals = [
+    "why",
+    "contradict",
+    "conflict",
+    "permitted",
+    "restricted",
+    "trace",
+    "timeline",
+    "case",
+    "unit",
+    "facility",
+    "override",
+    "supersede",
+  ].filter((term) => haystack.includes(term)).length;
+
+  const landscapeSignals = [
+    "currently in force",
+    "current",
+    "what is in force",
+    "map",
+    "landscape",
+    "jurisdiction",
+    "agencies",
+    "active directions",
+    "follow up",
+    "follow-up",
+    "compliance gaps",
+    "governing",
+  ].filter((term) => haystack.includes(term)).length;
+
+  const anchorBias =
+    args.anchorDocumentIds.length + args.anchorUrlIds.length >= 2 ? 1 : 0;
+
+  if (caseSignals + anchorBias > landscapeSignals) {
+    return {
+      requestedMode: args.requestedMode,
+      resolvedMode: "case_trace" as const,
+      rationale:
+        "The question reads like a single-case or contradiction review, so the workspace will prioritize chronology, conflicting positions, and cross-record tracing.",
+      expectedOutputs: [
+        "Chronological case trail",
+        "Contradiction and override candidates",
+        "Escalation-ready evidence pack",
+      ],
+    };
+  }
+
+  return {
+    requestedMode: args.requestedMode,
+    resolvedMode: "landscape" as const,
+    rationale:
+      "The question reads like broad issue scoping, so the workspace will prioritize agencies, active directions, follow-up actions, and compliance coverage.",
+    expectedOutputs: [
+      "Agency and jurisdiction map",
+      "Active directions or orders",
+      "Follow-up actions and compliance gaps",
+    ],
+  };
+}
+
 function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
   Pick<GovernanceWorkspaceQueryInput, "anchorDocumentIds" | "anchorUrlIds">
 > & {
   question: string;
   sourceScope: GovernanceWorkspaceSourceScope;
+  workflowMode: GovernanceWorkspaceWorkflowMode;
   limit: number;
 } {
   return {
@@ -159,6 +267,7 @@ function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
     anchorDocumentIds: uniqueStrings(input.anchorDocumentIds),
     anchorUrlIds: uniqueNumbers(input.anchorUrlIds),
     sourceScope: normalizeScope(input.sourceScope),
+    workflowMode: normalizeWorkflowMode(input.workflowMode),
     limit: clampLimit(input.limit),
   };
 }
@@ -374,6 +483,13 @@ export async function queryGovernanceWorkspaceEvidence(
 ) {
   const input = normalizeInput(rawInput);
   const tokens = tokenizeQuestion(input.question);
+  const workflow = resolveWorkflowPlan({
+    requestedMode: input.workflowMode,
+    question: input.question,
+    tokens,
+    anchorDocumentIds: input.anchorDocumentIds,
+    anchorUrlIds: input.anchorUrlIds,
+  });
   const candidates = new Map<string, CandidateAccumulator>();
 
   const anchorDocuments =
@@ -698,10 +814,12 @@ export async function queryGovernanceWorkspaceEvidence(
       question: input.question,
       tokens,
       sourceScope: input.sourceScope,
+      workflowMode: input.workflowMode,
       anchorDocumentIds: input.anchorDocumentIds,
       anchorUrlIds: input.anchorUrlIds,
       limit: input.limit,
     },
+    workflow,
     selectedDocumentId: items[0]?.documentId ?? null,
     totalCandidates: items.length,
     candidates: items,

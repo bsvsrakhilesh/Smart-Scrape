@@ -332,6 +332,8 @@ export async function postGovernanceWorkspaceQueryHandler(
         : undefined,
       sourceScope:
         typeof body.sourceScope === "string" ? body.sourceScope : undefined,
+      workflowMode:
+        typeof body.workflowMode === "string" ? body.workflowMode : undefined,
       limit: typeof body.limit === "number" ? body.limit : undefined,
     });
 
@@ -342,6 +344,8 @@ export async function postGovernanceWorkspaceQueryHandler(
       metadata: {
         question: out.query.question || null,
         sourceScope: out.query.sourceScope,
+        requestedWorkflowMode: out.query.workflowMode,
+        resolvedWorkflowMode: out.workflow.resolvedMode,
         anchorDocumentIds: out.query.anchorDocumentIds,
         anchorUrlIds: out.query.anchorUrlIds,
         tokenCount: out.query.tokens.length,

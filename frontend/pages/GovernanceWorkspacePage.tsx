@@ -45,6 +45,79 @@ import {
 
 type RelationFilter = "all" | GovernanceRelationType;
 
+type WorkspaceIntakeMode = "auto" | "landscape" | "case_trace";
+
+const workspaceIntentModeOptions: Array<{
+  value: WorkspaceIntakeMode;
+  label: string;
+  help: string;
+}> = [
+  {
+    value: "auto",
+    label: "Auto-detect",
+    help: "Let the workspace choose between landscape mapping and case tracing.",
+  },
+  {
+    value: "landscape",
+    label: "Landscape Mapping",
+    help: "Use this for broad governance scoping, active directions, and agency mapping.",
+  },
+  {
+    value: "case_trace",
+    label: "Case Tracing",
+    help: "Use this for one unit, one dispute, one timeline, or contradiction review.",
+  },
+];
+
+const governancePromptExamples: Array<{
+  label: string;
+  mode: WorkspaceIntakeMode;
+  prompt: string;
+}> = [
+  {
+    label: "In-force policy view",
+    mode: "landscape",
+    prompt: "What is currently in force for industrial emissions in Faridabad?",
+  },
+  {
+    label: "Jurisdiction and gaps",
+    mode: "landscape",
+    prompt:
+      "Map the active agencies, directions, follow-up actions, and compliance gaps for stone crushers in Bhiwadi.",
+  },
+  {
+    label: "Contradiction review",
+    mode: "case_trace",
+    prompt:
+      "Why does this Bhiwadi unit appear restricted in one record and permitted in another?",
+  },
+];
+
+function normalizeWorkspaceIntentMode(
+  preferredMode?: string | null,
+): WorkspaceIntakeMode {
+  if (preferredMode === "landscape") return "landscape";
+  if (preferredMode === "case_trace" || preferredMode === "contradiction") {
+    return "case_trace";
+  }
+  return "auto";
+}
+
+function formatWorkspaceIntentModeLabel(mode: WorkspaceIntakeMode) {
+  switch (mode) {
+    case "landscape":
+      return "Governance Landscape Mapping";
+    case "case_trace":
+      return "Case-Tracing and Contradiction Mapping";
+    default:
+      return "Auto-detect";
+  }
+}
+
+function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
+  return mode === "case_trace" ? "case" : "map";
+}
+
 type ProvenanceSelection = {
   title: string;
   subtitle: string | null;
@@ -404,6 +477,8 @@ export default function GovernanceWorkspacePage() {
     useState<GovernanceWorkspaceIntent | null>(null);
   const [documentInput, setDocumentInput] = useState("");
   const [workspaceQuestion, setWorkspaceQuestion] = useState("");
+  const [workspaceIntentMode, setWorkspaceIntentMode] =
+    useState<WorkspaceIntakeMode>("auto");
   const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [sourceScope, setSourceScope] =
     useState<GovernanceWorkspaceSourceScope>("all");
@@ -463,12 +538,11 @@ export default function GovernanceWorkspacePage() {
       setSelectedAgencyId(pending.selectedAgencyId);
     }
 
-    if (
-      pending.preferredMode === "case_trace" ||
-      pending.preferredMode === "contradiction"
-    ) {
-      setWorkspaceMode("case");
-    }
+    const normalizedIntentMode = normalizeWorkspaceIntentMode(
+      pending.preferredMode,
+    );
+    setWorkspaceIntentMode(normalizedIntentMode);
+    setWorkspaceMode(toWorkspaceSurfaceMode(normalizedIntentMode));
 
     if (
       pending.question?.trim() ||
@@ -522,6 +596,7 @@ export default function GovernanceWorkspacePage() {
       "governance-workspace-evidence",
       workspaceQueryRunKey,
       workspaceQuestion,
+      workspaceIntentMode,
       sourceScope,
       launchIntent?.anchorDocumentIds?.join("|") ?? "",
       launchIntent?.anchorUrlIds?.join("|") ?? "",
@@ -534,6 +609,7 @@ export default function GovernanceWorkspacePage() {
     queryFn: async () =>
       queryGovernanceWorkspaceEvidence({
         question: workspaceQuestion.trim() || undefined,
+        workflowMode: workspaceIntentMode,
         anchorDocumentIds: launchIntent?.anchorDocumentIds ?? [],
         anchorUrlIds: launchIntent?.anchorUrlIds ?? [],
         sourceScope,
@@ -550,6 +626,13 @@ export default function GovernanceWorkspacePage() {
     setActiveDocumentId(selectedDocumentId);
     setSelectedProvenance(null);
   }, [workspaceEvidenceQuery.data?.selectedDocumentId]);
+
+  useEffect(() => {
+    const resolvedMode = workspaceEvidenceQuery.data?.workflow?.resolvedMode;
+    if (!resolvedMode) return;
+
+    setWorkspaceMode(resolvedMode === "case_trace" ? "case" : "map");
+  }, [workspaceEvidenceQuery.data?.workflow?.resolvedMode]);
 
   const documentQuery = useQuery({
     queryKey: ["governance-document", activeDocumentId],
@@ -746,6 +829,43 @@ export default function GovernanceWorkspacePage() {
   const anchorDocumentCount = launchIntent?.anchorDocumentIds?.length ?? 0;
   const anchorUrlCount = launchIntent?.anchorUrlIds?.length ?? 0;
   const evidenceCandidates = workspaceEvidenceQuery.data?.candidates ?? [];
+
+  const workflowPlan = useMemo(() => {
+    const fromResponse = workspaceEvidenceQuery.data?.workflow;
+    if (fromResponse) return fromResponse;
+
+    if (workspaceIntentMode === "case_trace") {
+      return {
+        requestedMode: "case_trace" as const,
+        resolvedMode: "case_trace" as const,
+        rationale:
+          "The intake is pinned to case tracing, so the workspace will prioritize one-unit trails, chronology, and contradictions.",
+        expectedOutputs: [
+          "Case trail",
+          "Contradiction map",
+          "Chronology of records",
+        ],
+      };
+    }
+
+    if (workspaceIntentMode === "landscape") {
+      return {
+        requestedMode: "landscape" as const,
+        resolvedMode: "landscape" as const,
+        rationale:
+          "The intake is pinned to landscape mapping, so the workspace will prioritize jurisdiction, active directions, and compliance gaps.",
+        expectedOutputs: ["Agency map", "Active directions", "Compliance gaps"],
+      };
+    }
+
+    return {
+      requestedMode: "auto" as const,
+      resolvedMode: "landscape" as const,
+      rationale:
+        "Auto-detect will choose the best workflow after retrieval; until then, the workspace defaults to broad governance scoping.",
+      expectedOutputs: ["Agency map", "Active directions", "Top evidence"],
+    };
+  }, [workspaceEvidenceQuery.data?.workflow, workspaceIntentMode]);
 
   const documentSummary = overview?.summary ?? {
     agencyCount: 0,
@@ -1056,7 +1176,7 @@ export default function GovernanceWorkspacePage() {
                   value={workspaceQuestion}
                   onChange={(e) => setWorkspaceQuestion(e.target.value)}
                   rows={1}
-                  placeholder='Ask a question '
+                  placeholder="Ask a governance question"
                   className="block min-h-[92px] max-h-44 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-sm leading-6 text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </div>
@@ -1065,6 +1185,78 @@ export default function GovernanceWorkspacePage() {
                 File Manager documents and Saved URLs act as anchor evidence.
                 Evidence search can expand beyond them when ranking relevant
                 records.
+              </div>
+              <div className="mt-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Workflow
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {workspaceIntentModeOptions.map((option) => {
+                    const active = option.value === workspaceIntentMode;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setWorkspaceIntentMode(option.value)}
+                        className={[
+                          "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                          active
+                            ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                            : "border-white/70 bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900",
+                        ].join(" ")}
+                        title={option.help}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr),280px]">
+                <div className="rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Example prompts
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {governancePromptExamples.map((example) => (
+                      <button
+                        key={example.label}
+                        type="button"
+                        onClick={() => {
+                          setWorkspaceQuestion(example.prompt);
+                          setWorkspaceIntentMode(example.mode);
+                        }}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-950"
+                      >
+                        {example.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-sky-200/80 bg-sky-50/70 p-3 shadow-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                    Workflow plan
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-slate-950">
+                    {formatWorkspaceIntentModeLabel(workflowPlan.resolvedMode)}
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {workflowPlan.rationale}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {workflowPlan.expectedOutputs.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-sky-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-sky-800"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 

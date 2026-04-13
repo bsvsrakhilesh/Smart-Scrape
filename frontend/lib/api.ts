@@ -1910,9 +1910,16 @@ export type GovernanceWorkspaceEvidenceResponse = {
     question: string;
     tokens: string[];
     sourceScope: "all" | "files" | "urls" | "mixed";
+    workflowMode: "auto" | "landscape" | "case_trace";
     anchorDocumentIds: string[];
     anchorUrlIds: number[];
     limit: number;
+  };
+  workflow: {
+    requestedMode: "auto" | "landscape" | "case_trace";
+    resolvedMode: "landscape" | "case_trace";
+    rationale: string;
+    expectedOutputs: string[];
   };
   selectedDocumentId: string | null;
   totalCandidates: number;
@@ -1946,6 +1953,7 @@ export async function queryGovernanceWorkspaceEvidence(payload: {
   anchorDocumentIds?: string[];
   anchorUrlIds?: number[];
   sourceScope?: "all" | "files" | "urls" | "mixed";
+  workflowMode?: "auto" | "landscape" | "case_trace";
   limit?: number;
 }) {
   try {

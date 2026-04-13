@@ -1921,6 +1921,28 @@ export type GovernanceWorkspaceEvidenceResponse = {
     rationale: string;
     expectedOutputs: string[];
   };
+  queryUnderstanding: {
+    queryType:
+      | "broad_scan"
+      | "case_review"
+      | "chronology_review"
+      | "contradiction_review";
+    focusTerms: string[];
+    timeHints: string[];
+    locationHints: string[];
+    matchedIssues: Array<{
+      id: string;
+      title: string;
+      kind: string | null;
+      status: string | null;
+    }>;
+    matchedAgencies: Array<{
+      id: string;
+      name: string;
+      category: string | null;
+      jurisdiction: string | null;
+    }>;
+  };
   selectedDocumentId: string | null;
   totalCandidates: number;
   candidates: GovernanceWorkspaceEvidenceCandidate[];

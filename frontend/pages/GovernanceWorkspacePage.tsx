@@ -114,6 +114,25 @@ function formatWorkspaceIntentModeLabel(mode: WorkspaceIntakeMode) {
   }
 }
 
+function formatQueryTypeLabel(
+  type:
+    | "broad_scan"
+    | "case_review"
+    | "chronology_review"
+    | "contradiction_review",
+) {
+  switch (type) {
+    case "contradiction_review":
+      return "Contradiction review";
+    case "chronology_review":
+      return "Chronology review";
+    case "case_review":
+      return "Case review";
+    default:
+      return "Broad scan";
+  }
+}
+
 function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
   return mode === "case_trace" ? "case" : "map";
 }
@@ -867,6 +886,19 @@ export default function GovernanceWorkspacePage() {
     };
   }, [workspaceEvidenceQuery.data?.workflow, workspaceIntentMode]);
 
+  const queryUnderstanding = workspaceEvidenceQuery.data
+    ?.queryUnderstanding ?? {
+    queryType:
+      workflowPlan.resolvedMode === "case_trace"
+        ? ("case_review" as const)
+        : ("broad_scan" as const),
+    focusTerms: workspaceEvidenceQuery.data?.query.tokens ?? [],
+    timeHints: [],
+    locationHints: [],
+    matchedIssues: [],
+    matchedAgencies: [],
+  };
+
   const documentSummary = overview?.summary ?? {
     agencyCount: 0,
     issueCount: 0,
@@ -1214,25 +1246,121 @@ export default function GovernanceWorkspacePage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr),280px]">
-                <div className="rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Example prompts
+              <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr),320px]">
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Example prompts
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {governancePromptExamples.map((example) => (
+                        <button
+                          key={example.label}
+                          type="button"
+                          onClick={() => {
+                            setWorkspaceQuestion(example.prompt);
+                            setWorkspaceIntentMode(example.mode);
+                          }}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-950"
+                        >
+                          {example.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {governancePromptExamples.map((example) => (
-                      <button
-                        key={example.label}
-                        type="button"
-                        onClick={() => {
-                          setWorkspaceQuestion(example.prompt);
-                          setWorkspaceIntentMode(example.mode);
-                        }}
-                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-950"
-                      >
-                        {example.label}
-                      </button>
-                    ))}
+
+                  <div className="rounded-2xl border border-slate-200/80 bg-white/75 p-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Query understanding
+                      </div>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                        {formatQueryTypeLabel(queryUnderstanding.queryType)}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {queryUnderstanding.locationHints.map((item) => (
+                        <span
+                          key={`location-${item}`}
+                          className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+                        >
+                          Location: {item}
+                        </span>
+                      ))}
+                      {queryUnderstanding.timeHints.map((item) => (
+                        <span
+                          key={`time-${item}`}
+                          className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700"
+                        >
+                          Time: {item}
+                        </span>
+                      ))}
+                      {queryUnderstanding.focusTerms.map((item) => (
+                        <span
+                          key={`term-${item}`}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+
+                    {queryUnderstanding.matchedIssues.length ||
+                    queryUnderstanding.matchedAgencies.length ? (
+                      <div className="mt-3 space-y-3">
+                        {queryUnderstanding.matchedIssues.length ? (
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Issue signals
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {queryUnderstanding.matchedIssues.map((issue) => (
+                                <button
+                                  key={issue.id}
+                                  type="button"
+                                  onClick={() => setSelectedIssueId(issue.id)}
+                                  className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-100"
+                                  title="Use this as the active issue lens"
+                                >
+                                  {issue.title}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {queryUnderstanding.matchedAgencies.length ? (
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Agency signals
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {queryUnderstanding.matchedAgencies.map(
+                                (agency) => (
+                                  <button
+                                    key={agency.id}
+                                    type="button"
+                                    onClick={() =>
+                                      setSelectedAgencyId(agency.id)
+                                    }
+                                    className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition hover:border-violet-300 hover:bg-violet-100"
+                                    title="Use this as the active agency lens"
+                                  >
+                                    {agency.name}
+                                  </button>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm leading-6 text-slate-500">
+                        Once retrieval runs, the workspace will show detected
+                        issue, agency, time, and location signals here.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1355,6 +1483,19 @@ export default function GovernanceWorkspacePage() {
           <span className="inline-flex items-center rounded-full border border-white/70 bg-white/70 px-3 py-1 shadow-sm">
             Source scope: {sourceScopeLabel}
           </span>
+
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 shadow-sm">
+            Query type: {formatQueryTypeLabel(queryUnderstanding.queryType)}
+          </span>
+
+          {queryUnderstanding.locationHints.slice(0, 1).map((item) => (
+            <span
+              key={`status-location-${item}`}
+              className="inline-flex items-center rounded-full border border-emerald-200/80 bg-emerald-50/80 px-3 py-1 shadow-sm"
+            >
+              Location: {item}
+            </span>
+          ))}
 
           {workspaceQuestion.trim() ? (
             <span className="inline-flex max-w-full items-center rounded-full border border-sky-200/80 bg-sky-50/80 px-3 py-1 shadow-sm">

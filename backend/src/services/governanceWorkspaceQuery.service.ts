@@ -32,6 +32,35 @@ type CandidateAccumulator = {
   matchedAgencies: Set<string>;
 };
 
+type GovernanceWorkspaceQueryType =
+  | "broad_scan"
+  | "case_review"
+  | "chronology_review"
+  | "contradiction_review";
+
+type GovernanceWorkspaceIssueSignal = {
+  id: string;
+  title: string;
+  kind: string | null;
+  status: string | null;
+};
+
+type GovernanceWorkspaceAgencySignal = {
+  id: string;
+  name: string;
+  category: string | null;
+  jurisdiction: string | null;
+};
+
+type GovernanceWorkspaceQueryUnderstanding = {
+  queryType: GovernanceWorkspaceQueryType;
+  focusTerms: string[];
+  timeHints: string[];
+  locationHints: string[];
+  matchedIssues: GovernanceWorkspaceIssueSignal[];
+  matchedAgencies: GovernanceWorkspaceAgencySignal[];
+};
+
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -289,6 +318,146 @@ function tokenizeQuestion(question: string): string[] {
   );
 }
 
+function extractTimeHints(question: string): string[] {
+  const text = String(question || "").trim();
+  const hints: string[] = [];
+
+  if (/\b(current|currently|active|latest|today|now|in force)\b/i.test(text)) {
+    hints.push("Current or in-force view");
+  }
+
+  const rangeMatch = text.match(/\bfrom\s+(\d{4})\s+to\s+(\d{4})\b/i);
+  if (rangeMatch) {
+    hints.push(`${rangeMatch[1]} to ${rangeMatch[2]}`);
+  }
+
+  const yearMatches = Array.from(
+    new Set(text.match(/\b(19|20)\d{2}\b/g) ?? []),
+  );
+  for (const year of yearMatches.slice(0, 3)) {
+    if (!hints.includes(year)) hints.push(year);
+  }
+
+  if (/\b(history|historical|timeline|chronology|trace)\b/i.test(text)) {
+    hints.push("Chronology requested");
+  }
+
+  return hints.slice(0, 4);
+}
+
+function extractLocationHints(question: string): string[] {
+  const text = String(question || "");
+  const matches = Array.from(
+    text.matchAll(
+      /\b(?:in|for|across|within|at)\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})/g,
+    ),
+  )
+    .map((match) => match[1]?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(matches)).slice(0, 4);
+}
+
+function resolveQueryType(args: {
+  workflowMode: "landscape" | "case_trace";
+  question: string;
+}): GovernanceWorkspaceQueryType {
+  const text = String(args.question || "").toLowerCase();
+
+  if (
+    /\b(contradict|conflict|override|supersede|permitted|restricted|non-compliant|compliant)\b/.test(
+      text,
+    )
+  ) {
+    return "contradiction_review";
+  }
+
+  if (
+    /\b(trace|timeline|chronology|history|from\s+\d{4}\s+to\s+\d{4})\b/.test(
+      text,
+    )
+  ) {
+    return "chronology_review";
+  }
+
+  if (args.workflowMode === "case_trace") {
+    return "case_review";
+  }
+
+  return "broad_scan";
+}
+
+async function buildQueryUnderstanding(args: {
+  question: string;
+  tokens: string[];
+  workflowMode: "landscape" | "case_trace";
+}): Promise<GovernanceWorkspaceQueryUnderstanding> {
+  const focusTerms = args.tokens.slice(0, 6);
+  const timeHints = extractTimeHints(args.question);
+  const locationHints = extractLocationHints(args.question);
+  const queryType = resolveQueryType({
+    workflowMode: args.workflowMode,
+    question: args.question,
+  });
+
+  if (!args.tokens.length) {
+    return {
+      queryType,
+      focusTerms,
+      timeHints,
+      locationHints,
+      matchedIssues: [],
+      matchedAgencies: [],
+    };
+  }
+
+  const [issueHits, agencyHits] = await Promise.all([
+    prisma.governanceIssue.findMany({
+      where: {
+        OR: buildContainsOr(args.tokens, ["title", "summary"]),
+      } as any,
+      take: 6,
+      select: {
+        id: true,
+        title: true,
+        kind: true,
+        status: true,
+      },
+    }),
+    prisma.agency.findMany({
+      where: {
+        OR: buildContainsOr(args.tokens, ["name", "shortName", "jurisdiction"]),
+      } as any,
+      take: 6,
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        jurisdiction: true,
+      },
+    }),
+  ]);
+
+  return {
+    queryType,
+    focusTerms,
+    timeHints,
+    locationHints,
+    matchedIssues: issueHits.map((item) => ({
+      id: item.id,
+      title: item.title,
+      kind: item.kind ?? null,
+      status: item.status ?? null,
+    })),
+    matchedAgencies: agencyHits.map((item) => ({
+      id: item.id,
+      name: item.name,
+      category: item.category ?? null,
+      jurisdiction: item.jurisdiction ?? null,
+    })),
+  };
+}
+
 function documentAllowed(
   kind: DocumentKind,
   scope: GovernanceWorkspaceSourceScope,
@@ -489,6 +658,11 @@ export async function queryGovernanceWorkspaceEvidence(
     tokens,
     anchorDocumentIds: input.anchorDocumentIds,
     anchorUrlIds: input.anchorUrlIds,
+  });
+  const queryUnderstanding = await buildQueryUnderstanding({
+    question: input.question,
+    tokens,
+    workflowMode: workflow.resolvedMode,
   });
   const candidates = new Map<string, CandidateAccumulator>();
 
@@ -820,6 +994,7 @@ export async function queryGovernanceWorkspaceEvidence(
       limit: input.limit,
     },
     workflow,
+    queryUnderstanding,
     selectedDocumentId: items[0]?.documentId ?? null,
     totalCandidates: items.length,
     candidates: items,

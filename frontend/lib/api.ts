@@ -2054,6 +2054,22 @@ export type GovernanceWorkspaceEvidenceResponse = {
     }>;
     involvedDocumentIds: string[];
   };
+  overrideChainFoundation: {
+    active: boolean;
+    rationale: string;
+    summary: {
+      chainCount: number;
+      linkedDocumentCount: number;
+    };
+    chains: Array<{
+      chainKey: string;
+      documentIds: string[];
+      documentTitles: string[];
+      edgeCount: number;
+      maxConfidence: number | null;
+      basis: string;
+    }>;
+  };
   caseTrailFoundation: {
     active: boolean;
     rationale: string;
@@ -2062,10 +2078,15 @@ export type GovernanceWorkspaceEvidenceResponse = {
       documentEventCount: number;
       conflictEventCount: number;
       overrideEventCount: number;
+      overrideChainEventCount: number;
     };
     events: Array<{
       eventId: string;
-      eventType: "document" | "conflict_cluster" | "override_hint";
+      eventType:
+        | "document"
+        | "conflict_cluster"
+        | "override_hint"
+        | "override_chain";
       title: string;
       subtitle: string | null;
       issueTitle: string | null;

@@ -202,7 +202,11 @@ type GovernanceWorkspaceContradictionFoundation = {
 
 type GovernanceWorkspaceCaseTrailEvent = {
   eventId: string;
-  eventType: "document" | "conflict_cluster" | "override_hint";
+  eventType:
+    | "document"
+    | "conflict_cluster"
+    | "override_hint"
+    | "override_chain";
   title: string;
   subtitle: string | null;
   issueTitle: string | null;
@@ -221,8 +225,28 @@ type GovernanceWorkspaceCaseTrailFoundation = {
     documentEventCount: number;
     conflictEventCount: number;
     overrideEventCount: number;
+    overrideChainEventCount: number;
   };
   events: GovernanceWorkspaceCaseTrailEvent[];
+};
+
+type GovernanceWorkspaceOverrideChain = {
+  chainKey: string;
+  documentIds: string[];
+  documentTitles: string[];
+  edgeCount: number;
+  maxConfidence: number | null;
+  basis: string;
+};
+
+type GovernanceWorkspaceOverrideChainFoundation = {
+  active: boolean;
+  rationale: string;
+  summary: {
+    chainCount: number;
+    linkedDocumentCount: number;
+  };
+  chains: GovernanceWorkspaceOverrideChain[];
 };
 
 const STOP_WORDS = new Set([
@@ -1596,14 +1620,17 @@ function caseTrailEventTypePriority(
       return 1;
     case "conflict_cluster":
       return 2;
-    default:
+    case "override_chain":
       return 3;
+    default:
+      return 4;
   }
 }
 
 function buildCaseTrailFoundation(args: {
   ranked: RankedCandidate[];
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+  overrideChainFoundation: GovernanceWorkspaceOverrideChainFoundation;
   workflowMode: "landscape" | "case_trace";
 }): GovernanceWorkspaceCaseTrailFoundation {
   if (!args.ranked.length) {
@@ -1616,6 +1643,7 @@ function buildCaseTrailFoundation(args: {
         documentEventCount: 0,
         conflictEventCount: 0,
         overrideEventCount: 0,
+        overrideChainEventCount: 0,
       },
       events: [],
     };
@@ -1683,7 +1711,6 @@ function buildCaseTrailFoundation(args: {
         confidence: null,
       };
     });
-
   const overrideEvents: GovernanceWorkspaceCaseTrailEvent[] =
     args.contradictionFoundation.overrideHints.map((hint) => {
       const preferred = candidateByDocumentId.get(hint.preferredDocumentId);
@@ -1714,7 +1741,40 @@ function buildCaseTrailFoundation(args: {
       };
     });
 
-  const events = [...documentEvents, ...conflictEvents, ...overrideEvents]
+  const overrideChainEvents: GovernanceWorkspaceCaseTrailEvent[] =
+    args.overrideChainFoundation.chains.map((chain) => {
+      const chainCandidates = chain.documentIds
+        .map((documentId) => candidateByDocumentId.get(documentId))
+        .filter((item): item is RankedCandidate => Boolean(item));
+
+      const msValues = chainCandidates
+        .map((candidate) => candidateBestKnownDate(candidate))
+        .filter((value): value is number => value !== null);
+
+      const { sortDate, dateLabel } = formatCaseTrailDate(
+        msValues.length ? Math.max(...msValues) : null,
+      );
+
+      return {
+        eventId: chain.chainKey,
+        eventType: "override_chain",
+        title: chain.documentTitles.join(" → "),
+        subtitle: `${chain.edgeCount} override link${chain.edgeCount > 1 ? "s" : ""}`,
+        issueTitle: null,
+        narrative: chain.basis,
+        sortDate,
+        dateLabel,
+        documentIds: chain.documentIds,
+        confidence: chain.maxConfidence,
+      };
+    });
+
+  const events = [
+    ...documentEvents,
+    ...conflictEvents,
+    ...overrideChainEvents,
+    ...overrideEvents,
+  ]
     .sort((a, b) => {
       if (a.sortDate && b.sortDate) {
         const byDate = a.sortDate.localeCompare(b.sortDate);
@@ -1738,18 +1798,157 @@ function buildCaseTrailFoundation(args: {
     active:
       args.workflowMode === "case_trace" ||
       args.contradictionFoundation.active ||
+      args.overrideChainFoundation.active ||
       args.ranked.length > 1,
     rationale:
       args.workflowMode === "case_trace"
-        ? "This case trail orders retrieved documents, conflict clusters, and override hints into a single evolving timeline."
-        : "This trail shows how the retrieved evidence evolves over time, including conflicts and possible supersession.",
+        ? "This case trail orders retrieved documents, conflict clusters, override chains, and override hints into a single evolving timeline."
+        : "This trail shows how the retrieved evidence evolves over time, including conflicts, override chains, and possible supersession.",
     summary: {
       eventCount: events.length,
       documentEventCount: documentEvents.length,
       conflictEventCount: conflictEvents.length,
       overrideEventCount: overrideEvents.length,
+      overrideChainEventCount: overrideChainEvents.length,
     },
     events,
+  };
+}
+
+function buildOverrideChains(
+  hints: GovernanceWorkspaceOverrideHint[],
+): GovernanceWorkspaceOverrideChain[] {
+  if (!hints.length) return [];
+
+  const nextBySource = new Map<string, GovernanceWorkspaceOverrideHint[]>();
+  const incomingCount = new Map<string, number>();
+  const allNodes = new Set<string>();
+
+  for (const hint of hints) {
+    const from = hint.supersededDocumentId;
+    const to = hint.preferredDocumentId;
+
+    const current = nextBySource.get(from) ?? [];
+    current.push(hint);
+    nextBySource.set(from, current);
+
+    incomingCount.set(to, (incomingCount.get(to) ?? 0) + 1);
+
+    allNodes.add(from);
+    allNodes.add(to);
+  }
+
+  for (const [key, values] of nextBySource.entries()) {
+    values.sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
+    nextBySource.set(key, values);
+  }
+
+  const consumedEdges = new Set<string>();
+  const chains: GovernanceWorkspaceOverrideChain[] = [];
+
+  const starts = Array.from(allNodes).filter(
+    (node) => (incomingCount.get(node) ?? 0) === 0 && nextBySource.has(node),
+  );
+
+  const fallbackStarts = Array.from(nextBySource.keys()).filter(
+    (node) => !starts.includes(node),
+  );
+
+  const orderedStarts = [...starts, ...fallbackStarts];
+
+  for (const start of orderedStarts) {
+    let current = start;
+    const visitedDocs = new Set<string>([current]);
+    const documentIds = [current];
+    const documentTitles: string[] = [];
+    const edgeHints: GovernanceWorkspaceOverrideHint[] = [];
+
+    while (true) {
+      const nextHint = (nextBySource.get(current) ?? []).find(
+        (hint) => !consumedEdges.has(hint.relationId),
+      );
+      if (!nextHint) break;
+
+      consumedEdges.add(nextHint.relationId);
+      edgeHints.push(nextHint);
+
+      if (!documentTitles.length) {
+        documentTitles.push(nextHint.supersededDocumentTitle);
+      }
+
+      const nextDoc = nextHint.preferredDocumentId;
+      documentIds.push(nextDoc);
+      documentTitles.push(nextHint.preferredDocumentTitle);
+
+      if (visitedDocs.has(nextDoc)) break;
+      visitedDocs.add(nextDoc);
+      current = nextDoc;
+    }
+
+    if (!edgeHints.length) continue;
+
+    chains.push({
+      chainKey: `chain:${documentIds.join("->")}`,
+      documentIds: Array.from(new Set(documentIds)),
+      documentTitles,
+      edgeCount: edgeHints.length,
+      maxConfidence: edgeHints.reduce<number | null>(
+        (best, item) =>
+          best === null
+            ? (item.confidence ?? null)
+            : Math.max(best, item.confidence ?? 0),
+        null,
+      ),
+      basis:
+        edgeHints.length > 1
+          ? "Multiple override or supersession hints form a likely chronology of position change."
+          : (edgeHints[0]?.basis ??
+            "A single override or supersession hint forms a likely chronology link."),
+    });
+  }
+
+  return chains
+    .sort((a, b) => {
+      const byEdges = b.edgeCount - a.edgeCount;
+      if (byEdges !== 0) return byEdges;
+      return (b.maxConfidence ?? 0) - (a.maxConfidence ?? 0);
+    })
+    .slice(0, 6);
+}
+
+function buildOverrideChainFoundation(args: {
+  contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+}): GovernanceWorkspaceOverrideChainFoundation {
+  const chains = buildOverrideChains(
+    args.contradictionFoundation.overrideHints,
+  );
+
+  if (!chains.length) {
+    return {
+      active: false,
+      rationale:
+        "No linked override or supersession chains were assembled from the current hint set.",
+      summary: {
+        chainCount: 0,
+        linkedDocumentCount: 0,
+      },
+      chains: [],
+    };
+  }
+
+  const linkedDocumentIds = new Set(
+    chains.flatMap((chain) => chain.documentIds),
+  );
+
+  return {
+    active: true,
+    rationale:
+      "Override and supersession hints were linked into short chronology chains to show how the governing position may have shifted over time.",
+    summary: {
+      chainCount: chains.length,
+      linkedDocumentCount: linkedDocumentIds.size,
+    },
+    chains,
   };
 }
 
@@ -2814,9 +3013,14 @@ export async function queryGovernanceWorkspaceEvidence(
     workflowMode: workflow.resolvedMode,
   });
 
+  const overrideChainFoundation = buildOverrideChainFoundation({
+    contradictionFoundation,
+  });
+
   const caseTrailFoundation = buildCaseTrailFoundation({
     ranked: diversified,
     contradictionFoundation,
+    overrideChainFoundation,
     workflowMode: workflow.resolvedMode,
   });
 
@@ -2882,6 +3086,7 @@ export async function queryGovernanceWorkspaceEvidence(
     temporalControl,
     diversityControl: diversityResult.control,
     contradictionFoundation,
+    overrideChainFoundation,
     caseTrailFoundation,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect

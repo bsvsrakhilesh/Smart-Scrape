@@ -195,13 +195,15 @@ function formatRelationTypeLabel(value: string) {
 }
 
 function formatCaseTrailEventTypeLabel(
-  value: "document" | "conflict_cluster" | "override_hint",
+  value: "document" | "conflict_cluster" | "override_hint" | "override_chain",
 ) {
   switch (value) {
     case "document":
       return "Document";
     case "conflict_cluster":
       return "Conflict cluster";
+    case "override_chain":
+      return "Override chain";
     default:
       return "Override hint";
   }
@@ -1099,6 +1101,18 @@ export default function GovernanceWorkspacePage() {
     involvedDocumentIds: [],
   };
 
+  const overrideChainFoundation = workspaceEvidenceQuery.data
+    ?.overrideChainFoundation ?? {
+    active: false,
+    rationale:
+      "No linked override chains are available until override or supersession hints connect into a chronology.",
+    summary: {
+      chainCount: 0,
+      linkedDocumentCount: 0,
+    },
+    chains: [],
+  };
+
   const caseTrailFoundation = workspaceEvidenceQuery.data
     ?.caseTrailFoundation ?? {
     active: false,
@@ -1109,6 +1123,7 @@ export default function GovernanceWorkspacePage() {
       documentEventCount: 0,
       conflictEventCount: 0,
       overrideEventCount: 0,
+      overrideChainEventCount: 0,
     },
     events: [],
   };
@@ -2028,7 +2043,7 @@ export default function GovernanceWorkspacePage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 grid gap-3 xl:grid-cols-3">
+                  <div className="mt-3 grid gap-3 xl:grid-cols-4">
                     <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                         Conflict clusters
@@ -2128,6 +2143,47 @@ export default function GovernanceWorkspacePage() {
 
                     <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Override chains
+                      </div>
+
+                      {overrideChainFoundation.chains.length ? (
+                        <div className="mt-3 space-y-3">
+                          {overrideChainFoundation.chains.map((chain) => (
+                            <div
+                              key={chain.chainKey}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                                  Chain length {chain.edgeCount}
+                                </span>
+                                {chain.maxConfidence !== null ? (
+                                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                    Confidence {chain.maxConfidence.toFixed(2)}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {chain.documentTitles.join(" → ")}
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                {chain.basis}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No linked override chains were assembled from the
+                          current hint set.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                         Override hints
                       </div>
 
@@ -2194,7 +2250,12 @@ export default function GovernanceWorkspacePage() {
                       Conflicts {caseTrailFoundation.summary.conflictEventCount}
                     </span>
                     <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
-                      Overrides {caseTrailFoundation.summary.overrideEventCount}
+                      Override hints{" "}
+                      {caseTrailFoundation.summary.overrideEventCount}
+                    </span>
+                    <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                      Override chains{" "}
+                      {caseTrailFoundation.summary.overrideChainEventCount}
                     </span>
                   </div>
 

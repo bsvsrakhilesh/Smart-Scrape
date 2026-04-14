@@ -1165,6 +1165,26 @@ export default function GovernanceWorkspacePage() {
     spotlightDocuments: [],
   };
 
+  const caseTracingSurface = workspaceEvidenceQuery.data
+    ?.caseTracingSurface ?? {
+    active: false,
+    rationale:
+      "No case-tracing surface is available until a case-focused evidence run assembles contradiction, comparison, or chronology signals.",
+    summary: {
+      focusDocumentCount: 0,
+      contradictionClusterCount: 0,
+      comparisonCount: 0,
+      overrideChainCount: 0,
+      timelineHighlightCount: 0,
+      reviewCount: 0,
+    },
+    focusDocuments: [],
+    contradictionClusters: [],
+    comparisonPairs: [],
+    overrideChains: [],
+    timelineHighlights: [],
+  };
+
   const caseTrailFoundation = workspaceEvidenceQuery.data
     ?.caseTrailFoundation ?? {
     active: false,
@@ -2586,6 +2606,260 @@ export default function GovernanceWorkspacePage() {
                         <p className="mt-3 text-sm leading-6 text-slate-500">
                           No spotlight documents were selected for this
                           landscape view.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {caseTracingSurface.active ? (
+                <div className="mt-3 rounded-2xl border border-rose-200/80 bg-rose-50/35 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700">
+                    Case tracing / contradiction mapping surface
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {caseTracingSurface.rationale}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Focus docs {caseTracingSurface.summary.focusDocumentCount}
+                    </span>
+                    <span className="rounded-full border border-fuchsia-200 bg-white px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                      Clusters{" "}
+                      {caseTracingSurface.summary.contradictionClusterCount}
+                    </span>
+                    <span className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium text-sky-700">
+                      Comparisons {caseTracingSurface.summary.comparisonCount}
+                    </span>
+                    <span className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700">
+                      Chains {caseTracingSurface.summary.overrideChainCount}
+                    </span>
+                    <span className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-700">
+                      Review signals {caseTracingSurface.summary.reviewCount}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 xl:grid-cols-5">
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Focus documents
+                      </div>
+
+                      {caseTracingSurface.focusDocuments.length ? (
+                        <div className="mt-3 space-y-3">
+                          {caseTracingSurface.focusDocuments.map((item) => (
+                            <div
+                              key={item.documentId}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                {item.currentPreferred ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    Current
+                                  </span>
+                                ) : null}
+                                {item.conflictLinked ? (
+                                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                                    Conflict-linked
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {item.title}
+                              </div>
+
+                              {item.issueTitle ? (
+                                <div className="mt-2">
+                                  <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                                    {item.issueTitle}
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              {item.agencyName ? (
+                                <div className="mt-2 text-xs text-slate-500">
+                                  {item.agencyName}
+                                </div>
+                              ) : null}
+
+                              <div className="mt-2 text-xs leading-5 text-slate-500">
+                                {item.reason}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No focus documents were selected for the current
+                          case-tracing run.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Contradiction clusters
+                      </div>
+
+                      {caseTracingSurface.contradictionClusters.length ? (
+                        <div className="mt-3 space-y-3">
+                          {caseTracingSurface.contradictionClusters.map(
+                            (item) => (
+                              <div
+                                key={item.groupKey}
+                                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                                    {formatContradictionBucketLabel(
+                                      item.strongestBucket,
+                                    )}
+                                  </span>
+                                  {item.reviewCount > 0 ? (
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                      Review {item.reviewCount}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div className="mt-2 text-sm font-semibold text-slate-900">
+                                  {item.label}
+                                </div>
+
+                                <p className="mt-2 text-sm leading-6 text-slate-600">
+                                  {item.strongestReason}
+                                </p>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No contradiction clusters were selected for this
+                          case-tracing view.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Comparison pairs
+                      </div>
+
+                      {caseTracingSurface.comparisonPairs.length ? (
+                        <div className="mt-3 space-y-3">
+                          {caseTracingSurface.comparisonPairs.map((item) => (
+                            <div
+                              key={item.comparisonKey}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                                  {formatContradictionBucketLabel(
+                                    item.strongestBucket,
+                                  )}
+                                </span>
+                                {item.reviewCount > 0 ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    Review {item.reviewCount}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {item.documentTitles.join(" ↔ ")}
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                {item.changeSummary}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No comparison pairs were selected for this
+                          case-tracing view.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Override chains
+                      </div>
+
+                      {caseTracingSurface.overrideChains.length ? (
+                        <div className="mt-3 space-y-3">
+                          {caseTracingSurface.overrideChains.map((item) => (
+                            <div
+                              key={item.chainKey}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                                  Chain length {item.edgeCount}
+                                </span>
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {item.documentTitles.join(" → ")}
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                {item.basis}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No override chains were selected for this case-tracing
+                          view.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Timeline highlights
+                      </div>
+
+                      {caseTracingSurface.timelineHighlights.length ? (
+                        <div className="mt-3 space-y-3">
+                          {caseTracingSurface.timelineHighlights.map((item) => (
+                            <div
+                              key={item.eventId}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  {item.dateLabel}
+                                </span>
+                                <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                                  {formatCaseTrailEventTypeLabel(
+                                    item.eventType,
+                                  )}
+                                </span>
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {item.title}
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                {item.narrative}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No timeline highlights were selected for this
+                          case-tracing view.
                         </p>
                       )}
                     </div>

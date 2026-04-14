@@ -315,6 +315,34 @@ type GovernanceWorkspaceLandscapeMappingSurface = {
   spotlightDocuments: GovernanceWorkspaceLandscapeSpotlightDocument[];
 };
 
+type GovernanceWorkspaceCaseTracingFocusDocument = {
+  documentId: string;
+  title: string;
+  issueTitle: string | null;
+  agencyName: string | null;
+  reason: string;
+  conflictLinked: boolean;
+  currentPreferred: boolean;
+};
+
+type GovernanceWorkspaceCaseTracingSurface = {
+  active: boolean;
+  rationale: string;
+  summary: {
+    focusDocumentCount: number;
+    contradictionClusterCount: number;
+    comparisonCount: number;
+    overrideChainCount: number;
+    timelineHighlightCount: number;
+    reviewCount: number;
+  };
+  focusDocuments: GovernanceWorkspaceCaseTracingFocusDocument[];
+  contradictionClusters: GovernanceWorkspaceContradictionGroup[];
+  comparisonPairs: GovernanceWorkspaceDocumentComparison[];
+  overrideChains: GovernanceWorkspaceOverrideChain[];
+  timelineHighlights: GovernanceWorkspaceCaseTrailEvent[];
+};
+
 type GovernanceWorkspaceOverrideChain = {
   chainKey: string;
   documentIds: string[];
@@ -2125,6 +2153,100 @@ function buildLandscapeMappingSurface(args: {
   };
 }
 
+function buildCaseTracingSurface(args: {
+  ranked: RankedCandidate[];
+  workflowMode: "landscape" | "case_trace";
+  queryType: GovernanceWorkspaceQueryType;
+  contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+  comparisonSurface: GovernanceWorkspaceComparisonSurface;
+  overrideChainFoundation: GovernanceWorkspaceOverrideChainFoundation;
+  caseTrailFoundation: GovernanceWorkspaceCaseTrailFoundation;
+}): GovernanceWorkspaceCaseTracingSurface {
+  const shouldActivate =
+    args.workflowMode === "case_trace" ||
+    args.queryType === "case_review" ||
+    args.queryType === "chronology_review" ||
+    args.queryType === "contradiction_review";
+
+  if (!shouldActivate) {
+    return {
+      active: false,
+      rationale:
+        "Case tracing stays out of the way for broad landscape questions.",
+      summary: {
+        focusDocumentCount: 0,
+        contradictionClusterCount: 0,
+        comparisonCount: 0,
+        overrideChainCount: 0,
+        timelineHighlightCount: 0,
+        reviewCount: 0,
+      },
+      focusDocuments: [],
+      contradictionClusters: [],
+      comparisonPairs: [],
+      overrideChains: [],
+      timelineHighlights: [],
+    };
+  }
+
+  const contradictionDocIds = new Set(
+    args.contradictionFoundation.involvedDocumentIds,
+  );
+
+  const focusDocuments: GovernanceWorkspaceCaseTracingFocusDocument[] =
+    args.ranked.slice(0, 6).map((candidate) => {
+      const issueTitle = Array.from(candidate.matchedIssues)[0] ?? null;
+      const agencyName = Array.from(candidate.matchedAgencies)[0] ?? null;
+      const conflictLinked = candidate.clusterDocumentIds.some((documentId) =>
+        contradictionDocIds.has(documentId),
+      );
+
+      return {
+        documentId: candidate.documentId,
+        title: candidate.title,
+        issueTitle,
+        agencyName,
+        reason:
+          candidate.diversityReason ||
+          candidate.temporalReason ||
+          candidate.whyRanked[0] ||
+          candidate.summary ||
+          "Key case evidence document.",
+        conflictLinked,
+        currentPreferred: Boolean(candidate.temporalReason),
+      };
+    });
+
+  const contradictionClusters = args.contradictionFoundation.groups.slice(0, 6);
+  const comparisonPairs = args.comparisonSurface.comparisons.slice(0, 6);
+  const overrideChains = args.overrideChainFoundation.chains.slice(0, 6);
+
+  const timelineHighlights = args.caseTrailFoundation.events
+    .filter((event) => event.eventType !== "document")
+    .slice(0, 8);
+
+  return {
+    active: true,
+    rationale:
+      "This case-tracing surface assembles the strongest conflict clusters, document comparisons, override chains, and timeline highlights into one investigation-ready view.",
+    summary: {
+      focusDocumentCount: focusDocuments.length,
+      contradictionClusterCount: contradictionClusters.length,
+      comparisonCount: comparisonPairs.length,
+      overrideChainCount: overrideChains.length,
+      timelineHighlightCount: timelineHighlights.length,
+      reviewCount:
+        args.contradictionFoundation.summary.reviewCount +
+        args.comparisonSurface.summary.reviewCount,
+    },
+    focusDocuments,
+    contradictionClusters,
+    comparisonPairs,
+    overrideChains,
+    timelineHighlights,
+  };
+}
+
 function buildCaseTrailFoundation(args: {
   ranked: RankedCandidate[];
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
@@ -3565,6 +3687,16 @@ export async function queryGovernanceWorkspaceEvidence(
     workflowMode: workflow.resolvedMode,
   });
 
+  const caseTracingSurface = buildCaseTracingSurface({
+    ranked: diversified,
+    workflowMode: workflow.resolvedMode,
+    queryType: queryUnderstanding.queryType,
+    contradictionFoundation,
+    comparisonSurface,
+    overrideChainFoundation,
+    caseTrailFoundation,
+  });
+
   const retrievalDecision = resolveRetrievalDecision(diversified);
 
   const statsByDocument = await attachDocumentStats(
@@ -3630,6 +3762,7 @@ export async function queryGovernanceWorkspaceEvidence(
     overrideChainFoundation,
     comparisonSurface,
     landscapeMappingSurface,
+    caseTracingSurface,
     caseTrailFoundation,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect

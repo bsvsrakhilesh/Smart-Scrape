@@ -2112,7 +2112,7 @@ export type GovernanceWorkspaceEvidenceResponse = {
       changeSummary: string;
     }>;
   };
-  landscapeMappingSurface: {
+    landscapeMappingSurface: {
     active: boolean;
     rationale: string;
     summary: {
@@ -2153,6 +2153,101 @@ export type GovernanceWorkspaceEvidenceResponse = {
       anchor: boolean;
       currentPreferred: boolean;
       conflictLinked: boolean;
+    }>;
+  };
+  caseTracingSurface: {
+    active: boolean;
+    rationale: string;
+    summary: {
+      focusDocumentCount: number;
+      contradictionClusterCount: number;
+      comparisonCount: number;
+      overrideChainCount: number;
+      timelineHighlightCount: number;
+      reviewCount: number;
+    };
+    focusDocuments: Array<{
+      documentId: string;
+      title: string;
+      issueTitle: string | null;
+      agencyName: string | null;
+      reason: string;
+      conflictLinked: boolean;
+      currentPreferred: boolean;
+    }>;
+    contradictionClusters: Array<{
+      groupKey: string;
+      issueTitle: string | null;
+      label: string;
+      documentIds: string[];
+      documentTitles: string[];
+      candidateCount: number;
+      reviewCount: number;
+      strongestBucket:
+        | "conflict"
+        | "alignment"
+        | "temporal_shift_candidate"
+        | "scope_variant_candidate"
+        | "reference";
+      strongestReason: string;
+      relationIds: string[];
+    }>;
+    comparisonPairs: Array<{
+      comparisonKey: string;
+      issueTitle: string | null;
+      documentIds: string[];
+      documentTitles: string[];
+      contradictionSignalCount: number;
+      reviewCount: number;
+      overrideHintCount: number;
+      strongestBucket:
+        | "conflict"
+        | "alignment"
+        | "temporal_shift_candidate"
+        | "scope_variant_candidate"
+        | "reference";
+      strongestReason: string;
+      relationTypes: Array<
+        | "CONTRADICTION"
+        | "TENSION"
+        | "OVERRIDE"
+        | "REINFORCEMENT"
+        | "ALIGNMENT"
+        | "DUPLICATION"
+        | "REFERENCE"
+        | "SUPERSEDES"
+        | "OTHER"
+      >;
+      preferredDocumentId: string | null;
+      preferredDocumentTitle: string | null;
+      supersededDocumentId: string | null;
+      supersededDocumentTitle: string | null;
+      involvedChainKeys: string[];
+      changeSummary: string;
+    }>;
+    overrideChains: Array<{
+      chainKey: string;
+      documentIds: string[];
+      documentTitles: string[];
+      edgeCount: number;
+      maxConfidence: number | null;
+      basis: string;
+    }>;
+    timelineHighlights: Array<{
+      eventId: string;
+      eventType:
+        | "document"
+        | "conflict_cluster"
+        | "override_hint"
+        | "override_chain";
+      title: string;
+      subtitle: string | null;
+      issueTitle: string | null;
+      narrative: string;
+      sortDate: string | null;
+      dateLabel: string;
+      documentIds: string[];
+      confidence: number | null;
     }>;
   };
   caseTrailFoundation: {

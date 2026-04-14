@@ -1835,6 +1835,12 @@ export default function GovernanceWorkspacePage() {
                             Top suggestion
                           </span>
                         ) : null}
+                        {candidate.duplicateCount > 0 ? (
+                          <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700">
+                            Merged {candidate.duplicateCount + 1} related
+                            records
+                          </span>
+                        ) : null}
                         {candidate.anchor ? (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
                             Anchor
@@ -1855,6 +1861,12 @@ export default function GovernanceWorkspacePage() {
                       {candidate.summary ? (
                         <div className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
                           {candidate.summary}
+                        </div>
+                      ) : null}
+
+                      {candidate.clusterReason ? (
+                        <div className="mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/60 px-3 py-2 text-xs leading-5 text-violet-800">
+                          {candidate.clusterReason}
                         </div>
                       ) : null}
 
@@ -1929,6 +1941,12 @@ export default function GovernanceWorkspacePage() {
                         <span>Events {candidate.stats.eventCount}</span>
                         <span>Gaps {candidate.stats.gapCount}</span>
                         <span>Relations {candidate.stats.relationCount}</span>
+                        {candidate.duplicateCount > 0 ? (
+                          <span>
+                            Related records{" "}
+                            {candidate.clusterDocumentIds.length}
+                          </span>
+                        ) : null}
                         {candidate.publishedAt ? (
                           <span>
                             Published{" "}

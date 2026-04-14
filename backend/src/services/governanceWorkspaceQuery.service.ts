@@ -39,6 +39,10 @@ type RankedCandidate = CandidateAccumulator & {
   freshnessScore: number;
   matchScore: number;
   whyRanked: string[];
+  duplicateCount: number;
+  clusterDocumentIds: string[];
+  clusterKinds: DocumentKind[];
+  clusterReason: string | null;
 };
 
 type GovernanceWorkspaceQueryType =
@@ -621,6 +625,10 @@ function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
       authorityScore,
       freshnessScore,
     }),
+    duplicateCount: 0,
+    clusterDocumentIds: [candidate.documentId],
+    clusterKinds: [candidate.kind],
+    clusterReason: null,
   };
 }
 
@@ -751,6 +759,164 @@ function addCandidate(
   }
 
   map.set(args.doc.id, existing);
+}
+
+function normalizeClusterTitle(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .replace(
+      /\b(copy|final|draft|scan|scanned|rev(?:ision)?\s*\d+|v\d+)\b/g,
+      " ",
+    )
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeClusterSourceLabel(value: string | null | undefined) {
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!raw) return "";
+
+  try {
+    const url = new URL(raw);
+    return `${url.hostname}${url.pathname}`
+      .replace(/\/+$/, "")
+      .replace(/^www\./, "");
+  } catch {
+    return raw
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, "");
+  }
+}
+
+function candidateDateBucket(candidate: RankedCandidate) {
+  return (
+    String(
+      candidate.publishedAt || candidate.updatedAt || candidate.createdAt || "",
+    ).slice(0, 10) || "na"
+  );
+}
+
+function buildCandidateClusterKey(candidate: RankedCandidate) {
+  const sourceKey = normalizeClusterSourceLabel(candidate.sourceLabel);
+  if (sourceKey) return `source:${sourceKey}`;
+
+  const titleKey = normalizeClusterTitle(candidate.title);
+  if (titleKey.length >= 14) {
+    return `title:${titleKey}|date:${candidateDateBucket(candidate)}`;
+  }
+
+  return `doc:${candidate.documentId}`;
+}
+
+function chooseClusterRepresentative(group: RankedCandidate[]) {
+  return [...group].sort((a, b) => {
+    if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+    if (b.authorityScore !== a.authorityScore) {
+      return b.authorityScore - a.authorityScore;
+    }
+    if (Number(b.anchor) !== Number(a.anchor)) {
+      return Number(b.anchor) - Number(a.anchor);
+    }
+    return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+  })[0];
+}
+
+function clusterRankedCandidates(ranked: RankedCandidate[]) {
+  const groups = new Map<string, RankedCandidate[]>();
+
+  for (const candidate of ranked) {
+    const key = buildCandidateClusterKey(candidate);
+    const current = groups.get(key) ?? [];
+    current.push(candidate);
+    groups.set(key, current);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const best = chooseClusterRepresentative(group);
+    const clusterDocumentIds = Array.from(
+      new Set(group.map((item) => item.documentId)),
+    );
+    const clusterKinds = Array.from(
+      new Set(group.map((item) => item.kind)),
+    ) as DocumentKind[];
+    const mergedReasons = Array.from(
+      new Set(group.flatMap((item) => Array.from(item.reasons))),
+    );
+    const mergedIssues = Array.from(
+      new Set(group.flatMap((item) => Array.from(item.matchedIssues))),
+    );
+    const mergedAgencies = Array.from(
+      new Set(group.flatMap((item) => Array.from(item.matchedAgencies))),
+    );
+    const mergedWhyRanked = Array.from(
+      new Set(group.flatMap((item) => item.whyRanked)),
+    );
+
+    const duplicateCount = Math.max(0, clusterDocumentIds.length - 1);
+    const clusterBoost =
+      duplicateCount > 0 ? Math.min(12, duplicateCount * 3) : 0;
+
+    return {
+      ...best,
+      matchScore: best.matchScore + clusterBoost,
+      reasons: new Set(mergedReasons.slice(0, 6)),
+      matchedIssues: new Set(mergedIssues.slice(0, 4)),
+      matchedAgencies: new Set(mergedAgencies.slice(0, 4)),
+      whyRanked: duplicateCount
+        ? Array.from(
+            new Set([
+              ...mergedWhyRanked,
+              `Merged ${clusterDocumentIds.length} near-duplicate records`,
+            ]),
+          ).slice(0, 5)
+        : mergedWhyRanked.slice(0, 4),
+      duplicateCount,
+      clusterDocumentIds,
+      clusterKinds,
+      clusterReason:
+        duplicateCount > 0
+          ? `Merged ${clusterDocumentIds.length} closely related records into one evidence card`
+          : null,
+    };
+  });
+}
+
+function aggregateClusterStats(
+  statsByDocument: Map<
+    string,
+    {
+      claimCount: number;
+      eventCount: number;
+      gapCount: number;
+      relationCount: number;
+    }
+  >,
+  documentIds: string[],
+) {
+  return documentIds.reduce(
+    (acc, documentId) => {
+      const current = statsByDocument.get(documentId);
+      if (!current) return acc;
+
+      acc.claimCount += current.claimCount;
+      acc.eventCount += current.eventCount;
+      acc.gapCount += current.gapCount;
+      acc.relationCount += current.relationCount;
+      return acc;
+    },
+    {
+      claimCount: 0,
+      eventCount: 0,
+      gapCount: 0,
+      relationCount: 0,
+    },
+  );
 }
 
 function buildContainsOr(tokens: string[], fields: string[]) {
@@ -1435,19 +1601,27 @@ export async function queryGovernanceWorkspaceEvidence(
     })
     .slice(0, input.limit);
 
-  const retrievalDecision = resolveRetrievalDecision(ranked);
+  const clustered = clusterRankedCandidates(ranked)
+    .sort((a, b) => {
+      if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+      if (b.authorityScore !== a.authorityScore) {
+        return b.authorityScore - a.authorityScore;
+      }
+      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    })
+    .slice(0, input.limit);
+
+  const retrievalDecision = resolveRetrievalDecision(clustered);
 
   const statsByDocument = await attachDocumentStats(
     ranked.map((candidate) => candidate.documentId),
   );
 
-  const items = ranked.map((candidate) => {
-    const stats = statsByDocument.get(candidate.documentId) ?? {
-      claimCount: 0,
-      eventCount: 0,
-      gapCount: 0,
-      relationCount: 0,
-    };
+  const items = clustered.map((candidate) => {
+    const stats = aggregateClusterStats(
+      statsByDocument,
+      candidate.clusterDocumentIds,
+    );
 
     return {
       documentId: candidate.documentId,
@@ -1470,6 +1644,10 @@ export async function queryGovernanceWorkspaceEvidence(
       whyRanked: candidate.whyRanked,
       matchedIssues: Array.from(candidate.matchedIssues).slice(0, 3),
       matchedAgencies: Array.from(candidate.matchedAgencies).slice(0, 3),
+      duplicateCount: candidate.duplicateCount,
+      clusterDocumentIds: candidate.clusterDocumentIds,
+      clusterKinds: candidate.clusterKinds,
+      clusterReason: candidate.clusterReason,
       stats,
     };
   });

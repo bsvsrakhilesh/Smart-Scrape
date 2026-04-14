@@ -1900,6 +1900,10 @@ export type GovernanceWorkspaceEvidenceCandidate = {
   whyRanked: string[];
   matchedIssues: string[];
   matchedAgencies: string[];
+  duplicateCount: number;
+  clusterDocumentIds: string[];
+  clusterKinds: Array<"URL" | "FILE">;
+  clusterReason: string | null;
   stats: {
     claimCount: number;
     eventCount: number;

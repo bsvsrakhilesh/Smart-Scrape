@@ -161,6 +161,19 @@ function formatCoverageFamilyLabel(
   }
 }
 
+function formatDiversityBalancedByLabel(value: string) {
+  switch (value) {
+    case "Issue coverage":
+      return "Balanced by issue";
+    case "Agency coverage":
+      return "Balanced by agency";
+    case "Source-family coverage":
+      return "Balanced by source family";
+    default:
+      return value;
+  }
+}
+
 function formatRetrievalLaneLabel(
   value:
     | "anchor"
@@ -999,6 +1012,13 @@ export default function GovernanceWorkspacePage() {
     scoreMargin: null,
   };
 
+  const diversityControl = workspaceEvidenceQuery.data?.diversityControl ?? {
+    active: false,
+    rationale:
+      "Diversity balancing is inactive until a broad evidence run produces enough candidates.",
+    balancedBy: [],
+  };
+
   const documentSummary = overview?.summary ?? {
     agencyCount: 0,
     issueCount: 0,
@@ -1806,6 +1826,12 @@ export default function GovernanceWorkspacePage() {
                   {formatRetrievalConfidenceLabel(retrievalDecision.confidence)}
                 </span>
 
+                {diversityControl.active ? (
+                  <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700">
+                    Diversity balancing active
+                  </span>
+                ) : null}
+
                 {retrievalDecision.topCandidateScore !== null ? (
                   <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
                     Top score {retrievalDecision.topCandidateScore}
@@ -1828,6 +1854,27 @@ export default function GovernanceWorkspacePage() {
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 {retrievalDecision.rationale}
               </p>
+
+              {diversityControl.active ? (
+                <div className="mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/60 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-700">
+                    Diversity control
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {diversityControl.rationale}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {diversityControl.balancedBy.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700"
+                      >
+                        {formatDiversityBalancedByLabel(item)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {!retrievalDecision.shouldAutoSelect &&
               retrievalDecision.recommendedDocumentId ? (
@@ -1884,6 +1931,11 @@ export default function GovernanceWorkspacePage() {
                             Top suggestion
                           </span>
                         ) : null}
+                        {candidate.diversityReason ? (
+                          <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2 py-0.5 text-fuchsia-700">
+                            Diversity balanced
+                          </span>
+                        ) : null}
                         {candidate.duplicateCount > 0 ? (
                           <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-violet-700">
                             Merged {candidate.duplicateCount + 1} related
@@ -1916,6 +1968,12 @@ export default function GovernanceWorkspacePage() {
                       {candidate.clusterReason ? (
                         <div className="mt-3 rounded-2xl border border-violet-200/80 bg-violet-50/60 px-3 py-2 text-xs leading-5 text-violet-800">
                           {candidate.clusterReason}
+                        </div>
+                      ) : null}
+
+                      {candidate.diversityReason ? (
+                        <div className="mt-3 rounded-2xl border border-fuchsia-200/80 bg-fuchsia-50/60 px-3 py-2 text-xs leading-5 text-fuchsia-800">
+                          {candidate.diversityReason}
                         </div>
                       ) : null}
 

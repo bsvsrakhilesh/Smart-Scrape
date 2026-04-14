@@ -63,6 +63,7 @@ type RankedCandidate = CandidateAccumulator & {
   clusterReason: string | null;
   retrievalLanes: GovernanceWorkspaceRetrievalLane[];
   coverageFamilies: GovernanceWorkspaceCoverageFamily[];
+  diversityReason: string | null;
 };
 
 type GovernanceWorkspaceQueryType =
@@ -110,6 +111,12 @@ type GovernanceWorkspaceRetrievalDecision = {
   topCandidateScore: number | null;
   runnerUpScore: number | null;
   scoreMargin: number | null;
+};
+
+type GovernanceWorkspaceDiversityControl = {
+  active: boolean;
+  rationale: string;
+  balancedBy: string[];
 };
 
 const STOP_WORDS = new Set([
@@ -733,6 +740,7 @@ function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
     clusterReason: null,
     retrievalLanes,
     coverageFamilies,
+    diversityReason: null,
   };
 }
 
@@ -1038,6 +1046,205 @@ function aggregateClusterStats(
       relationCount: 0,
     },
   );
+}
+
+function normalizeDiversityValue(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function firstSetValue(values: Set<string>) {
+  const first = values.values().next();
+  return first.done ? "" : first.value;
+}
+
+function candidateIssueBucket(candidate: RankedCandidate) {
+  return normalizeDiversityValue(firstSetValue(candidate.matchedIssues));
+}
+
+function candidateAgencyBucket(candidate: RankedCandidate) {
+  return normalizeDiversityValue(firstSetValue(candidate.matchedAgencies));
+}
+
+function candidateSourceBucket(candidate: RankedCandidate) {
+  const raw = String(candidate.sourceLabel || "")
+    .trim()
+    .toLowerCase();
+  if (!raw) {
+    return `${candidate.kind}:${normalizeDiversityValue(candidate.title).slice(0, 48)}`;
+  }
+
+  try {
+    const url = new URL(raw);
+    return `${candidate.kind}:${url.hostname.replace(/^www\./, "")}`;
+  } catch {
+    return `${candidate.kind}:${
+      raw
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "")
+        .replace(/[?#].*$/, "")
+        .split("/")[0]
+    }`;
+  }
+}
+
+function shouldApplyEvidenceDiversity(args: {
+  workflowMode: "landscape" | "case_trace";
+  queryType: GovernanceWorkspaceQueryType;
+  candidateCount: number;
+}) {
+  if (args.workflowMode === "case_trace") return false;
+  if (args.queryType === "case_review") return false;
+  if (args.queryType === "chronology_review") return false;
+  if (args.queryType === "contradiction_review") return false;
+  return args.candidateCount > 3;
+}
+
+function diversifyEvidenceCandidates(args: {
+  ranked: RankedCandidate[];
+  workflowMode: "landscape" | "case_trace";
+  queryType: GovernanceWorkspaceQueryType;
+  limit: number;
+}): {
+  items: RankedCandidate[];
+  control: GovernanceWorkspaceDiversityControl;
+} {
+  const active = shouldApplyEvidenceDiversity({
+    workflowMode: args.workflowMode,
+    queryType: args.queryType,
+    candidateCount: args.ranked.length,
+  });
+
+  if (!active) {
+    return {
+      items: args.ranked.slice(0, args.limit),
+      control: {
+        active: false,
+        rationale:
+          "Diversity balancing stays off for case-focused or already narrow evidence runs.",
+        balancedBy: [],
+      },
+    };
+  }
+
+  const pool = [...args.ranked];
+  const selected: RankedCandidate[] = [];
+
+  const issueCounts = new Map<string, number>();
+  const agencyCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+
+  while (pool.length && selected.length < args.limit) {
+    let bestIndex = 0;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    let bestReason: string | null = null;
+
+    for (let i = 0; i < pool.length; i += 1) {
+      const candidate = pool[i];
+      const issueKey = candidateIssueBucket(candidate);
+      const agencyKey = candidateAgencyBucket(candidate);
+      const sourceKey = candidateSourceBucket(candidate);
+
+      const issueCount = issueKey ? (issueCounts.get(issueKey) ?? 0) : 0;
+      const agencyCount = agencyKey ? (agencyCounts.get(agencyKey) ?? 0) : 0;
+      const sourceCount = sourceKey ? (sourceCounts.get(sourceKey) ?? 0) : 0;
+
+      let adjusted = candidate.matchScore;
+      const promotions: string[] = [];
+
+      if (issueKey) {
+        if (issueCount === 0) {
+          adjusted += 6;
+          promotions.push("issue coverage");
+        } else {
+          adjusted -= issueCount * 6;
+        }
+      }
+
+      if (agencyKey) {
+        if (agencyCount === 0) {
+          adjusted += 4;
+          promotions.push("agency coverage");
+        } else {
+          adjusted -= agencyCount * 4;
+        }
+      }
+
+      if (sourceKey) {
+        if (sourceCount === 0) {
+          adjusted += 3;
+          promotions.push("source-family coverage");
+        } else {
+          adjusted -= sourceCount * 3;
+        }
+      }
+
+      if (
+        candidate.coverageFamilies.includes("chunk") &&
+        !selected.some((item) => item.coverageFamilies.includes("chunk"))
+      ) {
+        adjusted += 2;
+        promotions.push("raw-text coverage");
+      }
+
+      if (
+        candidate.coverageFamilies.includes("graph") &&
+        !selected.some((item) => item.coverageFamilies.includes("graph"))
+      ) {
+        adjusted += 2;
+        promotions.push("graph coverage");
+      }
+
+      if (
+        adjusted > bestScore ||
+        (adjusted === bestScore &&
+          candidate.matchScore > pool[bestIndex].matchScore)
+      ) {
+        bestScore = adjusted;
+        bestIndex = i;
+        bestReason = promotions.length
+          ? `Elevated to widen ${promotions.join(", ")}`
+          : null;
+      }
+    }
+
+    const chosen = pool.splice(bestIndex, 1)[0];
+    const issueKey = candidateIssueBucket(chosen);
+    const agencyKey = candidateAgencyBucket(chosen);
+    const sourceKey = candidateSourceBucket(chosen);
+
+    if (issueKey)
+      issueCounts.set(issueKey, (issueCounts.get(issueKey) ?? 0) + 1);
+    if (agencyKey)
+      agencyCounts.set(agencyKey, (agencyCounts.get(agencyKey) ?? 0) + 1);
+    if (sourceKey)
+      sourceCounts.set(sourceKey, (sourceCounts.get(sourceKey) ?? 0) + 1);
+
+    selected.push({
+      ...chosen,
+      diversityReason: bestReason,
+      whyRanked: Array.from(
+        new Set([...chosen.whyRanked, ...(bestReason ? [bestReason] : [])]),
+      ).slice(0, 6),
+    });
+  }
+
+  return {
+    items: selected,
+    control: {
+      active: true,
+      rationale:
+        "Balanced the evidence set so one issue, agency, or source family does not dominate broad-scan results.",
+      balancedBy: [
+        "Issue coverage",
+        "Agency coverage",
+        "Source-family coverage",
+      ],
+    },
+  };
 }
 
 function buildContainsOr(tokens: string[], fields: string[]) {
@@ -1727,26 +1934,34 @@ export async function queryGovernanceWorkspaceEvidence(
         return b.authorityScore - a.authorityScore;
       }
       return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
-    })
-    .slice(0, input.limit);
+    });
 
-  const clustered = clusterRankedCandidates(ranked)
-    .sort((a, b) => {
-      if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
-      if (b.authorityScore !== a.authorityScore) {
-        return b.authorityScore - a.authorityScore;
-      }
-      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
-    })
-    .slice(0, input.limit);
+  const clustered = clusterRankedCandidates(ranked).sort((a, b) => {
+    if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+    if (b.authorityScore !== a.authorityScore) {
+      return b.authorityScore - a.authorityScore;
+    }
+    return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+  });
 
-  const retrievalDecision = resolveRetrievalDecision(clustered);
+  const diversityResult = diversifyEvidenceCandidates({
+    ranked: clustered,
+    workflowMode: workflow.resolvedMode,
+    queryType: queryUnderstanding.queryType,
+    limit: input.limit,
+  });
+
+  const diversified = diversityResult.items;
+
+  const retrievalDecision = resolveRetrievalDecision(diversified);
 
   const statsByDocument = await attachDocumentStats(
-    ranked.map((candidate) => candidate.documentId),
+    Array.from(
+      new Set(diversified.flatMap((candidate) => candidate.clusterDocumentIds)),
+    ),
   );
 
-  const items = clustered.map((candidate) => {
+  const items = diversified.map((candidate) => {
     const stats = aggregateClusterStats(
       statsByDocument,
       candidate.clusterDocumentIds,
@@ -1779,6 +1994,7 @@ export async function queryGovernanceWorkspaceEvidence(
       clusterReason: candidate.clusterReason,
       retrievalLanes: candidate.retrievalLanes,
       coverageFamilies: candidate.coverageFamilies,
+      diversityReason: candidate.diversityReason,
       stats,
     };
   });
@@ -1795,6 +2011,7 @@ export async function queryGovernanceWorkspaceEvidence(
     },
     workflow,
     queryUnderstanding,
+    diversityControl: diversityResult.control,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect
       ? retrievalDecision.recommendedDocumentId

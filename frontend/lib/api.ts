@@ -1916,6 +1916,7 @@ export type GovernanceWorkspaceEvidenceCandidate = {
     | "semantic_chunk"
   >;
   coverageFamilies: Array<"anchor" | "metadata" | "graph" | "chunk">;
+  diversityReason: string | null;
   stats: {
     claimCount: number;
     eventCount: number;
@@ -1961,6 +1962,11 @@ export type GovernanceWorkspaceEvidenceResponse = {
       category: string | null;
       jurisdiction: string | null;
     }>;
+  };
+  diversityControl: {
+    active: boolean;
+    rationale: string;
+    balancedBy: string[];
   };
   retrievalDecision: {
     shouldAutoSelect: boolean;

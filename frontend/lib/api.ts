@@ -1946,6 +1946,15 @@ export type GovernanceWorkspaceEvidenceResponse = {
       jurisdiction: string | null;
     }>;
   };
+  retrievalDecision: {
+    shouldAutoSelect: boolean;
+    recommendedDocumentId: string | null;
+    confidence: "high" | "medium" | "low";
+    rationale: string;
+    topCandidateScore: number | null;
+    runnerUpScore: number | null;
+    scoreMargin: number | null;
+  };
   selectedDocumentId: string | null;
   totalCandidates: number;
   candidates: GovernanceWorkspaceEvidenceCandidate[];

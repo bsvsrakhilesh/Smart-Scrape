@@ -135,6 +135,17 @@ function formatQueryTypeLabel(
   }
 }
 
+function formatRetrievalConfidenceLabel(value: "high" | "medium" | "low") {
+  switch (value) {
+    case "high":
+      return "High confidence";
+    case "medium":
+      return "Medium confidence";
+    default:
+      return "Low confidence";
+  }
+}
+
 function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
   return mode === "case_trace" ? "case" : "map";
 }
@@ -669,7 +680,7 @@ export default function GovernanceWorkspacePage() {
     setDocumentInput(selectedDocumentId);
     setActiveDocumentId(selectedDocumentId);
     setSelectedProvenance(null);
-  }, [workspaceEvidenceQuery.data?.selectedDocumentId]);
+  }, [workspaceEvidenceQuery.data?.selectedDocumentId, activeDocumentId]);
 
   useEffect(() => {
     const resolvedMode = workspaceEvidenceQuery.data?.workflow?.resolvedMode;
@@ -926,6 +937,17 @@ export default function GovernanceWorkspacePage() {
     locationHints: [],
     matchedIssues: [],
     matchedAgencies: [],
+  };
+
+  const retrievalDecision = workspaceEvidenceQuery.data?.retrievalDecision ?? {
+    shouldAutoSelect: false,
+    recommendedDocumentId: null,
+    confidence: "low" as const,
+    rationale:
+      "No retrieval decision is available yet. Run a question to generate ranked evidence.",
+    topCandidateScore: null,
+    runnerUpScore: null,
+    scoreMargin: null,
   };
 
   const documentSummary = overview?.summary ?? {
@@ -1720,6 +1742,66 @@ export default function GovernanceWorkspacePage() {
               }
             />
 
+            <div className="mt-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={[
+                    "rounded-full border px-3 py-1 text-xs font-semibold",
+                    retrievalDecision.confidence === "high"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : retrievalDecision.confidence === "medium"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-rose-200 bg-rose-50 text-rose-700",
+                  ].join(" ")}
+                >
+                  {formatRetrievalConfidenceLabel(retrievalDecision.confidence)}
+                </span>
+
+                {retrievalDecision.topCandidateScore !== null ? (
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    Top score {retrievalDecision.topCandidateScore}
+                  </span>
+                ) : null}
+
+                {retrievalDecision.scoreMargin !== null ? (
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    Margin {retrievalDecision.scoreMargin}
+                  </span>
+                ) : null}
+
+                {retrievalDecision.shouldAutoSelect ? (
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
+                    Auto-opened best dossier
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {retrievalDecision.rationale}
+              </p>
+
+              {!retrievalDecision.shouldAutoSelect &&
+              retrievalDecision.recommendedDocumentId ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocumentInput(
+                        retrievalDecision.recommendedDocumentId!,
+                      );
+                      setActiveDocumentId(
+                        retrievalDecision.recommendedDocumentId!,
+                      );
+                      setSelectedProvenance(null);
+                    }}
+                    className="inline-flex items-center rounded-full border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-50"
+                  >
+                    Open top suggestion
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               {evidenceCandidates.length ? (
                 evidenceCandidates.map((candidate) => {
@@ -1747,6 +1829,12 @@ export default function GovernanceWorkspacePage() {
                         </span>
                         <span>•</span>
                         <span>Total score {candidate.matchScore}</span>
+                        {candidate.documentId ===
+                        retrievalDecision.recommendedDocumentId ? (
+                          <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-sky-700">
+                            Top suggestion
+                          </span>
+                        ) : null}
                         {candidate.anchor ? (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">
                             Anchor

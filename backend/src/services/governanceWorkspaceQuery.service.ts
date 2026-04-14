@@ -78,6 +78,16 @@ type ChunkRetrievalHit = {
   reason: string;
 };
 
+type GovernanceWorkspaceRetrievalDecision = {
+  shouldAutoSelect: boolean;
+  recommendedDocumentId: string | null;
+  confidence: "high" | "medium" | "low";
+  rationale: string;
+  topCandidateScore: number | null;
+  runnerUpScore: number | null;
+  scoreMargin: number | null;
+};
+
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -611,6 +621,86 @@ function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
       authorityScore,
       freshnessScore,
     }),
+  };
+}
+
+function resolveRetrievalDecision(
+  ranked: RankedCandidate[],
+): GovernanceWorkspaceRetrievalDecision {
+  const top = ranked[0];
+  const runnerUp = ranked[1];
+
+  if (!top) {
+    return {
+      shouldAutoSelect: false,
+      recommendedDocumentId: null,
+      confidence: "low",
+      rationale:
+        "No evidence candidates were strong enough to recommend automatically.",
+      topCandidateScore: null,
+      runnerUpScore: null,
+      scoreMargin: null,
+    };
+  }
+
+  const topCandidateScore = top.matchScore;
+  const runnerUpScore = runnerUp?.matchScore ?? null;
+  const scoreMargin =
+    runnerUpScore === null
+      ? topCandidateScore
+      : topCandidateScore - runnerUpScore;
+
+  if (top.anchor && topCandidateScore >= 90) {
+    return {
+      shouldAutoSelect: true,
+      recommendedDocumentId: top.documentId,
+      confidence: "high",
+      rationale:
+        "A pinned anchor source is also the strongest match, so the workspace can open it immediately.",
+      topCandidateScore,
+      runnerUpScore,
+      scoreMargin,
+    };
+  }
+
+  if (
+    topCandidateScore >= 82 &&
+    (runnerUpScore === null || scoreMargin >= 12)
+  ) {
+    return {
+      shouldAutoSelect: true,
+      recommendedDocumentId: top.documentId,
+      confidence: "high",
+      rationale:
+        "The top candidate is clearly stronger than the rest, so the workspace can auto-open it safely.",
+      topCandidateScore,
+      runnerUpScore,
+      scoreMargin,
+    };
+  }
+
+  if (topCandidateScore >= 64 && (runnerUpScore === null || scoreMargin >= 8)) {
+    return {
+      shouldAutoSelect: false,
+      recommendedDocumentId: top.documentId,
+      confidence: "medium",
+      rationale:
+        "One source looks strongest, but the evidence set is not decisive enough for an automatic jump.",
+      topCandidateScore,
+      runnerUpScore,
+      scoreMargin,
+    };
+  }
+
+  return {
+    shouldAutoSelect: false,
+    recommendedDocumentId: top.documentId,
+    confidence: "low",
+    rationale:
+      "Multiple candidates are plausible or the evidence is still thin, so the analyst should choose the source manually.",
+    topCandidateScore,
+    runnerUpScore,
+    scoreMargin,
   };
 }
 
@@ -1345,6 +1435,8 @@ export async function queryGovernanceWorkspaceEvidence(
     })
     .slice(0, input.limit);
 
+  const retrievalDecision = resolveRetrievalDecision(ranked);
+
   const statsByDocument = await attachDocumentStats(
     ranked.map((candidate) => candidate.documentId),
   );
@@ -1394,7 +1486,10 @@ export async function queryGovernanceWorkspaceEvidence(
     },
     workflow,
     queryUnderstanding,
-    selectedDocumentId: items[0]?.documentId ?? null,
+    retrievalDecision,
+    selectedDocumentId: retrievalDecision.shouldAutoSelect
+      ? retrievalDecision.recommendedDocumentId
+      : null,
     totalCandidates: items.length,
     candidates: items,
   };

@@ -1,5 +1,7 @@
 import prisma from "../config/database";
+import { env } from "../config/env";
 import { Prisma, DocumentKind } from "../generated/prisma/client";
+import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
 
 type GovernanceWorkspaceSourceScope = "all" | "files" | "urls" | "mixed";
 type GovernanceWorkspaceWorkflowMode = "auto" | "landscape" | "case_trace";
@@ -66,6 +68,14 @@ type GovernanceWorkspaceQueryUnderstanding = {
   locationHints: string[];
   matchedIssues: GovernanceWorkspaceIssueSignal[];
   matchedAgencies: GovernanceWorkspaceAgencySignal[];
+};
+
+type ChunkRetrievalHit = {
+  documentId: string;
+  retrievalKind: "keyword_chunk" | "semantic_chunk";
+  summary: string;
+  signalScore: number;
+  reason: string;
 };
 
 const STOP_WORDS = new Set([
@@ -661,6 +671,276 @@ function buildContainsOr(tokens: string[], fields: string[]) {
   );
 }
 
+function chunkScopeSql(scope: GovernanceWorkspaceSourceScope) {
+  if (scope === "files") return Prisma.sql`AND d."kind" = 'FILE'`;
+  if (scope === "urls") return Prisma.sql`AND d."kind" = 'URL'`;
+  return Prisma.empty;
+}
+
+function deriveChunkTerms(question: string, tokens: string[]) {
+  if (tokens.length) return tokens;
+
+  return Array.from(
+    new Set(
+      String(question || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/g)
+        .map((value) => value.trim())
+        .filter(
+          (value) =>
+            value.length >= 3 && !STOP_WORDS.has(value) && !/^\d+$/.test(value),
+        )
+        .slice(0, 8),
+    ),
+  );
+}
+
+function chunkMatchedTerms(text: string, tokens: string[]) {
+  if (!tokens.length) return [] as string[];
+  const lower = String(text || "").toLowerCase();
+  return tokens.filter((token) => lower.includes(token)).slice(0, 4);
+}
+
+function buildChunkSummary(text: string, tokens: string[]) {
+  const clean = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  if (clean.length <= 280) return clean;
+
+  const lower = clean.toLowerCase();
+  const anchor = tokens.find((token) => lower.includes(token));
+
+  if (!anchor) {
+    return `${clean.slice(0, 280).trim()}…`;
+  }
+
+  const idx = lower.indexOf(anchor);
+  const start = Math.max(0, idx - 80);
+  const end = Math.min(clean.length, idx + 200);
+
+  return `${start > 0 ? "…" : ""}${clean.slice(start, end).trim()}${
+    end < clean.length ? "…" : ""
+  }`;
+}
+
+async function retrieveKeywordChunkHits(args: {
+  question: string;
+  tokens: string[];
+  scope: GovernanceWorkspaceSourceScope;
+  limit: number;
+}): Promise<ChunkRetrievalHit[]> {
+  const q = String(args.question || "").trim();
+  if (!q) return [];
+
+  const scopeSql = chunkScopeSql(args.scope);
+  const terms = deriveChunkTerms(args.question, args.tokens);
+
+  try {
+    const rows = await prisma.$queryRaw<
+      { documentId: string; chunkText: string; rank: number | null }[]
+    >`
+      SELECT
+        d."id" AS "documentId",
+        sc."text" AS "chunkText",
+        ts_rank(sc."fts", plainto_tsquery('english', ${q}))::float8 AS "rank"
+      FROM "SourceChunk" sc
+      JOIN "SourceRevision" sr ON sr."id" = sc."revisionId"
+      JOIN "DocumentRevision" dr ON dr."id" = sr."documentRevisionId"
+      JOIN "Document" d ON d."id" = dr."documentId"
+      WHERE sr."isActive" = true
+        ${scopeSql}
+        AND sc."fts" @@ plainto_tsquery('english', ${q})
+      ORDER BY "rank" DESC
+      LIMIT ${args.limit}
+    `;
+
+    return rows.map((row) => {
+      const matched = chunkMatchedTerms(row.chunkText, terms);
+      const rankBoost = Math.min(14, Math.round(Number(row.rank ?? 0) * 10));
+
+      return {
+        documentId: row.documentId,
+        retrievalKind: "keyword_chunk" as const,
+        summary: buildChunkSummary(row.chunkText, terms),
+        signalScore: 32 + rankBoost + matched.length * 3,
+        reason: matched.length
+          ? `Chunk text match: ${matched.join(", ")}`
+          : "Chunk text full-text match",
+      };
+    });
+  } catch {
+    const fallbackRows = await prisma.$queryRaw<
+      { documentId: string; chunkText: string }[]
+    >`
+      SELECT
+        d."id" AS "documentId",
+        sc."text" AS "chunkText"
+      FROM "SourceChunk" sc
+      JOIN "SourceRevision" sr ON sr."id" = sc."revisionId"
+      JOIN "DocumentRevision" dr ON dr."id" = sr."documentRevisionId"
+      JOIN "Document" d ON d."id" = dr."documentId"
+      WHERE sr."isActive" = true
+        ${scopeSql}
+      ORDER BY sc."createdAt" DESC
+      LIMIT ${Math.max(args.limit * 10, 240)}
+    `;
+
+    const scored = fallbackRows
+      .map((row) => {
+        const matched = chunkMatchedTerms(row.chunkText, terms);
+        const lower = row.chunkText.toLowerCase();
+
+        let rawScore = matched.length * 8;
+        if (lower.includes(q.toLowerCase())) rawScore += 12;
+
+        return {
+          row,
+          matched,
+          rawScore,
+        };
+      })
+      .filter((item) => item.rawScore > 0)
+      .sort((a, b) => b.rawScore - a.rawScore)
+      .slice(0, args.limit);
+
+    return scored.map((item) => ({
+      documentId: item.row.documentId,
+      retrievalKind: "keyword_chunk" as const,
+      summary: buildChunkSummary(item.row.chunkText, terms),
+      signalScore: 26 + Math.min(18, item.rawScore),
+      reason: item.matched.length
+        ? `Chunk text match: ${item.matched.join(", ")}`
+        : "Chunk text fallback match",
+    }));
+  }
+}
+
+async function retrieveSemanticChunkHits(args: {
+  question: string;
+  tokens: string[];
+  scope: GovernanceWorkspaceSourceScope;
+  limit: number;
+}): Promise<ChunkRetrievalHit[]> {
+  const q = String(args.question || "").trim();
+  if (!q) return [];
+
+  const qEmbedding = await embedQuery(q);
+  if (!qEmbedding?.length) return [];
+
+  const qVec = toPgVectorLiteral(qEmbedding);
+  const scopeSql = chunkScopeSql(args.scope);
+  const terms = deriveChunkTerms(args.question, args.tokens);
+  const maxDist = env.RETRIEVAL_MAX_COSINE_DISTANCE ?? 0.42;
+
+  const rows = await prisma.$queryRaw<
+    { documentId: string; chunkText: string; dist: number }[]
+  >`
+    SELECT
+      d."id" AS "documentId",
+      sc."text" AS "chunkText",
+      (sc."embedding" <=> ${qVec}::vector)::float8 AS "dist"
+    FROM "SourceChunk" sc
+    JOIN "SourceRevision" sr ON sr."id" = sc."revisionId"
+    JOIN "DocumentRevision" dr ON dr."id" = sr."documentRevisionId"
+    JOIN "Document" d ON d."id" = dr."documentId"
+    WHERE sr."isActive" = true
+      AND sc."embedding" IS NOT NULL
+      ${scopeSql}
+    ORDER BY "dist" ASC
+    LIMIT ${args.limit}
+  `;
+
+  return rows
+    .filter((row) => Number(row.dist) <= maxDist)
+    .map((row) => {
+      const matched = chunkMatchedTerms(row.chunkText, terms);
+      const closeness = Math.max(0, 1 - Number(row.dist) / maxDist);
+
+      return {
+        documentId: row.documentId,
+        retrievalKind: "semantic_chunk" as const,
+        summary: buildChunkSummary(row.chunkText, terms),
+        signalScore: 28 + Math.round(closeness * 20) + matched.length * 2,
+        reason: matched.length
+          ? `Semantic chunk match: ${matched.join(", ")}`
+          : "Semantic chunk match via embeddings",
+      };
+    });
+}
+
+async function addHybridChunkCandidates(
+  map: Map<string, CandidateAccumulator>,
+  args: {
+    question: string;
+    tokens: string[];
+    scope: GovernanceWorkspaceSourceScope;
+    limit: number;
+  },
+) {
+  const [keywordHits, semanticHits] = await Promise.all([
+    retrieveKeywordChunkHits(args),
+    retrieveSemanticChunkHits(args),
+  ]);
+
+  const allHits = [...keywordHits, ...semanticHits];
+  if (!allHits.length) return;
+
+  const mergedByDocument = new Map<
+    string,
+    {
+      best: ChunkRetrievalHit;
+      lanes: Set<ChunkRetrievalHit["retrievalKind"]>;
+    }
+  >();
+
+  for (const hit of allHits) {
+    const current = mergedByDocument.get(hit.documentId);
+
+    if (!current) {
+      mergedByDocument.set(hit.documentId, {
+        best: hit,
+        lanes: new Set([hit.retrievalKind]),
+      });
+      continue;
+    }
+
+    current.lanes.add(hit.retrievalKind);
+    if (hit.signalScore > current.best.signalScore) {
+      current.best = hit;
+    }
+  }
+
+  const docs = await prisma.document.findMany({
+    where: {
+      id: {
+        in: Array.from(mergedByDocument.keys()),
+      },
+    },
+    select: documentContextSelect,
+  });
+
+  const docsById = new Map(docs.map((doc) => [doc.id, doc] as const));
+
+  for (const [documentId, merged] of mergedByDocument.entries()) {
+    const doc = docsById.get(documentId);
+    if (!doc) continue;
+
+    const laneBonus = merged.lanes.size > 1 ? 6 : 0;
+
+    addCandidate(map, {
+      doc,
+      scope: args.scope,
+      reason:
+        merged.lanes.size > 1
+          ? `${merged.best.reason} + multi-lane retrieval`
+          : merged.best.reason,
+      signalScore: merged.best.signalScore + laneBonus,
+      summary: merged.best.summary,
+    });
+  }
+}
+
 async function attachDocumentStats(documentIds: string[]) {
   if (!documentIds.length) {
     return new Map<
@@ -797,6 +1077,15 @@ export async function queryGovernanceWorkspaceEvidence(
       reason: "Anchor evidence selected by the user",
       signalScore: 0,
       anchorScore: 100,
+    });
+  }
+
+  if (input.question.trim()) {
+    await addHybridChunkCandidates(candidates, {
+      question: input.question,
+      tokens,
+      scope: input.sourceScope,
+      limit: Math.max(input.limit * 3, 18),
     });
   }
 

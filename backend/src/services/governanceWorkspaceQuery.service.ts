@@ -200,6 +200,31 @@ type GovernanceWorkspaceContradictionFoundation = {
   involvedDocumentIds: string[];
 };
 
+type GovernanceWorkspaceCaseTrailEvent = {
+  eventId: string;
+  eventType: "document" | "conflict_cluster" | "override_hint";
+  title: string;
+  subtitle: string | null;
+  issueTitle: string | null;
+  narrative: string;
+  sortDate: string | null;
+  dateLabel: string;
+  documentIds: string[];
+  confidence: number | null;
+};
+
+type GovernanceWorkspaceCaseTrailFoundation = {
+  active: boolean;
+  rationale: string;
+  summary: {
+    eventCount: number;
+    documentEventCount: number;
+    conflictEventCount: number;
+    overrideEventCount: number;
+  };
+  events: GovernanceWorkspaceCaseTrailEvent[];
+};
+
 const STOP_WORDS = new Set([
   "the",
   "and",
@@ -1548,6 +1573,186 @@ function candidateAgeDays(candidate: RankedCandidate) {
   );
 }
 
+function formatCaseTrailDate(ms: number | null) {
+  if (ms === null) {
+    return {
+      sortDate: null,
+      dateLabel: "Undated",
+    };
+  }
+
+  const iso = new Date(ms).toISOString();
+  return {
+    sortDate: iso,
+    dateLabel: iso.slice(0, 10),
+  };
+}
+
+function caseTrailEventTypePriority(
+  value: GovernanceWorkspaceCaseTrailEvent["eventType"],
+) {
+  switch (value) {
+    case "document":
+      return 1;
+    case "conflict_cluster":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function buildCaseTrailFoundation(args: {
+  ranked: RankedCandidate[];
+  contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+  workflowMode: "landscape" | "case_trace";
+}): GovernanceWorkspaceCaseTrailFoundation {
+  if (!args.ranked.length) {
+    return {
+      active: false,
+      rationale:
+        "A case trail needs at least one retrieved evidence document before chronology can be assembled.",
+      summary: {
+        eventCount: 0,
+        documentEventCount: 0,
+        conflictEventCount: 0,
+        overrideEventCount: 0,
+      },
+      events: [],
+    };
+  }
+
+  const candidateByDocumentId = new Map<string, RankedCandidate>();
+
+  for (const candidate of args.ranked) {
+    for (const documentId of candidate.clusterDocumentIds) {
+      if (!candidateByDocumentId.has(documentId)) {
+        candidateByDocumentId.set(documentId, candidate);
+      }
+    }
+  }
+
+  const documentEvents: GovernanceWorkspaceCaseTrailEvent[] = args.ranked.map(
+    (candidate) => {
+      const { sortDate, dateLabel } = formatCaseTrailDate(
+        candidateBestKnownDate(candidate),
+      );
+
+      return {
+        eventId: `document:${candidate.documentId}`,
+        eventType: "document",
+        title: candidate.title,
+        subtitle: candidate.sourceLabel ?? null,
+        issueTitle: Array.from(candidate.matchedIssues)[0] ?? null,
+        narrative:
+          candidate.temporalReason ||
+          candidate.diversityReason ||
+          candidate.clusterReason ||
+          candidate.summary ||
+          "Retrieved evidence document included in the current case trail.",
+        sortDate,
+        dateLabel,
+        documentIds: candidate.clusterDocumentIds,
+        confidence: null,
+      };
+    },
+  );
+
+  const conflictEvents: GovernanceWorkspaceCaseTrailEvent[] =
+    args.contradictionFoundation.groups.map((group) => {
+      const ms = Math.max(
+        ...group.documentIds
+          .map((documentId) => candidateByDocumentId.get(documentId))
+          .map((candidate) =>
+            candidate ? (candidateBestKnownDate(candidate) ?? -1) : -1,
+          ),
+      );
+
+      const normalizedMs = ms >= 0 ? ms : null;
+      const { sortDate, dateLabel } = formatCaseTrailDate(normalizedMs);
+
+      return {
+        eventId: `conflict:${group.groupKey}`,
+        eventType: "conflict_cluster",
+        title: group.label,
+        subtitle: `${group.candidateCount} contradiction signals`,
+        issueTitle: group.issueTitle,
+        narrative: group.strongestReason,
+        sortDate,
+        dateLabel,
+        documentIds: group.documentIds,
+        confidence: null,
+      };
+    });
+
+  const overrideEvents: GovernanceWorkspaceCaseTrailEvent[] =
+    args.contradictionFoundation.overrideHints.map((hint) => {
+      const preferred = candidateByDocumentId.get(hint.preferredDocumentId);
+      const superseded = candidateByDocumentId.get(hint.supersededDocumentId);
+
+      const preferredMs = preferred ? candidateBestKnownDate(preferred) : null;
+      const supersededMs = superseded
+        ? candidateBestKnownDate(superseded)
+        : null;
+      const ms =
+        preferredMs !== null && supersededMs !== null
+          ? Math.max(preferredMs, supersededMs)
+          : (preferredMs ?? supersededMs ?? null);
+
+      const { sortDate, dateLabel } = formatCaseTrailDate(ms);
+
+      return {
+        eventId: `override:${hint.relationId}`,
+        eventType: "override_hint",
+        title: `Prefer ${hint.preferredDocumentTitle}`,
+        subtitle: `May supersede ${hint.supersededDocumentTitle}`,
+        issueTitle: null,
+        narrative: hint.basis,
+        sortDate,
+        dateLabel,
+        documentIds: [hint.preferredDocumentId, hint.supersededDocumentId],
+        confidence: hint.confidence,
+      };
+    });
+
+  const events = [...documentEvents, ...conflictEvents, ...overrideEvents]
+    .sort((a, b) => {
+      if (a.sortDate && b.sortDate) {
+        const byDate = a.sortDate.localeCompare(b.sortDate);
+        if (byDate !== 0) return byDate;
+      } else if (a.sortDate && !b.sortDate) {
+        return -1;
+      } else if (!a.sortDate && b.sortDate) {
+        return 1;
+      }
+
+      const byType =
+        caseTrailEventTypePriority(a.eventType) -
+        caseTrailEventTypePriority(b.eventType);
+      if (byType !== 0) return byType;
+
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 14);
+
+  return {
+    active:
+      args.workflowMode === "case_trace" ||
+      args.contradictionFoundation.active ||
+      args.ranked.length > 1,
+    rationale:
+      args.workflowMode === "case_trace"
+        ? "This case trail orders retrieved documents, conflict clusters, and override hints into a single evolving timeline."
+        : "This trail shows how the retrieved evidence evolves over time, including conflicts and possible supersession.",
+    summary: {
+      eventCount: events.length,
+      documentEventCount: documentEvents.length,
+      conflictEventCount: conflictEvents.length,
+      overrideEventCount: overrideEvents.length,
+    },
+    events,
+  };
+}
+
 function candidateHasOrderCue(candidate: RankedCandidate) {
   const haystack = `${candidate.title} ${candidate.summary ?? ""} ${
     candidate.sourceLabel ?? ""
@@ -2609,6 +2814,12 @@ export async function queryGovernanceWorkspaceEvidence(
     workflowMode: workflow.resolvedMode,
   });
 
+  const caseTrailFoundation = buildCaseTrailFoundation({
+    ranked: diversified,
+    contradictionFoundation,
+    workflowMode: workflow.resolvedMode,
+  });
+
   const retrievalDecision = resolveRetrievalDecision(diversified);
 
   const statsByDocument = await attachDocumentStats(
@@ -2671,6 +2882,7 @@ export async function queryGovernanceWorkspaceEvidence(
     temporalControl,
     diversityControl: diversityResult.control,
     contradictionFoundation,
+    caseTrailFoundation,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect
       ? retrievalDecision.recommendedDocumentId

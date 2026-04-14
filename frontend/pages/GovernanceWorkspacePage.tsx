@@ -194,6 +194,19 @@ function formatRelationTypeLabel(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatCaseTrailEventTypeLabel(
+  value: "document" | "conflict_cluster" | "override_hint",
+) {
+  switch (value) {
+    case "document":
+      return "Document";
+    case "conflict_cluster":
+      return "Conflict cluster";
+    default:
+      return "Override hint";
+  }
+}
+
 function formatContradictionBucketLabel(
   value:
     | "conflict"
@@ -1084,6 +1097,20 @@ export default function GovernanceWorkspacePage() {
     candidates: [],
     overrideHints: [],
     involvedDocumentIds: [],
+  };
+
+  const caseTrailFoundation = workspaceEvidenceQuery.data
+    ?.caseTrailFoundation ?? {
+    active: false,
+    rationale:
+      "No case-trail timeline is available until at least one evidence run assembles chronological signals.",
+    summary: {
+      eventCount: 0,
+      documentEventCount: 0,
+      conflictEventCount: 0,
+      overrideEventCount: 0,
+    },
+    events: [],
   };
 
   const contradictionLinkedDocumentIds = useMemo(
@@ -2144,6 +2171,84 @@ export default function GovernanceWorkspacePage() {
                       )}
                     </div>
                   </div>
+                </div>
+              ) : null}
+
+              {caseTrailFoundation.active ? (
+                <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white/80 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Case trail timeline
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {caseTrailFoundation.rationale}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Events {caseTrailFoundation.summary.eventCount}
+                    </span>
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                      Documents {caseTrailFoundation.summary.documentEventCount}
+                    </span>
+                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                      Conflicts {caseTrailFoundation.summary.conflictEventCount}
+                    </span>
+                    <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                      Overrides {caseTrailFoundation.summary.overrideEventCount}
+                    </span>
+                  </div>
+
+                  {caseTrailFoundation.events.length ? (
+                    <div className="mt-4 space-y-3">
+                      {caseTrailFoundation.events.map((event) => (
+                        <div
+                          key={event.eventId}
+                          className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                              {event.dateLabel}
+                            </span>
+                            <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                              {formatCaseTrailEventTypeLabel(event.eventType)}
+                            </span>
+                            {event.confidence !== null ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                Confidence {event.confidence.toFixed(2)}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-2 text-sm font-semibold text-slate-900">
+                            {event.title}
+                          </div>
+
+                          {event.subtitle ? (
+                            <div className="mt-1 text-xs text-slate-500">
+                              {event.subtitle}
+                            </div>
+                          ) : null}
+
+                          {event.issueTitle ? (
+                            <div className="mt-2">
+                              <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                                {event.issueTitle}
+                              </span>
+                            </div>
+                          ) : null}
+
+                          <p className="mt-2 text-sm leading-6 text-slate-600">
+                            {event.narrative}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      No chronological trail events were assembled for the
+                      current evidence set.
+                    </p>
+                  )}
                 </div>
               ) : null}
 

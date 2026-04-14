@@ -2054,6 +2054,28 @@ export type GovernanceWorkspaceEvidenceResponse = {
     }>;
     involvedDocumentIds: string[];
   };
+  caseTrailFoundation: {
+    active: boolean;
+    rationale: string;
+    summary: {
+      eventCount: number;
+      documentEventCount: number;
+      conflictEventCount: number;
+      overrideEventCount: number;
+    };
+    events: Array<{
+      eventId: string;
+      eventType: "document" | "conflict_cluster" | "override_hint";
+      title: string;
+      subtitle: string | null;
+      issueTitle: string | null;
+      narrative: string;
+      sortDate: string | null;
+      dateLabel: string;
+      documentIds: string[];
+      confidence: number | null;
+    }>;
+  };
   retrievalDecision: {
     shouldAutoSelect: boolean;
     recommendedDocumentId: string | null;

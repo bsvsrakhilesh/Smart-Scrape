@@ -1140,6 +1140,31 @@ export default function GovernanceWorkspacePage() {
     comparisons: [],
   };
 
+  const landscapeMappingSurface = workspaceEvidenceQuery.data
+    ?.landscapeMappingSurface ?? {
+    active: false,
+    rationale:
+      "No landscape mapping surface is available until a broad governance query assembles enough evidence.",
+    summary: {
+      issueCount: 0,
+      agencyCount: 0,
+      spotlightCount: 0,
+      currentPreferredCount: 0,
+      conflictLinkedCount: 0,
+    },
+    sourceCoverage: {
+      fileCount: 0,
+      urlCount: 0,
+      anchorCount: 0,
+      metadataCount: 0,
+      graphCount: 0,
+      chunkCount: 0,
+    },
+    topIssues: [],
+    topAgencies: [],
+    spotlightDocuments: [],
+  };
+
   const caseTrailFoundation = workspaceEvidenceQuery.data
     ?.caseTrailFoundation ?? {
     active: false,
@@ -2274,7 +2299,8 @@ export default function GovernanceWorkspacePage() {
                       Needs review {comparisonSurface.summary.reviewCount}
                     </span>
                     <span className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700">
-                      Preferred pairs {comparisonSurface.summary.preferredPairCount}
+                      Preferred pairs{" "}
+                      {comparisonSurface.summary.preferredPairCount}
                     </span>
                   </div>
 
@@ -2292,7 +2318,8 @@ export default function GovernanceWorkspacePage() {
                               )}
                             </span>
                             <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
-                              Conflict signals {comparison.contradictionSignalCount}
+                              Conflict signals{" "}
+                              {comparison.contradictionSignalCount}
                             </span>
                             {comparison.overrideHintCount > 0 ? (
                               <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
@@ -2339,9 +2366,230 @@ export default function GovernanceWorkspacePage() {
                     </div>
                   ) : (
                     <p className="mt-3 text-sm leading-6 text-slate-500">
-                      No document-to-document comparison pairs were assembled for the current evidence set.
+                      No document-to-document comparison pairs were assembled
+                      for the current evidence set.
                     </p>
                   )}
+                </div>
+              ) : null}
+
+              {landscapeMappingSurface.active ? (
+                <div className="mt-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                    Landscape mapping surface
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {landscapeMappingSurface.rationale}
+                  </p>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700">
+                      Issues {landscapeMappingSurface.summary.issueCount}
+                    </span>
+                    <span className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium text-sky-700">
+                      Agencies {landscapeMappingSurface.summary.agencyCount}
+                    </span>
+                    <span className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-medium text-violet-700">
+                      Spotlight {landscapeMappingSurface.summary.spotlightCount}
+                    </span>
+                    <span className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-700">
+                      Current signals{" "}
+                      {landscapeMappingSurface.summary.currentPreferredCount}
+                    </span>
+                    <span className="rounded-full border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700">
+                      Conflict-linked{" "}
+                      {landscapeMappingSurface.summary.conflictLinkedCount}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 rounded-2xl border border-white/80 bg-white/80 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Source coverage
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        Files {landscapeMappingSurface.sourceCoverage.fileCount}
+                      </span>
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                        URLs {landscapeMappingSurface.sourceCoverage.urlCount}
+                      </span>
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                        Anchors{" "}
+                        {landscapeMappingSurface.sourceCoverage.anchorCount}
+                      </span>
+                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
+                        Metadata{" "}
+                        {landscapeMappingSurface.sourceCoverage.metadataCount}
+                      </span>
+                      <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                        Graph{" "}
+                        {landscapeMappingSurface.sourceCoverage.graphCount}
+                      </span>
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
+                        Raw chunk{" "}
+                        {landscapeMappingSurface.sourceCoverage.chunkCount}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Top issues
+                      </div>
+
+                      {landscapeMappingSurface.topIssues.length ? (
+                        <div className="mt-3 space-y-3">
+                          {landscapeMappingSurface.topIssues.map((item) => (
+                            <div
+                              key={item.title}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="text-sm font-semibold text-slate-900">
+                                {item.title}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  Documents {item.documentCount}
+                                </span>
+                                {item.anchorCount > 0 ? (
+                                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                                    Anchors {item.anchorCount}
+                                  </span>
+                                ) : null}
+                                {item.currentPreferredCount > 0 ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    Current {item.currentPreferredCount}
+                                  </span>
+                                ) : null}
+                                {item.conflictLinkedCount > 0 ? (
+                                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                                    Conflict-linked {item.conflictLinkedCount}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No issue clusters were assembled for the current
+                          landscape run.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Top agencies
+                      </div>
+
+                      {landscapeMappingSurface.topAgencies.length ? (
+                        <div className="mt-3 space-y-3">
+                          {landscapeMappingSurface.topAgencies.map((item) => (
+                            <div
+                              key={item.name}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="text-sm font-semibold text-slate-900">
+                                {item.name}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  Documents {item.documentCount}
+                                </span>
+                                {item.currentPreferredCount > 0 ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    Current {item.currentPreferredCount}
+                                  </span>
+                                ) : null}
+                                {item.conflictLinkedCount > 0 ? (
+                                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                                    Conflict-linked {item.conflictLinkedCount}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No agency clusters were assembled for the current
+                          landscape run.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Spotlight documents
+                      </div>
+
+                      {landscapeMappingSurface.spotlightDocuments.length ? (
+                        <div className="mt-3 space-y-3">
+                          {landscapeMappingSurface.spotlightDocuments.map(
+                            (item) => (
+                              <div
+                                key={item.documentId}
+                                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {item.currentPreferred ? (
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                      Current-state signal
+                                    </span>
+                                  ) : null}
+                                  {item.conflictLinked ? (
+                                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+                                      Conflict-linked
+                                    </span>
+                                  ) : null}
+                                  {item.anchor ? (
+                                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                                      Anchor
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <div className="mt-2 text-sm font-semibold text-slate-900">
+                                  {item.title}
+                                </div>
+
+                                {item.issueTitle ? (
+                                  <div className="mt-2">
+                                    <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                                      {item.issueTitle}
+                                    </span>
+                                  </div>
+                                ) : null}
+
+                                {item.agencyName ? (
+                                  <div className="mt-2 text-xs text-slate-500">
+                                    {item.agencyName}
+                                  </div>
+                                ) : null}
+
+                                {item.summary ? (
+                                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                                    {item.summary}
+                                  </p>
+                                ) : null}
+
+                                <div className="mt-2 text-xs leading-5 text-slate-500">
+                                  {item.reason}
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No spotlight documents were selected for this
+                          landscape view.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : null}
 

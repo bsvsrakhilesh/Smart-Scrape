@@ -2112,6 +2112,49 @@ export type GovernanceWorkspaceEvidenceResponse = {
       changeSummary: string;
     }>;
   };
+  landscapeMappingSurface: {
+    active: boolean;
+    rationale: string;
+    summary: {
+      issueCount: number;
+      agencyCount: number;
+      spotlightCount: number;
+      currentPreferredCount: number;
+      conflictLinkedCount: number;
+    };
+    sourceCoverage: {
+      fileCount: number;
+      urlCount: number;
+      anchorCount: number;
+      metadataCount: number;
+      graphCount: number;
+      chunkCount: number;
+    };
+    topIssues: Array<{
+      title: string;
+      documentCount: number;
+      anchorCount: number;
+      currentPreferredCount: number;
+      conflictLinkedCount: number;
+    }>;
+    topAgencies: Array<{
+      name: string;
+      documentCount: number;
+      currentPreferredCount: number;
+      conflictLinkedCount: number;
+    }>;
+    spotlightDocuments: Array<{
+      documentId: string;
+      title: string;
+      summary: string | null;
+      issueTitle: string | null;
+      agencyName: string | null;
+      reason: string;
+      anchor: boolean;
+      currentPreferred: boolean;
+      conflictLinked: boolean;
+    }>;
+  };
   caseTrailFoundation: {
     active: boolean;
     rationale: string;

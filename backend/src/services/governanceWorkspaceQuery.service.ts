@@ -265,6 +265,56 @@ type GovernanceWorkspaceComparisonSurface = {
   comparisons: GovernanceWorkspaceDocumentComparison[];
 };
 
+type GovernanceWorkspaceLandscapeIssue = {
+  title: string;
+  documentCount: number;
+  anchorCount: number;
+  currentPreferredCount: number;
+  conflictLinkedCount: number;
+};
+
+type GovernanceWorkspaceLandscapeAgency = {
+  name: string;
+  documentCount: number;
+  currentPreferredCount: number;
+  conflictLinkedCount: number;
+};
+
+type GovernanceWorkspaceLandscapeSpotlightDocument = {
+  documentId: string;
+  title: string;
+  summary: string | null;
+  issueTitle: string | null;
+  agencyName: string | null;
+  reason: string;
+  anchor: boolean;
+  currentPreferred: boolean;
+  conflictLinked: boolean;
+};
+
+type GovernanceWorkspaceLandscapeMappingSurface = {
+  active: boolean;
+  rationale: string;
+  summary: {
+    issueCount: number;
+    agencyCount: number;
+    spotlightCount: number;
+    currentPreferredCount: number;
+    conflictLinkedCount: number;
+  };
+  sourceCoverage: {
+    fileCount: number;
+    urlCount: number;
+    anchorCount: number;
+    metadataCount: number;
+    graphCount: number;
+    chunkCount: number;
+  };
+  topIssues: GovernanceWorkspaceLandscapeIssue[];
+  topAgencies: GovernanceWorkspaceLandscapeAgency[];
+  spotlightDocuments: GovernanceWorkspaceLandscapeSpotlightDocument[];
+};
+
 type GovernanceWorkspaceOverrideChain = {
   chainKey: string;
   documentIds: string[];
@@ -1855,6 +1905,226 @@ function buildComparisonSurface(args: {
   };
 }
 
+function buildLandscapeMappingSurface(args: {
+  ranked: RankedCandidate[];
+  workflowMode: "landscape" | "case_trace";
+  queryType: GovernanceWorkspaceQueryType;
+  contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+}): GovernanceWorkspaceLandscapeMappingSurface {
+  if (!args.ranked.length) {
+    return {
+      active: false,
+      rationale:
+        "A landscape map needs at least one retrieved evidence document before broad governance coverage can be summarized.",
+      summary: {
+        issueCount: 0,
+        agencyCount: 0,
+        spotlightCount: 0,
+        currentPreferredCount: 0,
+        conflictLinkedCount: 0,
+      },
+      sourceCoverage: {
+        fileCount: 0,
+        urlCount: 0,
+        anchorCount: 0,
+        metadataCount: 0,
+        graphCount: 0,
+        chunkCount: 0,
+      },
+      topIssues: [],
+      topAgencies: [],
+      spotlightDocuments: [],
+    };
+  }
+
+  const shouldActivate =
+    args.workflowMode === "landscape" || args.queryType === "broad_scan";
+
+  if (!shouldActivate) {
+    return {
+      active: false,
+      rationale:
+        "Landscape mapping stays out of the way for case-focused, chronology, or contradiction-driven workflows.",
+      summary: {
+        issueCount: 0,
+        agencyCount: 0,
+        spotlightCount: 0,
+        currentPreferredCount: 0,
+        conflictLinkedCount: 0,
+      },
+      sourceCoverage: {
+        fileCount: 0,
+        urlCount: 0,
+        anchorCount: 0,
+        metadataCount: 0,
+        graphCount: 0,
+        chunkCount: 0,
+      },
+      topIssues: [],
+      topAgencies: [],
+      spotlightDocuments: [],
+    };
+  }
+
+  const contradictionDocIds = new Set(
+    args.contradictionFoundation.involvedDocumentIds,
+  );
+
+  const issueMap = new Map<
+    string,
+    {
+      documentIds: Set<string>;
+      anchorCount: number;
+      currentPreferredCount: number;
+      conflictLinkedCount: number;
+    }
+  >();
+
+  const agencyMap = new Map<
+    string,
+    {
+      documentIds: Set<string>;
+      currentPreferredCount: number;
+      conflictLinkedCount: number;
+    }
+  >();
+
+  const sourceCoverage = {
+    fileCount: 0,
+    urlCount: 0,
+    anchorCount: 0,
+    metadataCount: 0,
+    graphCount: 0,
+    chunkCount: 0,
+  };
+
+  const spotlightDocuments: GovernanceWorkspaceLandscapeSpotlightDocument[] =
+    args.ranked.slice(0, 4).map((candidate) => {
+      const issueTitle = Array.from(candidate.matchedIssues)[0] ?? null;
+      const agencyName = Array.from(candidate.matchedAgencies)[0] ?? null;
+      const conflictLinked = candidate.clusterDocumentIds.some((documentId) =>
+        contradictionDocIds.has(documentId),
+      );
+
+      return {
+        documentId: candidate.documentId,
+        title: candidate.title,
+        summary: candidate.summary,
+        issueTitle,
+        agencyName,
+        reason:
+          candidate.temporalReason ||
+          candidate.diversityReason ||
+          candidate.whyRanked[0] ||
+          "Strong landscape evidence candidate.",
+        anchor: candidate.anchor,
+        currentPreferred: Boolean(candidate.temporalReason),
+        conflictLinked,
+      };
+    });
+
+  for (const candidate of args.ranked) {
+    const conflictLinked = candidate.clusterDocumentIds.some((documentId) =>
+      contradictionDocIds.has(documentId),
+    );
+
+    if (candidate.kind === "FILE") {
+      sourceCoverage.fileCount += 1;
+    } else {
+      sourceCoverage.urlCount += 1;
+    }
+
+    if (candidate.anchor) sourceCoverage.anchorCount += 1;
+    if (candidate.coverageFamilies.includes("metadata"))
+      sourceCoverage.metadataCount += 1;
+    if (candidate.coverageFamilies.includes("graph"))
+      sourceCoverage.graphCount += 1;
+    if (candidate.coverageFamilies.includes("chunk"))
+      sourceCoverage.chunkCount += 1;
+
+    for (const issue of candidate.matchedIssues) {
+      const current = issueMap.get(issue) ?? {
+        documentIds: new Set<string>(),
+        anchorCount: 0,
+        currentPreferredCount: 0,
+        conflictLinkedCount: 0,
+      };
+
+      current.documentIds.add(candidate.documentId);
+      if (candidate.anchor) current.anchorCount += 1;
+      if (candidate.temporalReason) current.currentPreferredCount += 1;
+      if (conflictLinked) current.conflictLinkedCount += 1;
+
+      issueMap.set(issue, current);
+    }
+
+    for (const agency of candidate.matchedAgencies) {
+      const current = agencyMap.get(agency) ?? {
+        documentIds: new Set<string>(),
+        currentPreferredCount: 0,
+        conflictLinkedCount: 0,
+      };
+
+      current.documentIds.add(candidate.documentId);
+      if (candidate.temporalReason) current.currentPreferredCount += 1;
+      if (conflictLinked) current.conflictLinkedCount += 1;
+
+      agencyMap.set(agency, current);
+    }
+  }
+
+  const topIssues = Array.from(issueMap.entries())
+    .map(([title, value]) => ({
+      title,
+      documentCount: value.documentIds.size,
+      anchorCount: value.anchorCount,
+      currentPreferredCount: value.currentPreferredCount,
+      conflictLinkedCount: value.conflictLinkedCount,
+    }))
+    .sort((a, b) => {
+      const docGap = b.documentCount - a.documentCount;
+      if (docGap !== 0) return docGap;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 6);
+
+  const topAgencies = Array.from(agencyMap.entries())
+    .map(([name, value]) => ({
+      name,
+      documentCount: value.documentIds.size,
+      currentPreferredCount: value.currentPreferredCount,
+      conflictLinkedCount: value.conflictLinkedCount,
+    }))
+    .sort((a, b) => {
+      const docGap = b.documentCount - a.documentCount;
+      if (docGap !== 0) return docGap;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 6);
+
+  return {
+    active: true,
+    rationale:
+      "This landscape mapping surface summarizes the broad governance picture by highlighting issue clusters, agency presence, coverage lanes, and the strongest spotlight documents.",
+    summary: {
+      issueCount: topIssues.length,
+      agencyCount: topAgencies.length,
+      spotlightCount: spotlightDocuments.length,
+      currentPreferredCount: args.ranked.filter((item) => item.temporalReason)
+        .length,
+      conflictLinkedCount: args.ranked.filter((item) =>
+        item.clusterDocumentIds.some((documentId) =>
+          contradictionDocIds.has(documentId),
+        ),
+      ).length,
+    },
+    sourceCoverage,
+    topIssues,
+    topAgencies,
+    spotlightDocuments,
+  };
+}
+
 function buildCaseTrailFoundation(args: {
   ranked: RankedCandidate[];
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
@@ -3280,6 +3550,13 @@ export async function queryGovernanceWorkspaceEvidence(
     overrideChainFoundation,
   });
 
+  const landscapeMappingSurface = buildLandscapeMappingSurface({
+    ranked: diversified,
+    workflowMode: workflow.resolvedMode,
+    queryType: queryUnderstanding.queryType,
+    contradictionFoundation,
+  });
+
   const caseTrailFoundation = buildCaseTrailFoundation({
     ranked: diversified,
     contradictionFoundation,
@@ -3352,6 +3629,7 @@ export async function queryGovernanceWorkspaceEvidence(
     contradictionFoundation,
     overrideChainFoundation,
     comparisonSurface,
+    landscapeMappingSurface,
     caseTrailFoundation,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect

@@ -156,6 +156,24 @@ type GovernanceWorkspaceContradictionCandidate = {
   toAgencyName: string | null;
 };
 
+type GovernanceWorkspaceContradictionGroup = {
+  groupKey: string;
+  issueTitle: string | null;
+  label: string;
+  documentIds: string[];
+  documentTitles: string[];
+  candidateCount: number;
+  reviewCount: number;
+  strongestBucket:
+    | "conflict"
+    | "alignment"
+    | "temporal_shift_candidate"
+    | "scope_variant_candidate"
+    | "reference";
+  strongestReason: string;
+  relationIds: string[];
+};
+
 type GovernanceWorkspaceOverrideHint = {
   relationId: string;
   relationType: DocumentRelationType;
@@ -174,7 +192,9 @@ type GovernanceWorkspaceContradictionFoundation = {
     contradictionCount: number;
     reviewCount: number;
     overrideHintCount: number;
+    groupCount: number;
   };
+  groups: GovernanceWorkspaceContradictionGroup[];
   candidates: GovernanceWorkspaceContradictionCandidate[];
   overrideHints: GovernanceWorkspaceOverrideHint[];
   involvedDocumentIds: string[];
@@ -1161,6 +1181,92 @@ function relationBucketPriority(
   }
 }
 
+function normalizeContradictionGroupKey(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function buildContradictionGroups(
+  candidates: GovernanceWorkspaceContradictionCandidate[],
+): GovernanceWorkspaceContradictionGroup[] {
+  const groups = new Map<string, GovernanceWorkspaceContradictionCandidate[]>();
+
+  for (const candidate of candidates) {
+    const pair = [candidate.fromDocumentId, candidate.toDocumentId]
+      .sort()
+      .join("::");
+    const issueKey =
+      normalizeContradictionGroupKey(candidate.issueTitle) || "cross-issue";
+    const key = `${issueKey}|${pair}`;
+
+    const existing = groups.get(key) ?? [];
+    existing.push(candidate);
+    groups.set(key, existing);
+  }
+
+  return Array.from(groups.entries())
+    .map(([groupKey, items]) => {
+      const strongest = [...items].sort((a, b) => {
+        const bucketGap =
+          relationBucketPriority(b.bucket) - relationBucketPriority(a.bucket);
+        if (bucketGap !== 0) return bucketGap;
+        return (b.confidence ?? 0) - (a.confidence ?? 0);
+      })[0];
+
+      const documentTitles = Array.from(
+        new Set(
+          items.flatMap((item) => [
+            item.fromDocumentTitle,
+            item.toDocumentTitle,
+          ]),
+        ),
+      ).slice(0, 3);
+
+      const documentIds = Array.from(
+        new Set(
+          items.flatMap((item) => [item.fromDocumentId, item.toDocumentId]),
+        ),
+      );
+
+      const reviewCount = items.filter(
+        (item) => item.requiresAnalystReview,
+      ).length;
+
+      return {
+        groupKey,
+        issueTitle: strongest.issueTitle,
+        label: strongest.issueTitle
+          ? `${strongest.issueTitle} — ${documentTitles.join(" ↔ ")}`
+          : documentTitles.join(" ↔ "),
+        documentIds,
+        documentTitles,
+        candidateCount: items.length,
+        reviewCount,
+        strongestBucket: strongest.bucket,
+        strongestReason: strongest.reason,
+        relationIds: Array.from(new Set(items.map((item) => item.relationId))),
+      };
+    })
+    .sort((a, b) => {
+      const reviewGap = b.reviewCount - a.reviewCount;
+      if (reviewGap !== 0) return reviewGap;
+
+      const candidateGap = b.candidateCount - a.candidateCount;
+      if (candidateGap !== 0) return candidateGap;
+
+      const bucketGap =
+        relationBucketPriority(b.strongestBucket) -
+        relationBucketPriority(a.strongestBucket);
+      if (bucketGap !== 0) return bucketGap;
+
+      return a.label.localeCompare(b.label);
+    })
+    .slice(0, 6);
+}
+
 function inferOverrideHint(args: {
   relationId: string;
   relationType: DocumentRelationType;
@@ -1214,7 +1320,9 @@ async function buildContradictionFoundation(args: {
         contradictionCount: 0,
         reviewCount: 0,
         overrideHintCount: 0,
+        groupCount: 0,
       },
+      groups: [],
       candidates: [],
       overrideHints: [],
       involvedDocumentIds: [],
@@ -1368,6 +1476,8 @@ async function buildContradictionFoundation(args: {
     })
     .slice(0, 6);
 
+  const contradictionGroups = buildContradictionGroups(contradictionCandidates);
+
   const sortedOverrideHints = Array.from(
     new Map(
       overrideHints.map((item) => [
@@ -1379,7 +1489,11 @@ async function buildContradictionFoundation(args: {
     .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
     .slice(0, 6);
 
-  if (!sortedCandidates.length && !sortedOverrideHints.length) {
+  if (
+    !sortedCandidates.length &&
+    !sortedOverrideHints.length &&
+    !contradictionGroups.length
+  ) {
     return {
       active: false,
       rationale:
@@ -1388,7 +1502,9 @@ async function buildContradictionFoundation(args: {
         contradictionCount: 0,
         reviewCount: 0,
         overrideHintCount: 0,
+        groupCount: 0,
       },
+      groups: [],
       candidates: [],
       overrideHints: [],
       involvedDocumentIds: [],
@@ -1405,7 +1521,9 @@ async function buildContradictionFoundation(args: {
       contradictionCount,
       reviewCount,
       overrideHintCount: sortedOverrideHints.length,
+      groupCount: contradictionGroups.length,
     },
+    groups: contradictionGroups,
     candidates: sortedCandidates,
     overrideHints: sortedOverrideHints,
     involvedDocumentIds: Array.from(involvedDocumentIds),

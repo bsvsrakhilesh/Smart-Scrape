@@ -1982,7 +1982,25 @@ export type GovernanceWorkspaceEvidenceResponse = {
       contradictionCount: number;
       reviewCount: number;
       overrideHintCount: number;
+      groupCount: number;
     };
+    groups: Array<{
+      groupKey: string;
+      issueTitle: string | null;
+      label: string;
+      documentIds: string[];
+      documentTitles: string[];
+      candidateCount: number;
+      reviewCount: number;
+      strongestBucket:
+        | "conflict"
+        | "alignment"
+        | "temporal_shift_candidate"
+        | "scope_variant_candidate"
+        | "reference";
+      strongestReason: string;
+      relationIds: string[];
+    }>;
     candidates: Array<{
       relationId: string;
       relationType:

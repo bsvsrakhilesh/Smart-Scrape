@@ -1078,7 +1078,9 @@ export default function GovernanceWorkspacePage() {
       contradictionCount: 0,
       reviewCount: 0,
       overrideHintCount: 0,
+      groupCount: 0,
     },
+    groups: [],
     candidates: [],
     overrideHints: [],
     involvedDocumentIds: [],
@@ -1987,6 +1989,9 @@ export default function GovernanceWorkspacePage() {
                       Contradiction signals{" "}
                       {contradictionFoundation.summary.contradictionCount}
                     </span>
+                    <span className="rounded-full border border-fuchsia-200 bg-white px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                      Clusters {contradictionFoundation.summary.groupCount}
+                    </span>
                     <span className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-700">
                       Needs review {contradictionFoundation.summary.reviewCount}
                     </span>
@@ -1996,7 +2001,53 @@ export default function GovernanceWorkspacePage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                  <div className="mt-3 grid gap-3 xl:grid-cols-3">
+                    <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        Conflict clusters
+                      </div>
+
+                      {contradictionFoundation.groups.length ? (
+                        <div className="mt-3 space-y-3">
+                          {contradictionFoundation.groups.map((group) => (
+                            <div
+                              key={group.groupKey}
+                              className="rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-2.5 py-1 text-xs font-medium text-fuchsia-700">
+                                  {formatContradictionBucketLabel(
+                                    group.strongestBucket,
+                                  )}
+                                </span>
+                                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                  Signals {group.candidateCount}
+                                </span>
+                                {group.reviewCount > 0 ? (
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    Review {group.reviewCount}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <div className="mt-2 text-sm font-semibold text-slate-900">
+                                {group.label}
+                              </div>
+
+                              <p className="mt-2 text-sm leading-6 text-slate-600">
+                                {group.strongestReason}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm leading-6 text-slate-500">
+                          No grouped contradiction clusters were created for the
+                          current evidence set.
+                        </p>
+                      )}
+                    </div>
+
                     <div className="rounded-2xl border border-white/80 bg-white/80 p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                         Conflict candidates

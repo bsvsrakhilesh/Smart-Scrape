@@ -1904,6 +1904,18 @@ export type GovernanceWorkspaceEvidenceCandidate = {
   clusterDocumentIds: string[];
   clusterKinds: Array<"URL" | "FILE">;
   clusterReason: string | null;
+  retrievalLanes: Array<
+    | "anchor"
+    | "metadata"
+    | "issue_graph"
+    | "claim_graph"
+    | "event_graph"
+    | "gap_graph"
+    | "relation_graph"
+    | "keyword_chunk"
+    | "semantic_chunk"
+  >;
+  coverageFamilies: Array<"anchor" | "metadata" | "graph" | "chunk">;
   stats: {
     claimCount: number;
     eventCount: number;

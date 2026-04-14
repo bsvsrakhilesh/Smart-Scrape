@@ -15,6 +15,23 @@ type GovernanceWorkspaceQueryInput = {
   limit?: number;
 };
 
+type GovernanceWorkspaceRetrievalLane =
+  | "anchor"
+  | "metadata"
+  | "issue_graph"
+  | "claim_graph"
+  | "event_graph"
+  | "gap_graph"
+  | "relation_graph"
+  | "keyword_chunk"
+  | "semantic_chunk";
+
+type GovernanceWorkspaceCoverageFamily =
+  | "anchor"
+  | "metadata"
+  | "graph"
+  | "chunk";
+
 type CandidateAccumulator = {
   documentId: string;
   kind: DocumentKind;
@@ -32,6 +49,7 @@ type CandidateAccumulator = {
   reasons: Set<string>;
   matchedIssues: Set<string>;
   matchedAgencies: Set<string>;
+  matchedLanes: Set<GovernanceWorkspaceRetrievalLane>;
 };
 
 type RankedCandidate = CandidateAccumulator & {
@@ -43,6 +61,8 @@ type RankedCandidate = CandidateAccumulator & {
   clusterDocumentIds: string[];
   clusterKinds: DocumentKind[];
   clusterReason: string | null;
+  retrievalLanes: GovernanceWorkspaceRetrievalLane[];
+  coverageFamilies: GovernanceWorkspaceCoverageFamily[];
 };
 
 type GovernanceWorkspaceQueryType =
@@ -608,9 +628,88 @@ function buildRankingWhy(
   return Array.from(new Set(notes)).slice(0, 4);
 }
 
+const retrievalLaneOrder: GovernanceWorkspaceRetrievalLane[] = [
+  "anchor",
+  "metadata",
+  "issue_graph",
+  "claim_graph",
+  "event_graph",
+  "gap_graph",
+  "relation_graph",
+  "keyword_chunk",
+  "semantic_chunk",
+];
+
+const coverageFamilyOrder: GovernanceWorkspaceCoverageFamily[] = [
+  "anchor",
+  "metadata",
+  "graph",
+  "chunk",
+];
+
+function sortRetrievalLanes(
+  lanes: Iterable<GovernanceWorkspaceRetrievalLane>,
+): GovernanceWorkspaceRetrievalLane[] {
+  const laneSet = new Set(lanes);
+  return retrievalLaneOrder.filter((lane) => laneSet.has(lane));
+}
+
+function summarizeCoverageFamilies(
+  lanes: Iterable<GovernanceWorkspaceRetrievalLane>,
+): GovernanceWorkspaceCoverageFamily[] {
+  const families = new Set<GovernanceWorkspaceCoverageFamily>();
+
+  for (const lane of lanes) {
+    if (lane === "anchor") {
+      families.add("anchor");
+    } else if (lane === "metadata") {
+      families.add("metadata");
+    } else if (lane === "keyword_chunk" || lane === "semantic_chunk") {
+      families.add("chunk");
+    } else {
+      families.add("graph");
+    }
+  }
+
+  return coverageFamilyOrder.filter((family) => families.has(family));
+}
+
+function extendRankingWhyWithCoverage(args: {
+  base: string[];
+  retrievalLanes: GovernanceWorkspaceRetrievalLane[];
+}) {
+  const notes = [...args.base];
+
+  const hasChunkSupport = args.retrievalLanes.some(
+    (lane) => lane === "keyword_chunk" || lane === "semantic_chunk",
+  );
+  const hasGraphSupport = args.retrievalLanes.some((lane) =>
+    [
+      "issue_graph",
+      "claim_graph",
+      "event_graph",
+      "gap_graph",
+      "relation_graph",
+    ].includes(lane),
+  );
+  const hasMetadataSupport = args.retrievalLanes.includes("metadata");
+
+  if (hasChunkSupport && hasGraphSupport) {
+    notes.push("Supported by graph and raw-text retrieval");
+  } else if (hasChunkSupport && hasMetadataSupport) {
+    notes.push("Supported by metadata and raw-text retrieval");
+  } else if (args.retrievalLanes.length >= 2) {
+    notes.push("Supported by multiple retrieval lanes");
+  }
+
+  return Array.from(new Set(notes)).slice(0, 5);
+}
+
 function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
   const authorityScore = computeAuthorityScore(candidate);
   const freshnessScore = computeFreshnessScore(candidate);
+  const retrievalLanes = sortRetrievalLanes(candidate.matchedLanes);
+  const coverageFamilies = summarizeCoverageFamilies(candidate.matchedLanes);
 
   return {
     ...candidate,
@@ -621,14 +720,19 @@ function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
       candidate.signalScore +
       authorityScore +
       freshnessScore,
-    whyRanked: buildRankingWhy(candidate, {
-      authorityScore,
-      freshnessScore,
+    whyRanked: extendRankingWhyWithCoverage({
+      base: buildRankingWhy(candidate, {
+        authorityScore,
+        freshnessScore,
+      }),
+      retrievalLanes,
     }),
     duplicateCount: 0,
     clusterDocumentIds: [candidate.documentId],
     clusterKinds: [candidate.kind],
     clusterReason: null,
+    retrievalLanes,
+    coverageFamilies,
   };
 }
 
@@ -719,6 +823,8 @@ function addCandidate(
     scope: GovernanceWorkspaceSourceScope;
     reason: string;
     signalScore: number;
+    lane?: GovernanceWorkspaceRetrievalLane;
+    lanes?: GovernanceWorkspaceRetrievalLane[];
     anchorScore?: number;
     issueTitle?: string | null;
     agencyNames?: Array<string | null | undefined>;
@@ -745,6 +851,7 @@ function addCandidate(
     reasons: new Set<string>(),
     matchedIssues: new Set<string>(),
     matchedAgencies: new Set<string>(),
+    matchedLanes: new Set<GovernanceWorkspaceRetrievalLane>(),
   };
 
   existing.signalScore += args.signalScore;
@@ -756,6 +863,11 @@ function addCandidate(
   if (args.issueTitle) existing.matchedIssues.add(args.issueTitle);
   for (const agencyName of args.agencyNames || []) {
     if (agencyName) existing.matchedAgencies.add(agencyName);
+  }
+
+  if (args.lane) existing.matchedLanes.add(args.lane);
+  for (const lane of args.lanes || []) {
+    existing.matchedLanes.add(lane);
   }
 
   map.set(args.doc.id, existing);
@@ -854,6 +966,10 @@ function clusterRankedCandidates(ranked: RankedCandidate[]) {
     const mergedAgencies = Array.from(
       new Set(group.flatMap((item) => Array.from(item.matchedAgencies))),
     );
+    const mergedLanes = sortRetrievalLanes(
+      group.flatMap((item) => item.retrievalLanes),
+    );
+    const mergedCoverageFamilies = summarizeCoverageFamilies(mergedLanes);
     const mergedWhyRanked = Array.from(
       new Set(group.flatMap((item) => item.whyRanked)),
     );
@@ -868,14 +984,17 @@ function clusterRankedCandidates(ranked: RankedCandidate[]) {
       reasons: new Set(mergedReasons.slice(0, 6)),
       matchedIssues: new Set(mergedIssues.slice(0, 4)),
       matchedAgencies: new Set(mergedAgencies.slice(0, 4)),
-      whyRanked: duplicateCount
-        ? Array.from(
-            new Set([
-              ...mergedWhyRanked,
-              `Merged ${clusterDocumentIds.length} near-duplicate records`,
-            ]),
-          ).slice(0, 5)
-        : mergedWhyRanked.slice(0, 4),
+      whyRanked: Array.from(
+        new Set([
+          ...mergedWhyRanked,
+          ...(mergedLanes.length >= 2
+            ? ["Supported by multiple retrieval lanes"]
+            : []),
+          ...(duplicateCount > 0
+            ? [`Merged ${clusterDocumentIds.length} near-duplicate records`]
+            : []),
+        ]),
+      ).slice(0, 5),
       duplicateCount,
       clusterDocumentIds,
       clusterKinds,
@@ -883,6 +1002,8 @@ function clusterRankedCandidates(ranked: RankedCandidate[]) {
         duplicateCount > 0
           ? `Merged ${clusterDocumentIds.length} closely related records into one evidence card`
           : null,
+      retrievalLanes: mergedLanes,
+      coverageFamilies: mergedCoverageFamilies,
     };
   });
 }
@@ -1192,6 +1313,7 @@ async function addHybridChunkCandidates(
           ? `${merged.best.reason} + multi-lane retrieval`
           : merged.best.reason,
       signalScore: merged.best.signalScore + laneBonus,
+      lanes: Array.from(merged.lanes),
       summary: merged.best.summary,
     });
   }
@@ -1332,6 +1454,7 @@ export async function queryGovernanceWorkspaceEvidence(
       scope: input.sourceScope,
       reason: "Anchor evidence selected by the user",
       signalScore: 0,
+      lane: "anchor",
       anchorScore: 100,
     });
   }
@@ -1401,6 +1524,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Title/source match: ${hits.join(", ")}`
           : "Document title or source metadata matches the question",
         signalScore: 28 + hits.length * 4,
+        lane: "metadata",
       });
     }
 
@@ -1434,6 +1558,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Issue match: ${hits.join(", ")}`
           : "Issue title or summary matches the question",
         signalScore: 35 + hits.length * 6,
+        lane: "issue_graph",
         issueTitle: row.title,
         summary: row.summary,
       });
@@ -1476,6 +1601,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Claim match: ${hits.join(", ")}`
           : "Claim language matches the question",
         signalScore: 24 + hits.length * 5,
+        lane: "claim_graph",
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.subjectAgency?.name],
         summary: row.claimSummary ?? row.claimText,
@@ -1511,6 +1637,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Event match: ${hits.join(", ")}`
           : "Event summary matches the question",
         signalScore: 20 + hits.length * 4,
+        lane: "event_graph",
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.actorAgency?.name],
         summary: row.summary ?? row.title,
@@ -1547,6 +1674,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Gap match: ${hits.join(", ")}`
           : "Gap summary matches the question",
         signalScore: 18 + hits.length * 4,
+        lane: "gap_graph",
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.primaryAgency?.name, row.secondaryAgency?.name],
         summary: row.summary,
@@ -1583,6 +1711,7 @@ export async function queryGovernanceWorkspaceEvidence(
           ? `Relation match: ${hits.join(", ")}`
           : "Inter-agency relation rationale matches the question",
         signalScore: 16 + hits.length * 4,
+        lane: "relation_graph",
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.fromAgency?.name, row.toAgency?.name],
         summary: row.rationale,
@@ -1648,6 +1777,8 @@ export async function queryGovernanceWorkspaceEvidence(
       clusterDocumentIds: candidate.clusterDocumentIds,
       clusterKinds: candidate.clusterKinds,
       clusterReason: candidate.clusterReason,
+      retrievalLanes: candidate.retrievalLanes,
+      coverageFamilies: candidate.coverageFamilies,
       stats,
     };
   });

@@ -146,6 +146,55 @@ function formatRetrievalConfidenceLabel(value: "high" | "medium" | "low") {
   }
 }
 
+function formatCoverageFamilyLabel(
+  value: "anchor" | "metadata" | "graph" | "chunk",
+) {
+  switch (value) {
+    case "anchor":
+      return "Anchor coverage";
+    case "metadata":
+      return "Metadata coverage";
+    case "graph":
+      return "Governance graph";
+    default:
+      return "Raw chunk support";
+  }
+}
+
+function formatRetrievalLaneLabel(
+  value:
+    | "anchor"
+    | "metadata"
+    | "issue_graph"
+    | "claim_graph"
+    | "event_graph"
+    | "gap_graph"
+    | "relation_graph"
+    | "keyword_chunk"
+    | "semantic_chunk",
+) {
+  switch (value) {
+    case "anchor":
+      return "Anchor";
+    case "metadata":
+      return "Metadata";
+    case "issue_graph":
+      return "Issue graph";
+    case "claim_graph":
+      return "Claim graph";
+    case "event_graph":
+      return "Event graph";
+    case "gap_graph":
+      return "Gap graph";
+    case "relation_graph":
+      return "Relation graph";
+    case "keyword_chunk":
+      return "Keyword chunk";
+    default:
+      return "Semantic chunk";
+  }
+}
+
 function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
   return mode === "case_trace" ? "case" : "map";
 }
@@ -1903,8 +1952,44 @@ export default function GovernanceWorkspacePage() {
                           ) : null}
                         </div>
 
+                        {candidate.coverageFamilies.length ? (
+                          <div className="mt-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Coverage
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {candidate.coverageFamilies.map((family) => (
+                                <span
+                                  key={family}
+                                  className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700"
+                                >
+                                  {formatCoverageFamilyLabel(family)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {candidate.retrievalLanes.length ? (
+                          <div className="mt-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Matched through
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {candidate.retrievalLanes.map((lane) => (
+                                <span
+                                  key={lane}
+                                  className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700"
+                                >
+                                  {formatRetrievalLaneLabel(lane)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
                         {candidate.whyRanked.length ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="mt-3 flex flex-wrap gap-2">
                             {candidate.whyRanked.map((note) => (
                               <span
                                 key={note}

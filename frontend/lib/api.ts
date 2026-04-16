@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { FileDetail, FileItem, SearchResult } from "./types";
+import { reportClientError, reportClientEvent } from "./clientTelemetry";
 
 const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
 
@@ -40,6 +41,23 @@ function normalizeApiError(err: any, fallback: string): never {
     err?.message ||
     fallback;
 
+  if (
+    err?.code !== "ERR_CANCELED" &&
+    err?.name !== "CanceledError" &&
+    !err?.__clientTelemetryReported
+  ) {
+    try {
+      reportClientError("api", err, {
+        fallback,
+        status: status ?? null,
+        code: body?.code ?? null,
+      });
+      err.__clientTelemetryReported = true;
+    } catch {
+      // telemetry must never break the app
+    }
+  }
+
   const code = body?.code ? ` [${body.code}]` : "";
   throw new Error(`${message}${status ? ` (HTTP ${status})` : ""}${code}`);
 }
@@ -77,6 +95,9 @@ export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
+  const startedAt =
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+
   try {
     const res = await api.request<T>({
       url: path,
@@ -93,8 +114,41 @@ export async function apiRequest<T>(
       },
     });
 
+    const endedAt =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+    const durationMs = Math.round(endedAt - startedAt);
+
+    if (durationMs >= 1200) {
+      reportClientEvent("api:slow", {
+        method: method.toUpperCase(),
+        path,
+        status: res.status,
+        durationMs,
+      });
+    }
+
     return res.data as T;
   } catch (err: any) {
+    if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+      throw err;
+    }
+
+    const endedAt =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+    const durationMs = Math.round(endedAt - startedAt);
+
+    try {
+      reportClientError("api-request", err, {
+        method: method.toUpperCase(),
+        path,
+        durationMs,
+        status: err?.response?.status ?? null,
+      });
+      err.__clientTelemetryReported = true;
+    } catch {
+      // telemetry must never break the app
+    }
+
     return normalizeApiError(err, `${method.toUpperCase()} ${path} failed`);
   }
 }

@@ -7,6 +7,7 @@ import {
   Navigate,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from "react-router-dom";
@@ -16,6 +17,10 @@ import NotFoundPage from "./pages/NotFoundPage";
 import RouteErrorBoundary from "./components/common/RouteErrorBoundary";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerAppNavigate } from "./lib/navigation";
+import {
+  installGlobalClientErrorHandlers,
+  reportClientEvent,
+} from "./lib/clientTelemetry";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +31,57 @@ function NavigationRegistrar() {
     registerAppNavigate(navigate);
     return () => registerAppNavigate(null);
   }, [navigate]);
+
+  return null;
+}
+
+function ClientRuntimeObserver() {
+  const location = useLocation();
+
+  useEffect(() => {
+    installGlobalClientErrorHandlers();
+  }, []);
+
+  useEffect(() => {
+    const path = `${location.pathname}${location.search}${location.hash}`;
+    const startedAt =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+
+    let raf1 = 0;
+    let raf2 = 0;
+
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        const endedAt =
+          typeof performance !== "undefined" ? performance.now() : Date.now();
+
+        let navType: string | null = null;
+        try {
+          const navEntry = performance.getEntriesByType?.("navigation")?.[0] as
+            | PerformanceNavigationTiming
+            | undefined;
+          navType = navEntry?.type ?? null;
+        } catch {
+          navType = null;
+        }
+
+        reportClientEvent("route:view", {
+          path,
+          pathname: location.pathname,
+          search: location.search || "",
+          hash: location.hash || "",
+          title: typeof document !== "undefined" ? document.title : "",
+          paintMs: Math.round(endedAt - startedAt),
+          navType,
+        });
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+    };
+  }, [location.pathname, location.search, location.hash]);
 
   return null;
 }
@@ -57,6 +113,7 @@ root.render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <NavigationRegistrar />
+        <ClientRuntimeObserver />
         <Routes>
           <Route
             path="/"

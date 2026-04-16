@@ -1,4 +1,5 @@
 // frontend/lib/notebookClient.ts
+import { apiRequest } from "./api";
 
 export type ID = string;
 export type SourceKind = "URL" | "FILE";
@@ -405,8 +406,6 @@ export interface NotebookClient {
   listAllFiles(): Promise<any[]>;
 }
 
-const BASE = "/api";
-
 function toQuery(params: Record<string, any>) {
   const usp = new URLSearchParams();
   for (const [k, v] of Object.entries(params || {})) {
@@ -424,30 +423,7 @@ async function j<T = any>(
   path: string,
   body?: any,
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    let message = raw || `HTTP ${res.status}`;
-
-    try {
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object" && "message" in parsed) {
-        const m = (parsed as any).message;
-        if (typeof m === "string" && m.trim()) message = m;
-      }
-    } catch {
-      // ignore JSON parse errors
-    }
-
-    throw new Error(message);
-  }
-  // 204 No Content
-  if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+  return apiRequest<T>(method, `/api${path}`, { body });
 }
 
 function isAlreadyAttachedNotebookSourceError(error: unknown) {

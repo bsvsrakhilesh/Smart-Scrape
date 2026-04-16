@@ -64,24 +64,46 @@ export function apiUrl(p: string) {
   return bNorm + path;
 }
 
-// ---------- small helper: GET JSON via axios ----------
-async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+// ---------- shared JSON helpers ----------
+type ApiRequestOptions = {
+  body?: any;
+  signal?: AbortSignal;
+  params?: Record<string, any>;
+  headers?: Record<string, string>;
+};
+
+export async function apiRequest<T>(
+  method: string,
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
   try {
-    const res = await api.get(path, {
-      headers: { Accept: "application/json" },
-      signal,
+    const res = await api.request<T>({
+      url: path,
+      method,
+      data: options.body,
+      params: options.params,
+      signal: options.signal,
+      headers: {
+        Accept: "application/json",
+        ...(options.body !== undefined
+          ? { "Content-Type": "application/json" }
+          : {}),
+        ...(options.headers || {}),
+      },
     });
+
     return res.data as T;
   } catch (err: any) {
-    // Keep errors readable and consistent
-    const status = err?.response?.status;
-    const body = err?.response?.data;
-    const text =
-      typeof body === "string" ? body : body ? JSON.stringify(body) : "";
-    throw new Error(
-      `API GET ${status ?? "?"}: ${text || err?.message || "request failed"}`,
-    );
+    return normalizeApiError(err, `${method.toUpperCase()} ${path} failed`);
   }
+}
+
+export async function apiGet<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  return apiRequest<T>("GET", path, { signal });
 }
 
 export type InstitutionalProvider =
@@ -2112,7 +2134,7 @@ export type GovernanceWorkspaceEvidenceResponse = {
       changeSummary: string;
     }>;
   };
-    landscapeMappingSurface: {
+  landscapeMappingSurface: {
     active: boolean;
     rationale: string;
     summary: {

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { FileDetail } from '../lib/types';
+import { useEffect, useState } from "react";
+import type { FileDetail } from "../lib/types";
+import { apiRequest } from "../lib/api";
 
 export function useFileDetail(fileId: string) {
   const [file, setFile] = useState<FileDetail | null>(null);
@@ -8,20 +9,26 @@ export function useFileDetail(fileId: string) {
 
   useEffect(() => {
     if (!fileId) return;
+
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    // TODO: replace with your real backend URL and auth headers
-    fetch(`/api/files/${fileId}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to fetch file detail');
-        const data = await res.json();
-        setFile(data);
+
+    apiRequest<FileDetail>("GET", `/api/files/${fileId}`)
+      .then((data) => {
+        if (!cancelled) setFile(data);
       })
       .catch((e) => {
         console.error(e);
-        setError((e as Error).message);
+        if (!cancelled) setError((e as Error).message);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [fileId]);
 
   return { file, loading, error };

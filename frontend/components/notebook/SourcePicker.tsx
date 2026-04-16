@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { List, type RowComponentProps } from "react-window";
+import { apiGet } from "../../lib/api";
 import { notebookClient as api, type NBSource } from "../../lib/notebookClient";
 import UrlIcon from "../icons/UrlIcon";
 import FileIcon from "../icons/FileIcon";
@@ -35,27 +36,7 @@ const ROW_HEIGHT = 62;
 const PREFETCH_THRESHOLD = 18;
 
 async function fetchJson<T = any>(path: string): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    let message = raw || `HTTP ${res.status}`;
-
-    try {
-      const parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object" && "message" in parsed) {
-        const m = (parsed as any).message;
-        if (typeof m === "string" && m.trim()) message = m;
-      }
-    } catch {
-      // ignore
-    }
-
-    throw new Error(message);
-  }
-  return res.json();
+  return apiGet<T>(`/api${path}`);
 }
 
 function normalizeUrlRow(u: any): PickerRow {

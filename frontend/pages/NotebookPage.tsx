@@ -18,6 +18,7 @@ import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 import { PlusButton } from "../components/ui/PlusButton";
 import { useToast } from "../components/providers/Toast";
 import { consumeNotebookOpenTarget } from "../lib/notebookLaunch";
+import { apiRequest } from "../lib/api";
 
 function clsx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
@@ -482,36 +483,8 @@ export default function NotebookPage() {
   // =======================
   // Source diagnostics + repair
   // =======================
-  async function apiReq<T>(
-    method: string,
-    path: string,
-    body?: any,
-  ): Promise<T> {
-    const res = await fetch(`/api${path}`, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!res.ok) {
-      const raw = await res.text().catch(() => "");
-      let msg = raw || `HTTP ${res.status}`;
-      try {
-        const j = raw ? JSON.parse(raw) : null;
-        if (
-          j &&
-          typeof j === "object" &&
-          typeof (j as any).message === "string"
-        ) {
-          msg = (j as any).message;
-        }
-      } catch {
-        // ignore
-      }
-      throw new Error(msg);
-    }
-
-    return res.json();
+  function apiReq<T>(method: string, path: string, body?: any): Promise<T> {
+    return apiRequest<T>(method, `/api${path}`, { body });
   }
 
   const diagQ = useQuery({

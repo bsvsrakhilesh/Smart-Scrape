@@ -15,7 +15,8 @@ import { ToastProvider } from "./components/providers/Toast";
 import { ConfirmProvider } from "./components/providers/Confirm";
 import { hydrateCollectionsFromBackend } from "./utils/collections";
 
-const STORAGE_KEY = "sidebar.expanded";
+const DESKTOP_SIDEBAR_STORAGE_KEY = "sidebar.desktop.expanded";
+const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
 
 const App: React.FC = () => {
   const navigate = useNavigate();
@@ -40,19 +41,66 @@ const App: React.FC = () => {
     navigate(`/app/${page}`);
   };
 
-  // Initialize from localStorage (default true)
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
+  const [isDesktopViewport, setIsDesktopViewport] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
-    const raw = localStorage.getItem(STORAGE_KEY);
+    return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
+  });
+
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const raw = localStorage.getItem(DESKTOP_SIDEBAR_STORAGE_KEY);
     return raw === null ? true : raw === "true";
   });
 
-  // Persist sidebar state
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+
+  const isSidebarOpen = isDesktopViewport
+    ? desktopSidebarOpen
+    : mobileSidebarOpen;
+
+  const toggleSidebar = () => {
+    if (isDesktopViewport) {
+      setDesktopSidebarOpen((v) => !v);
+    } else {
+      setMobileSidebarOpen((v) => !v);
+    }
+  };
+
+  // Persist desktop sidebar preference only
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, String(isSidebarOpen));
+      localStorage.setItem(
+        DESKTOP_SIDEBAR_STORAGE_KEY,
+        String(desktopSidebarOpen),
+      );
     }
-  }, [isSidebarOpen]);
+  }, [desktopSidebarOpen]);
+
+  // Track desktop/mobile breakpoint and keep mobile drawer transient
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
+
+    const applyViewport = (matches: boolean) => {
+      setIsDesktopViewport(matches);
+      if (matches) {
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    applyViewport(media.matches);
+
+    const onChange = (e: MediaQueryListEvent) => applyViewport(e.matches);
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    }
+
+    media.addListener(onChange);
+    return () => media.removeListener(onChange);
+  }, []);
 
   // Keyboard toggle for sidebar
   useEffect(() => {
@@ -65,12 +113,12 @@ const App: React.FC = () => {
       if (typing) return;
       if (e.key === "[") {
         e.preventDefault();
-        setIsSidebarOpen((v) => !v);
+        toggleSidebar();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [isDesktopViewport]);
 
   // Hydrate category/collection state from backend once per app load
   useEffect(() => {
@@ -101,12 +149,17 @@ const App: React.FC = () => {
             <Sidebar
               isOpen={isSidebarOpen}
               currentPage={currentPage}
-              setCurrentPage={setCurrentPage}
+              setCurrentPage={(page) => {
+                setCurrentPage(page);
+                if (!isDesktopViewport) {
+                  setMobileSidebarOpen(false);
+                }
+              }}
               useParentWidth
             />
           }
           sidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen((v) => !v)}
+          onToggleSidebar={toggleSidebar}
           // Home from /app should go to Landing page
           onNavigateHome={() => navigate("/")}
           hideAmbient={isWorkspacePage}

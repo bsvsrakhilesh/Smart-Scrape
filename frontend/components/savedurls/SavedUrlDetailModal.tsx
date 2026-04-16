@@ -16,6 +16,7 @@ import {
   type BackendDocumentRevision,
 } from "../../lib/api";
 import { openGovernanceWorkspace } from "../../lib/governanceWorkspace";
+import { openNotebookWithPendingSource } from "../../lib/notebookLaunch";
 import { useToast } from "../providers/Toast";
 import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
@@ -411,15 +412,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
 
   // Use any revision inside Notebook (handoff)
   function useRevisionInNotebook(storedFileId: string) {
-    try {
-      localStorage.setItem(
-        "nb:pendingAddSource",
-        JSON.stringify({ kind: "FILE", id: storedFileId, ts: Date.now() }),
-      );
-    } catch {
-      // ignore
-    }
-    window.location.href = "/notebook";
+    openNotebookWithPendingSource({ kind: "FILE", id: storedFileId });
   }
 
   if (!isOpen) return null;

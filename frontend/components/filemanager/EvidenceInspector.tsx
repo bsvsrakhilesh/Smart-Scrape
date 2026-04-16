@@ -8,6 +8,7 @@ import {
   apiUrl,
 } from "../../lib/api";
 import { openGovernanceWorkspace } from "../../lib/governanceWorkspace";
+import { openNotebookWithPendingSource } from "../../lib/notebookLaunch";
 import { useToast } from "../providers/Toast";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
 import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
@@ -26,15 +27,7 @@ async function copyToClipboard(txt?: string | null) {
 }
 
 function useRevisionInNotebook(storedFileId: string) {
-  try {
-    localStorage.setItem(
-      "nb:pendingAddSource",
-      JSON.stringify({ kind: "FILE", id: storedFileId, ts: Date.now() }),
-    );
-  } catch {
-    // ignore
-  }
-  window.location.href = "/notebook";
+  openNotebookWithPendingSource({ kind: "FILE", id: storedFileId });
 }
 
 function shortHash(value?: string | null) {

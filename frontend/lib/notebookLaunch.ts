@@ -1,3 +1,5 @@
+import { navigateWithinApp } from "./navigation";
+
 const ACTIVE_NOTEBOOK_KEY = "nb:lastId";
 const PENDING_OPEN_NOTE_KEY = "nb:pendingOpenNote";
 
@@ -34,10 +36,36 @@ export function consumeNotebookOpenTarget(): PendingNotebookOpenTarget | null {
   }
 }
 
+const PENDING_ADD_SOURCE_KEY = "nb:pendingAddSource";
+
+export type PendingNotebookSource = {
+  kind: "FILE";
+  id: string;
+  ts?: number;
+};
+
+export function queueNotebookAddSource(
+  source: Omit<PendingNotebookSource, "ts">,
+) {
+  if (!canUseStorage()) return;
+
+  localStorage.setItem(
+    PENDING_ADD_SOURCE_KEY,
+    JSON.stringify({
+      ...source,
+      ts: Date.now(),
+    }),
+  );
+}
+
+export function openNotebookWithPendingSource(
+  source: Omit<PendingNotebookSource, "ts">,
+) {
+  queueNotebookAddSource(source);
+  navigateWithinApp("/notebook");
+}
+
 export function openNotebookWithTarget(target: PendingNotebookOpenTarget) {
   queueNotebookOpenTarget(target);
-
-  if (typeof window !== "undefined") {
-    window.location.href = "/notebook";
-  }
+  navigateWithinApp("/notebook");
 }

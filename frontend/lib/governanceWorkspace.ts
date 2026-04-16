@@ -1,3 +1,5 @@
+import { navigateWithinApp } from "./navigation";
+
 export type GovernanceWorkspaceOrigin =
   | "file-manager"
   | "saved-urls"
@@ -184,8 +186,5 @@ export function openGovernanceWorkspace(
   intent: Omit<GovernanceWorkspaceIntent, "ts">,
 ) {
   queueGovernanceWorkspaceIntent(intent);
-
-  if (typeof window !== "undefined") {
-    window.location.href = "/app#governance-workspace";
-  }
+  navigateWithinApp("/app/governance-workspace");
 }

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import AppShell from "./layouts/AppShell";
 import Sidebar from "./components/common/Sidebar";
+import RouteSurfaceSkeleton from "./components/common/RouteSurfaceSkeleton";
 
 import UrlCollectorPage from "./pages/UrlCollectorPage";
 import SavedUrlsPage from "./pages/SavedUrlsPage";
@@ -53,6 +54,7 @@ const App: React.FC = () => {
   });
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
+  const [isRouteContentReady, setIsRouteContentReady] = useState(false);
 
   const isSidebarOpen = isDesktopViewport
     ? desktopSidebarOpen
@@ -125,6 +127,27 @@ const App: React.FC = () => {
     hydrateCollectionsFromBackend();
   }, []);
 
+  // Lightweight first-render polish for heavy workspace surfaces.
+  // Two RAFs avoids flashing the skeleton for already-painted layouts while
+  // still giving the route a polished loading state on cold entry.
+  useEffect(() => {
+    let raf1 = 0;
+    let raf2 = 0;
+
+    setIsRouteContentReady(false);
+
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        setIsRouteContentReady(true);
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      window.cancelAnimationFrame(raf2);
+    };
+  }, []);
+
   const renderPages = () => {
     if (currentPage === "url-collector") return <UrlCollectorPage />;
     if (currentPage === "saved-urls") return <SavedUrlsPage />;
@@ -162,7 +185,11 @@ const App: React.FC = () => {
           hideAmbient={isWorkspacePage}
           variant="workspace"
         >
-          {renderPages()}
+          {isRouteContentReady ? (
+            renderPages()
+          ) : (
+            <RouteSurfaceSkeleton variant="workspace" />
+          )}
         </AppShell>
       </ConfirmProvider>
     </ToastProvider>

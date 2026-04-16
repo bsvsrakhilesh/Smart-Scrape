@@ -51,8 +51,9 @@ ENV FILE_STORAGE_DIR=/data
 # Copy runtime bits
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY prisma ./prisma
+COPY prisma.config.ts ./
 COPY package.json package-lock.json ./
-
 
 VOLUME ["/data"]
 EXPOSE 4000

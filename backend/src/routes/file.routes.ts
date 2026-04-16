@@ -24,6 +24,10 @@ const MAX_UPLOAD_BYTES = Number(
   process.env.MAX_UPLOAD_BYTES || 50 * 1024 * 1024, // 50MB default
 );
 
+const CHUNK_UPLOAD_TTL_MS = Number(
+  process.env.CHUNK_UPLOAD_TTL_MS || 24 * 60 * 60 * 1000, // 24h default
+);
+
 // Fingerprint hardening:
 // Frontend uses SHA-1 hex (40 chars) of "name-size-lastModified".
 const FINGERPRINT_RE = /^[a-f0-9]{40}$/i;
@@ -279,6 +283,49 @@ async function streamFileWithRange(opts: {
 
 function chunkDirFor(fingerprint: string) {
   return safeResolveUnder(STORAGE_DIR, "chunks", fingerprint);
+}
+
+function removeChunkUploadDirByPath(dir: string): boolean {
+  if (!fs.existsSync(dir)) return false;
+
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function removeChunkUploadDir(fingerprint: string): boolean {
+  const safeFingerprint = normalizeFingerprint(fingerprint);
+  return removeChunkUploadDirByPath(chunkDirFor(safeFingerprint));
+}
+
+function cleanupExpiredChunkUploadDirs(maxAgeMs = CHUNK_UPLOAD_TTL_MS) {
+  const chunksRoot = safeResolveUnder(STORAGE_DIR, "chunks");
+  if (!fs.existsSync(chunksRoot)) return;
+
+  const now = Date.now();
+
+  for (const entry of fs.readdirSync(chunksRoot)) {
+    if (!FINGERPRINT_RE.test(entry)) continue;
+
+    const dir = safeResolveUnder(chunksRoot, entry);
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(dir);
+    } catch {
+      continue;
+    }
+
+    if (!stat.isDirectory()) continue;
+
+    const lastTouchedMs = Math.max(stat.mtimeMs, stat.ctimeMs);
+    if (now - lastTouchedMs > maxAgeMs) {
+      removeChunkUploadDirByPath(dir);
+    }
+  }
 }
 
 function finalFilePathFor(fingerprint: string, fileName: string) {
@@ -721,6 +768,7 @@ r.post(
   chunkUpload.single("chunk"),
   async (req, res, next) => {
     try {
+      cleanupExpiredChunkUploadDirs();
       const { fingerprint, chunkIndex, totalChunks, fileName, folderId } =
         req.body as Record<string, string>;
       if (!fingerprint || !fileName)
@@ -915,6 +963,31 @@ r.post(
   },
 );
 
+// DELETE /api/files/upload/chunk/:fingerprint
+// Cancel a chunked upload and remove any partial chunk files
+r.delete("/files/upload/chunk/:fingerprint", async (req, res, next) => {
+  try {
+    cleanupExpiredChunkUploadDirs();
+
+    let safeFingerprint: string;
+    try {
+      safeFingerprint = normalizeFingerprint(req.params.fingerprint);
+    } catch {
+      return res.status(400).json({ message: "Invalid fingerprint" });
+    }
+
+    const removed = removeChunkUploadDir(safeFingerprint);
+
+    return res.json({
+      ok: true,
+      fingerprint: safeFingerprint,
+      removed,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // PATCH /api/files/:id/trash  → soft delete
 r.patch("/files/:id/trash", async (req, res) => {
   const id = String(req.params.id);
@@ -1057,6 +1130,7 @@ r.get("/trash", async (req, res, next) => {
 // POST /api/files/finalize optional finalize request to stitch chunks and persist metadata
 r.post("/files/finalize", async (req, res, next) => {
   try {
+    cleanupExpiredChunkUploadDirs();
     const {
       fingerprint,
       fileName,
@@ -1072,9 +1146,16 @@ r.post("/files/finalize", async (req, res, next) => {
         .json({ message: "fingerprint and fileName are required" });
     }
 
+    let safeFingerprint: string;
+    try {
+      safeFingerprint = normalizeFingerprint(fingerprint);
+    } catch {
+      return res.status(400).json({ message: "Invalid fingerprint" });
+    }
+
     const safeFileName = sanitizeFilename(fileName);
 
-    const dir = chunkDirFor(fingerprint);
+    const dir = chunkDirFor(safeFingerprint);
     if (!fs.existsSync(dir))
       return res.status(400).json({ message: "No chunks found to finalize" });
 
@@ -1085,7 +1166,7 @@ r.post("/files/finalize", async (req, res, next) => {
         (a, b) => Number(a.split(".part")[0]) - Number(b.split(".part")[0]),
       );
 
-    const finalPath = finalFilePathFor(fingerprint, safeFileName);
+    const finalPath = finalFilePathFor(safeFingerprint, safeFileName);
     await stitchChunksToFile(dir, partFiles.length, finalPath);
 
     // cleanup chunk dir

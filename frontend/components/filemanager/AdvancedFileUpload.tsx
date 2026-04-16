@@ -71,6 +71,21 @@ const readErrorMessage = async (resp: Response) => {
   }
 };
 
+const cancelChunkUploadOnServer = async (
+  uploadChunkUrl: string,
+  fingerprint: string,
+) => {
+  const base = uploadChunkUrl.replace(/\/+$/, "");
+  const resp = await fetch(`${base}/${encodeURIComponent(fingerprint)}`, {
+    method: "DELETE",
+  });
+
+  if (!resp.ok) {
+    const msg = await readErrorMessage(resp);
+    throw new Error(msg);
+  }
+};
+
 const saveStoredState = (state: StoredState) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -429,12 +444,8 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
     startUpload(fingerprint, fp.file);
   };
 
-  const cancelUpload = (fingerprint: string) => {
+  const cancelUpload = async (fingerprint: string) => {
     abortActive(fingerprint);
-
-    const stored = loadStoredState();
-    delete stored[fingerprint];
-    saveStoredState(stored);
 
     setFileProgressMap((prev) => ({
       ...prev,
@@ -444,6 +455,17 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
         error: undefined,
       },
     }));
+
+    try {
+      await cancelChunkUploadOnServer(uploadChunkUrl, fingerprint);
+    } catch (err) {
+      console.warn("Failed to cancel chunk upload on server", err);
+    }
+
+    const stored = loadStoredState();
+    delete stored[fingerprint];
+    saveStoredState(stored);
+
     setTimeout(() => removeProgressEntry(fingerprint), 250);
   };
 

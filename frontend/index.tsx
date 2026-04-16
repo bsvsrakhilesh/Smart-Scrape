@@ -13,7 +13,7 @@ import {
 import LandingPage from "./pages/LandingPage";
 import NotebookStandalonePage from "./pages/NotebookStandalonePage";
 import NotFoundPage from "./pages/NotFoundPage";
-
+import RouteErrorBoundary from "./components/common/RouteErrorBoundary";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerAppNavigate } from "./lib/navigation";
 
@@ -58,14 +58,42 @@ root.render(
       <BrowserRouter>
         <NavigationRegistrar />
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route
+            path="/"
+            element={
+              <RouteErrorBoundary area="landing">
+                <LandingPage />
+              </RouteErrorBoundary>
+            }
+          />
           <Route
             path="/app"
             element={<Navigate to="/app/url-collector" replace />}
           />
-          <Route path="/app/:page" element={<AppRoute />} />
-          <Route path="/notebook" element={<NotebookStandalonePage />} />
-          <Route path="*" element={<NotFoundPage />} />
+          <Route
+            path="/app/:page"
+            element={
+              <RouteErrorBoundary area="workspace">
+                <AppRoute />
+              </RouteErrorBoundary>
+            }
+          />
+          <Route
+            path="/notebook"
+            element={
+              <RouteErrorBoundary area="notebook">
+                <NotebookStandalonePage />
+              </RouteErrorBoundary>
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <RouteErrorBoundary area="route">
+                <NotFoundPage />
+              </RouteErrorBoundary>
+            }
+          />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

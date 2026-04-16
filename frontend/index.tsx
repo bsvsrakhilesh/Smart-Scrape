@@ -8,9 +8,11 @@ import {
   Route,
   Routes,
   useNavigate,
+  useParams,
 } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import NotebookStandalonePage from "./pages/NotebookStandalonePage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { registerAppNavigate } from "./lib/navigation";
@@ -28,6 +30,27 @@ function NavigationRegistrar() {
   return null;
 }
 
+const WORKSPACE_PAGES = new Set([
+  "url-collector",
+  "saved-urls",
+  "file-manager",
+  "governance-workspace",
+]);
+
+function AppRoute() {
+  const { page } = useParams<{ page?: string }>();
+
+  if (!page) {
+    return <Navigate to="/app/url-collector" replace />;
+  }
+
+  if (!WORKSPACE_PAGES.has(page)) {
+    return <NotFoundPage />;
+  }
+
+  return <App />;
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root")!);
 root.render(
   <React.StrictMode>
@@ -40,8 +63,9 @@ root.render(
             path="/app"
             element={<Navigate to="/app/url-collector" replace />}
           />
-          <Route path="/app/:page" element={<App />} />
+          <Route path="/app/:page" element={<AppRoute />} />
           <Route path="/notebook" element={<NotebookStandalonePage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

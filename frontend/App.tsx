@@ -1,6 +1,6 @@
 // frontend/App.tsx
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import AppShell from "./layouts/AppShell";
 import Sidebar from "./components/common/Sidebar";
@@ -20,22 +20,25 @@ const STORAGE_KEY = "sidebar.expanded";
 const App: React.FC = () => {
   const navigate = useNavigate();
 
-  const [currentPage, setCurrentPage] = useState<Page>(() => {
-    const h =
-      typeof window !== "undefined"
-        ? window.location.hash.replace("#", "")
-        : "";
+  const { page: routePage } = useParams<{ page?: string }>();
 
-    // /app contains only workspace pages
-    const allowed = new Set<Page>([
+  const workspacePages = useMemo<Page[]>(
+    () => [
       "url-collector",
       "saved-urls",
       "file-manager",
       "governance-workspace",
-    ]);
+    ],
+    [],
+  );
 
-    return allowed.has(h as Page) ? (h as Page) : "url-collector";
-  });
+  const currentPage: Page = workspacePages.includes(routePage as Page)
+    ? (routePage as Page)
+    : "url-collector";
+
+  const setCurrentPage = (page: Page) => {
+    navigate(`/app/${page}`);
+  };
 
   // Initialize from localStorage (default true)
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(() => {
@@ -43,16 +46,6 @@ const App: React.FC = () => {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw === null ? true : raw === "true";
   });
-
-  // Keep hash in sync for workspace tabs
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const next = `#${currentPage}`;
-    if (window.location.hash !== next) {
-      window.history.replaceState(null, "", next);
-    }
-  }, [currentPage]);
 
   // Persist sidebar state
   useEffect(() => {
@@ -98,12 +91,6 @@ const App: React.FC = () => {
     </>
   );
 
-  const workspacePages: Page[] = [
-    "url-collector",
-    "saved-urls",
-    "file-manager",
-    "governance-workspace",
-  ];
   const isWorkspacePage = workspacePages.includes(currentPage);
 
   return (

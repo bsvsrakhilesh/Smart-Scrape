@@ -147,8 +147,6 @@ model Url {
   updatedAt     DateTime @updatedAt
   lastVisitedAt DateTime?
   visitCount    Int      @default(0)
-  lastReviewedAt DateTime?
-  needsReview    Boolean  @default(true)
   isFavorited   Boolean  @default(false)
   notes         String?
   tags          String[] @default([])

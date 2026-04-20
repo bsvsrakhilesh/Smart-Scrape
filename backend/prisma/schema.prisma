@@ -148,6 +148,7 @@ model Url {
   isFavorited   Boolean  @default(false)
   notes         String?
   tags          String[] @default([])
+  visibility    String   @default("private")
   contentHash   String?
   taggerVersion String?
   tagsMeta      Json?

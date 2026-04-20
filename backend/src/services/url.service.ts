@@ -472,7 +472,32 @@ export async function getUrlById(id: number) {
   return serializeUrlRow(rec);
 }
 
-// NEW: List snapshots for a URL (timeline)
+export async function recordUrlVisit(id: number) {
+  try {
+    return await prisma.url.update({
+      where: { id },
+      data: {
+        lastVisitedAt: new Date(),
+        visitCount: { increment: 1 },
+      },
+      select: {
+        id: true,
+        lastVisitedAt: true,
+        visitCount: true,
+      },
+    });
+  } catch (error: any) {
+    if (error?.code === "P2025") {
+      const err = Object.assign(new Error(`URL with id ${id} not found`), {
+        status: 404,
+      });
+      throw err;
+    }
+    throw error;
+  }
+}
+
+// List snapshots for a URL (timeline)
 export async function getUrlSnapshots(urlId: number, limit = 50) {
   // Ensure URL exists (clean 404)
   const url = await prisma.url.findUnique({ where: { id: urlId } });

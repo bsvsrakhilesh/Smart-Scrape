@@ -14,9 +14,9 @@ import {
   retryFailedUrlTagging,
   CreateUrlInput,
   GetAllOpts,
-  GetPagedUrlsOpts,
   UpdateUrlInput,
   getUrlSnapshots,
+  recordUrlVisit,
 } from "../services/url.service";
 import { extractUrlMetadata } from "../services/extract.service";
 import {
@@ -383,6 +383,21 @@ export async function getUrlByIdHandler(
 ) {
   try {
     const id = ensureNumericId(req);
+    const row = await getUrlById(id);
+    res.json(row);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function recordUrlVisitHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const id = ensureNumericId(req);
+    await recordUrlVisit(id);
     const row = await getUrlById(id);
     res.json(row);
   } catch (err) {

@@ -625,10 +625,16 @@ export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
   return res.data;
 }
 
+type SavedUrlRequestOptions = {
+  signal?: AbortSignal;
+};
+
 export async function fetchSavedUrlsPage(
   params: FetchSavedUrlsParams,
+  options: SavedUrlRequestOptions = {},
 ): Promise<PagedSavedUrlsResponse> {
   const res = await api.get("/api/urls", {
+    signal: options.signal,
     params: {
       ...params,
       tags: params.tags?.length ? params.tags.join(",") : undefined,
@@ -640,8 +646,10 @@ export async function fetchSavedUrlsPage(
 
 export async function fetchSavedUrlFacets(
   params: FetchSavedUrlsParams,
+  options: SavedUrlRequestOptions = {},
 ): Promise<SavedUrlFacetSummary> {
   const res = await api.get("/api/urls/facets", {
+    signal: options.signal,
     params: {
       ...params,
       tags: params.tags?.length ? params.tags.join(",") : undefined,
@@ -653,8 +661,10 @@ export async function fetchSavedUrlFacets(
 
 export async function fetchSavedUrlReviewQueueSummary(
   params: FetchSavedUrlsParams,
+  options: SavedUrlRequestOptions = {},
 ): Promise<SavedUrlReviewQueueSummary> {
   const res = await api.get("/api/urls/queue-summary", {
+    signal: options.signal,
     params: {
       ...params,
       tags: params.tags?.length ? params.tags.join(",") : undefined,

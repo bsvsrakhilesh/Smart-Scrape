@@ -138,6 +138,14 @@ const SAVED_URLS_VIEW_KEY = "saved-urls:view-mode";
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function isAbortLikeError(error: any) {
+  return (
+    error?.name === "CanceledError" ||
+    error?.name === "AbortError" ||
+    error?.code === "ERR_CANCELED"
+  );
+}
+
 const DEFAULT_URL_FILTER: UrlFilterState = {
   query: "",
   favoritesOnly: false,
@@ -665,6 +673,22 @@ const SavedUrlsPage: React.FC = () => {
   // Poll saved URLs briefly so newly-generated AI tags show up automatically
   const tagPollRef = useRef<number | null>(null);
 
+  const rowsRequestSeqRef = useRef(0);
+  const facetRequestSeqRef = useRef(0);
+  const queueRequestSeqRef = useRef(0);
+
+  const rowsAbortRef = useRef<AbortController | null>(null);
+  const facetsAbortRef = useRef<AbortController | null>(null);
+  const queueAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      rowsAbortRef.current?.abort();
+      facetsAbortRef.current?.abort();
+      queueAbortRef.current?.abort();
+    };
+  }, []);
+
   // Clipboard for bulk copy/cut/paste
   const [clipboard, setClipboard] = useState<{
     mode: "copy" | "cut";
@@ -709,35 +733,63 @@ const SavedUrlsPage: React.FC = () => {
     return out.total;
   }, []);
 
-  const refreshFacetSummary = useCallback(async () => {
-    const out = await apiFetchSavedUrlFacets(baseServerQuery);
-    setFacetSummary(out);
-    return out;
-  }, [baseServerQuery]);
+  const refreshFacetSummary = useCallback(
+    async (signal?: AbortSignal) => {
+      const requestSeq = ++facetRequestSeqRef.current;
 
-  const refreshQueueSummary = useCallback(async () => {
-    const out = await apiFetchSavedUrlReviewQueueSummary(
-      queueSummaryServerQuery,
-    );
-    setQueueSummary(out);
-    return out;
-  }, [queueSummaryServerQuery]);
+      const out = await apiFetchSavedUrlFacets(baseServerQuery, { signal });
+
+      if (requestSeq !== facetRequestSeqRef.current) return null;
+
+      setFacetSummary(out);
+      return out;
+    },
+    [baseServerQuery],
+  );
+
+  const refreshQueueSummary = useCallback(
+    async (signal?: AbortSignal) => {
+      const requestSeq = ++queueRequestSeqRef.current;
+
+      const out = await apiFetchSavedUrlReviewQueueSummary(
+        queueSummaryServerQuery,
+        { signal },
+      );
+
+      if (requestSeq !== queueRequestSeqRef.current) return null;
+
+      setQueueSummary(out);
+      return out;
+    },
+    [queueSummaryServerQuery],
+  );
 
   const refreshUrlsFromServer = useCallback(
-    async (pageOverride?: number) => {
+    async (pageOverride?: number, signal?: AbortSignal) => {
+      const requestSeq = ++rowsRequestSeqRef.current;
       const requestedPage = Math.max(1, pageOverride ?? page);
 
-      const out = await apiFetchSavedUrlsPage({
-        ...baseServerQuery,
-        page: requestedPage,
-      });
+      const out = await apiFetchSavedUrlsPage(
+        {
+          ...baseServerQuery,
+          page: requestedPage,
+        },
+        { signal },
+      );
+
+      if (requestSeq !== rowsRequestSeqRef.current) return null;
 
       if (!out.items.length && out.total > 0 && requestedPage > 1) {
         const fallbackPage = Math.max(1, Math.ceil(out.total / out.pageSize));
-        const fallback = await apiFetchSavedUrlsPage({
-          ...baseServerQuery,
-          page: fallbackPage,
-        });
+        const fallback = await apiFetchSavedUrlsPage(
+          {
+            ...baseServerQuery,
+            page: fallbackPage,
+          },
+          { signal },
+        );
+
+        if (requestSeq !== rowsRequestSeqRef.current) return null;
 
         setPage(fallback.page);
         setTotalResults(fallback.total);
@@ -987,29 +1039,65 @@ const SavedUrlsPage: React.FC = () => {
   ]);
 
   useEffect(() => {
+    rowsAbortRef.current?.abort();
+
+    const controller = new AbortController();
+    rowsAbortRef.current = controller;
+
     (async () => {
       setLoading(true);
       try {
-        await refreshUrlsFromServer();
-        setError(null);
+        await refreshUrlsFromServer(undefined, controller.signal);
+        if (!controller.signal.aborted) {
+          setError(null);
+        }
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load saved URLs");
+        if (isAbortLikeError(e)) return;
+        if (!controller.signal.aborted) {
+          setError(e?.message ?? "Failed to load saved URLs");
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     })();
+
+    return () => {
+      controller.abort();
+    };
   }, [page, refreshUrlsFromServer]);
 
   useEffect(() => {
-    refreshFacetSummary().catch((e: any) => {
+    facetsAbortRef.current?.abort();
+
+    const controller = new AbortController();
+    facetsAbortRef.current = controller;
+
+    refreshFacetSummary(controller.signal).catch((e: any) => {
+      if (isAbortLikeError(e)) return;
       console.error("Failed to load saved URL facets", e);
     });
+
+    return () => {
+      controller.abort();
+    };
   }, [refreshFacetSummary]);
 
   useEffect(() => {
-    refreshQueueSummary().catch((e: any) => {
+    queueAbortRef.current?.abort();
+
+    const controller = new AbortController();
+    queueAbortRef.current = controller;
+
+    refreshQueueSummary(controller.signal).catch((e: any) => {
+      if (isAbortLikeError(e)) return;
       console.error("Failed to load saved URL queue summary", e);
     });
+
+    return () => {
+      controller.abort();
+    };
   }, [refreshQueueSummary]);
 
   useEffect(() => {
@@ -1069,6 +1157,8 @@ const SavedUrlsPage: React.FC = () => {
       ticks++;
       try {
         const ui = await refreshUrlsFromServer();
+
+        if (!ui) return;
 
         // If tags arrived (or time budget exceeded), stop polling
         if (!needsPolling(ui) || ticks >= MAX_TICKS) stop();
@@ -2826,6 +2916,7 @@ const SavedUrlsPage: React.FC = () => {
                   availableTags={availableTags}
                   initial={filter}
                   onChange={setFilter}
+                  isLoading={loading}
                 />
               </div>
 

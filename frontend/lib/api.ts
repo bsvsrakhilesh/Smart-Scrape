@@ -348,6 +348,8 @@ export type BackendUrlRow = {
   snippet?: string | null;
   createdAt: string;
   updatedAt: string;
+  lastVisitedAt?: string | null;
+  visitCount?: number;
   isFavorited?: boolean;
   notes?: string | null;
   tags?: string[] | null;
@@ -678,6 +680,10 @@ export async function patchUrl(id: number, patch: any) {
 }
 export async function getUrlById(id: number): Promise<BackendUrlRow> {
   const res = await api.get(`/api/urls/${id}`);
+  return res.data as BackendUrlRow;
+}
+export async function recordUrlVisit(id: number): Promise<BackendUrlRow> {
+  const res = await api.post(`/api/urls/${id}/visit`);
   return res.data as BackendUrlRow;
 }
 

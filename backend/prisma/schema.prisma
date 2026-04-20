@@ -136,24 +136,25 @@ enum EventDatePrecision {
 }
 
 model Url {
-  id            Int      @id @default(autoincrement())
-  url           String   
-  canonical_url String?  @unique
-  title         String
-  snippet       String?
-  publishedAt   DateTime?
-  authors       String[]  @default([])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  lastVisitedAt DateTime?
-  visitCount    Int      @default(0)
-  isFavorited   Boolean  @default(false)
-  notes         String?
-  tags          String[] @default([])
-  visibility    String   @default("private")
-  contentHash   String?
-  taggerVersion String?
-  tagsMeta      Json?
+  id               Int      @id @default(autoincrement())
+  url              String
+  canonical_url    String?  @unique
+  normalizedDomain String?
+  title            String
+  snippet          String?
+  publishedAt      DateTime?
+  authors          String[] @default([])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  lastVisitedAt    DateTime?
+  visitCount       Int      @default(0)
+  isFavorited      Boolean  @default(false)
+  notes            String?
+  tags             String[] @default([])
+  visibility       String   @default("private")
+  contentHash      String?
+  taggerVersion    String?
+  tagsMeta         Json?
 
   document Document?
 
@@ -165,7 +166,9 @@ model Url {
 
   notebookSources NotebookSource[] @relation("UrlNotebookSources")
   captureEvents   CaptureEvent[]
-  collections CollectionUrl[]
+  collections     CollectionUrl[]
+
+  @@index([normalizedDomain])
 }
 
 model Collection {

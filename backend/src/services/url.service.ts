@@ -9,6 +9,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 type SnapshotStatusFilter = "all" | "missing" | "stale" | "fresh";
 type MetadataStateFilter = "all" | "missing" | "complete";
+type UrlVisibility = "public" | "private";
 
 /** Payload used to create URLs from the URL Collector */
 export type CreateUrlInput = {
@@ -27,6 +28,7 @@ export type UpdateUrlInput = Partial<
   tags?: string[];
   notes?: string | null;
   isFavorited?: boolean;
+  visibility?: UrlVisibility;
 };
 
 /** Query options for listing URLs */
@@ -40,6 +42,7 @@ export type GetAllOpts = {
   q?: string;
   collectionId?: string;
   favoritesOnly?: boolean;
+  visibility?: "all" | UrlVisibility;
   dateFrom?: string;
   dateTo?: string;
   snapshotStatus?: SnapshotStatusFilter;
@@ -107,6 +110,10 @@ function buildListWhere(opts: GetAllOpts): Prisma.UrlWhereInput {
         })),
       });
     }
+  }
+
+  if (opts.visibility && opts.visibility !== "all") {
+    and.push({ visibility: opts.visibility });
   }
 
   if (opts.q && String(opts.q).trim()) {
@@ -638,6 +645,9 @@ export async function updateUrlById(id: number, data: UpdateUrlInput) {
     patch.tags = data.tags.map((t) => t.trim()).filter(Boolean);
   if (typeof data.isFavorited === "boolean")
     patch.isFavorited = data.isFavorited;
+  if (data.visibility === "public" || data.visibility === "private") {
+    patch.visibility = data.visibility;
+  }
   if (typeof data.notes === "string" || data.notes === null)
     patch.notes = data.notes ?? null;
 

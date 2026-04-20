@@ -292,11 +292,14 @@ function endOfLocalDayMs(value: string): number | null {
 
 function getDomain(u: string): string {
   try {
-    return new URL(u).hostname;
+    let hostname = new URL(u).hostname.trim().toLowerCase();
+    if (hostname.startsWith("www.")) hostname = hostname.slice(4);
+    return hostname;
   } catch {
     return "";
   }
 }
+
 function faviconFor(u: string): string {
   const d = getDomain(u) || "example.com";
   return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(d)}`;

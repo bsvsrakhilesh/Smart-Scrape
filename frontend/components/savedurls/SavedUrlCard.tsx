@@ -5,6 +5,9 @@ import { formatDate } from "../../utils/fileHelpers";
 import { BookmarkIcon } from "../icons";
 import SmartCard from "../ui/SmartCard";
 
+const SNAPSHOT_STALE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 interface SavedUrlCardProps {
   url: SavedUrl;
   selected?: boolean;
@@ -82,29 +85,83 @@ function chipClassForTag(tagRaw: string): string {
   return palette[idx];
 }
 
-function taggerChip(u: SavedUrl) {
+function freshnessChip(u: SavedUrl) {
+  const s = (u as any).latestSnapshot as any | null | undefined;
+
+  if (!s?.createdAt) {
+    return {
+      label: "No snapshot",
+      cls: "chip-amber",
+      title: "No snapshot captured yet",
+    };
+  }
+
+  const ageMs = Date.now() - new Date(s.createdAt).getTime();
+  const ageDays = Math.max(0, Math.floor(ageMs / DAY_MS));
+
+  if (ageMs > SNAPSHOT_STALE_DAYS * DAY_MS) {
+    return {
+      label: `Stale ${ageDays}d`,
+      cls: "chip-rose",
+      title: `Snapshot is older than ${SNAPSHOT_STALE_DAYS} days`,
+    };
+  }
+
+  return {
+    label: `Fresh ${ageDays}d`,
+    cls: "chip-emerald",
+    title: "Snapshot is recent",
+  };
+}
+
+function aiStatusChip(u: SavedUrl) {
   const s = (u as any).taggingStatus as string | undefined;
-  if (!s || s === "NONE" || s === "SUCCESS") return null;
 
-  const label =
-    s === "PENDING"
-      ? "AI: queued"
-      : s === "RUNNING"
-        ? "AI: tagging…"
-        : s === "FAILED"
-          ? "AI: failed"
-          : `AI: ${s}`;
+  if (!s || s === "NONE") {
+    return {
+      label: "Not tagged",
+      cls: "chip-gray",
+      title: "No AI tags yet",
+    };
+  }
 
-  const cls =
-    s === "PENDING"
-      ? "chip-slate"
-      : s === "RUNNING"
-        ? "chip-sky"
-        : s === "FAILED"
-          ? "chip-red"
-          : "chip-gray";
+  if (s === "SUCCESS") {
+    return {
+      label: "Tagged",
+      cls: "chip-emerald",
+      title: "AI tagging complete",
+    };
+  }
 
-  return { label, cls, title: (u as any).taggingError || label };
+  if (s === "PENDING") {
+    return {
+      label: "Queued",
+      cls: "chip-slate",
+      title: "Queued for AI tagging",
+    };
+  }
+
+  if (s === "RUNNING") {
+    return {
+      label: "Running",
+      cls: "chip-sky",
+      title: "AI tagging in progress",
+    };
+  }
+
+  if (s === "FAILED") {
+    return {
+      label: "Failed",
+      cls: "chip-red",
+      title: (u as any).taggingError || "AI tagging failed",
+    };
+  }
+
+  return {
+    label: s,
+    cls: "chip-gray",
+    title: s,
+  };
 }
 
 function snapshotChip(u: SavedUrl) {
@@ -139,6 +196,17 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
   onCapture,
 }) => {
   const isPdf = isPdfUrlLike(url.url);
+  const freshness = freshnessChip(url);
+  const ai = aiStatusChip(url);
+  const publishedLabel = url.publishedAt
+    ? formatDate(url.publishedAt)
+    : "Not set";
+
+  const visibleTags = url.tags?.slice(0, 6) ?? [];
+  const hiddenTagCount = Math.max(
+    0,
+    (url.tags?.length ?? 0) - visibleTags.length,
+  );
 
   // Shared button shape: rectangular with rounded corners + consistent height
   const rectBtn =
@@ -220,8 +288,11 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
                   ].join(" ")}
                 />
               </button>
-              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {formatDate(url.createdAt)}
+              <div
+                className="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                title={url.createdAt}
+              >
+                Saved {formatDate(url.createdAt)}
               </div>
             </div>
           </div>
@@ -230,17 +301,22 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
             {url.domain}
           </div>
 
-          {(() => {
-            const chip = taggerChip(url);
-            if (!chip) return null;
-            return (
-              <div className="mt-2">
-                <span className={`chip ${chip.cls}`} title={chip.title}>
-                  {chip.label}
-                </span>
-              </div>
-            );
-          })()}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span
+              className="chip chip-slate"
+              title={url.publishedAt || "No published date"}
+            >
+              Published: {publishedLabel}
+            </span>
+
+            <span className={`chip ${freshness.cls}`} title={freshness.title}>
+              {freshness.label}
+            </span>
+
+            <span className={`chip ${ai.cls}`} title={ai.title}>
+              AI: {ai.label}
+            </span>
+          </div>
 
           {(() => {
             const chip = snapshotChip(url);
@@ -261,11 +337,11 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
           })()}
 
           {url.description ? (
-            <p className="mt-2 line-clamp-3 text-sm text-gray-700 dark:text-gray-300">
+            <p className="mt-3 line-clamp-3 text-sm leading-6 text-gray-700 dark:text-gray-300">
               {url.description}
             </p>
           ) : (
-            <p className="mt-2 text-sm text-gray-400 dark:text-gray-500 italic">
+            <p className="mt-3 text-sm text-gray-400 dark:text-gray-500 italic">
               No description.
             </p>
           )}
@@ -273,13 +349,21 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
       </div>
 
       {/* Tags */}
-      {!!url.tags?.length && (
+      {!!visibleTags.length && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {url.tags.map((t) => (
+          {visibleTags.map((t) => (
             <span key={t} className={`chip ${chipClassForTag(t)}`}>
               {t}
             </span>
           ))}
+          {hiddenTagCount > 0 && (
+            <span
+              className="chip chip-gray"
+              title={`${hiddenTagCount} more tag${hiddenTagCount === 1 ? "" : "s"}`}
+            >
+              +{hiddenTagCount} more
+            </span>
+          )}
         </div>
       )}
 

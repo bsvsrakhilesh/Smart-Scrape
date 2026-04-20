@@ -145,6 +145,8 @@ model Url {
   authors       String[]  @default([])
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  lastVisitedAt DateTime?
+  visitCount    Int      @default(0)
   isFavorited   Boolean  @default(false)
   notes         String?
   tags          String[] @default([])

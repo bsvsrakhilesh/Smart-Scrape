@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import type { SavedUrl } from "../../lib/types";
+import { recordUrlVisit } from "../../lib/api";
 import { formatDate } from "../../utils/fileHelpers";
 import { BookmarkIcon } from "../icons";
 
@@ -104,6 +105,12 @@ function isPdfUrlLike(raw: string): boolean {
 
 function stopPropagation(e: React.SyntheticEvent) {
   e.stopPropagation();
+}
+
+function trackSavedUrlVisit(urlId: string) {
+  const numericId = Number(urlId);
+  if (!Number.isFinite(numericId)) return;
+  void recordUrlVisit(numericId).catch(() => {});
 }
 
 const SourceRegistryTable: React.FC<Props> = ({
@@ -375,6 +382,7 @@ const SourceRegistryTable: React.FC<Props> = ({
                         href={url.url}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => trackSavedUrlVisit(url.id)}
                         className="rounded-lg bg-brand-primary px-3 py-2 text-center text-xs font-medium text-white transition hover:opacity-95"
                         title="Open source in a new tab"
                       >

@@ -8,6 +8,7 @@ import {
   getUrlSnapshots,
   getUrlRevisions,
   getUrlById,
+  recordUrlVisit,
   refreshUrlMetadata,
   getFileExtractedText,
   crawlSaveText,
@@ -573,6 +574,9 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
           href={url.url}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => {
+            void trackVisitAndHydrate();
+          }}
           className="text-blue-600 underline break-all dark:text-blue-400"
         >
           {url.url}
@@ -604,6 +608,23 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     } catch {
       notify({ text: "Failed to copy the source URL.", kind: "error" });
     }
+  };
+
+  const trackVisitAndHydrate = async () => {
+    const numericId = Number(url.id);
+    if (!Number.isFinite(numericId)) return;
+
+    try {
+      const fresh = await recordUrlVisit(numericId);
+      await onUrlHydrate?.(fresh);
+    } catch {
+      // best-effort only; opening the source should still work
+    }
+  };
+
+  const openSourceInNewTab = () => {
+    void trackVisitAndHydrate();
+    window.open(url.url, "_blank", "noopener,noreferrer");
   };
 
   const visibleTaggingError =
@@ -736,6 +757,9 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                         href={url.url}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => {
+                          void trackVisitAndHydrate();
+                        }}
                         className="mt-2 block break-all rounded-xl border border-black/10 bg-white px-3 py-3 text-sm text-blue-700 underline dark:border-white/10 dark:bg-neutral-900 dark:text-blue-400"
                       >
                         {url.url}
@@ -750,9 +774,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                     <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:w-[18rem]">
                       <button
                         type="button"
-                        onClick={() =>
-                          window.open(url.url, "_blank", "noopener,noreferrer")
-                        }
+                        onClick={openSourceInNewTab}
                         className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
                       >
                         Open source
@@ -1034,9 +1056,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                     actions={[
                       {
                         label: "Open source",
-                        onClick: () => {
-                          window.open(url.url, "_blank", "noopener,noreferrer");
-                        },
+                        onClick: openSourceInNewTab,
                         title: "Open source URL",
                       },
                       {
@@ -1277,9 +1297,7 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() =>
-                  window.open(url.url, "_blank", "noopener,noreferrer")
-                }
+                onClick={openSourceInNewTab}
                 className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium transition hover:bg-neutral-50 dark:border-white/10 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
               >
                 Open source

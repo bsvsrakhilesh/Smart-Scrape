@@ -1,5 +1,6 @@
 import React from "react";
 import { SavedUrl } from "../../lib/types";
+import { recordUrlVisit } from "../../lib/api";
 import { formatDate } from "../../utils/fileHelpers";
 import { BookmarkIcon } from "../icons";
 import SmartCard from "../ui/SmartCard";
@@ -25,6 +26,17 @@ function isPdfUrlLike(raw: string): boolean {
     const s = (raw || "").toLowerCase();
     return s.includes(".pdf");
   }
+}
+
+function trackSavedUrlVisit(urlId: string) {
+  const numericId = Number(urlId);
+  if (!Number.isFinite(numericId)) return;
+  void recordUrlVisit(numericId).catch(() => {});
+}
+
+function openSavedUrlInNewTab(url: SavedUrl) {
+  trackSavedUrlVisit(url.id);
+  window.open(url.url, "_blank", "noopener,noreferrer");
 }
 
 /** Theme-friendly color for any tag (semantic rules + deterministic fallback). */
@@ -185,6 +197,7 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
               href={url.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackSavedUrlVisit(url.id)}
               title={url.title}
               className="truncate text-lg font-semibold text-gray-900 hover:underline dark:text-white"
             >
@@ -274,7 +287,7 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
       <div className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-4">
         {/* Open → brand primary (solid) */}
         <button
-          onClick={() => window.open(url.url, "_blank", "noopener,noreferrer")}
+          onClick={() => openSavedUrlInNewTab(url)}
           className={`btn-primary w-full ${rectBtn}`}
           title="Open in new tab"
         >
@@ -307,7 +320,9 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
             <button
               onClick={() => onCapture(url, "pdf")}
               className={`${pdfBtn} w-full ${rectBtn}`}
-              title={isPdf ? "Download original PDF" : "Capture as PDF snapshot"}
+              title={
+                isPdf ? "Download original PDF" : "Capture as PDF snapshot"
+              }
             >
               {isPdf ? "PDF" : "PDF"}
             </button>

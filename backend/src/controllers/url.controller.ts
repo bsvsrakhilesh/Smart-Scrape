@@ -77,6 +77,14 @@ function parseMetadataStateQuery(
     : undefined;
 }
 
+function parseVisibilityQuery(
+  value: unknown,
+): GetAllOpts["visibility"] | undefined {
+  return value === "all" || value === "public" || value === "private"
+    ? value
+    : undefined;
+}
+
 function ensureNumericId(req: Request): number {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
@@ -119,19 +127,19 @@ function normalizeCreateBody(body: any, req: Request): CreateUrlInput[] {
     return null;
   };
 
-  // 1) Query fallback: POST /api/urls?url=... or ?urls=a,b
+  // Query fallback: POST /api/urls?url=... or ?urls=a,b
   const qUrl = (req.query.url as string) || "";
   const qUrls = (req.query.urls as string) || "";
   const fromQuery = [...splitLinesOrCsv(qUrl), ...splitLinesOrCsv(qUrls)].map(
     (u) => ({ url: u, title: u }),
   );
 
-  // 2) Nothing in body? Return query-derived rows (if any)
+  // Nothing in body? Return query-derived rows (if any)
   if (body == null || body === "") {
     return fromQuery;
   }
 
-  // 3) If text/plain (string), accept JSON, CSV, newline block, or a single URL
+  // If text/plain (string), accept JSON, CSV, newline block, or a single URL
   if (typeof body === "string") {
     if (isLikelyJsonString(body)) {
       try {
@@ -148,7 +156,7 @@ function normalizeCreateBody(body: any, req: Request): CreateUrlInput[] {
     }
   }
 
-  // 4) Support
+  // Support
   const candidates =
     body?.urls ?? body?.links ?? body?.items ?? body?.data ?? body?.rows;
   if (Array.isArray(candidates)) {
@@ -158,7 +166,7 @@ function normalizeCreateBody(body: any, req: Request): CreateUrlInput[] {
     if (rows.length) return rows;
   }
 
-  // 5) Array payload
+  // Array payload
   if (Array.isArray(body)) {
     const rows = (body as any[])
       .map(coerceUrlObj)
@@ -166,7 +174,7 @@ function normalizeCreateBody(body: any, req: Request): CreateUrlInput[] {
     if (rows.length) return rows;
   }
 
-  // 6) Single object
+  // Single object
   const single = coerceUrlObj(body);
   if (single) return [single];
 
@@ -191,6 +199,7 @@ export async function getUrlsHandler(
       pageSize,
       collectionId,
       favoritesOnly,
+      visibility,
       dateFrom,
       dateTo,
       snapshotStatus,
@@ -203,6 +212,7 @@ export async function getUrlsHandler(
     const parsedSnapshotStatus = parseSnapshotStatusQuery(snapshotStatus);
     const parsedTaggingStatus = parseTaggingStatusQuery(taggingStatus);
     const parsedMetadataState = parseMetadataStateQuery(metadataState);
+    const parsedVisibility = parseVisibilityQuery(visibility);
 
     const hasPagination =
       Number.isInteger(Number(page)) && Number.isInteger(Number(pageSize));
@@ -222,6 +232,7 @@ export async function getUrlsHandler(
             ? collectionId
             : undefined,
         favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
+        visibility: parsedVisibility,
         dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
         dateTo: typeof dateTo === "string" ? dateTo : undefined,
         snapshotStatus: parsedSnapshotStatus,
@@ -244,6 +255,7 @@ export async function getUrlsHandler(
           ? collectionId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
+      visibility: parsedVisibility,
       dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
       dateTo: typeof dateTo === "string" ? dateTo : undefined,
       snapshotStatus: parsedSnapshotStatus,
@@ -270,6 +282,7 @@ export async function getUrlFacetsHandler(
       q,
       collectionId,
       favoritesOnly,
+      visibility,
       dateFrom,
       dateTo,
       snapshotStatus,
@@ -282,7 +295,7 @@ export async function getUrlFacetsHandler(
     const parsedSnapshotStatus = parseSnapshotStatusQuery(snapshotStatus);
     const parsedTaggingStatus = parseTaggingStatusQuery(taggingStatus);
     const parsedMetadataState = parseMetadataStateQuery(metadataState);
-
+    const parsedVisibility = parseVisibilityQuery(visibility);
     const data = await getUrlFacets({
       year,
       q: typeof q === "string" ? q : undefined,
@@ -295,6 +308,7 @@ export async function getUrlFacetsHandler(
           ? collectionId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
+      visibility: parsedVisibility,
       dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
       dateTo: typeof dateTo === "string" ? dateTo : undefined,
       snapshotStatus: parsedSnapshotStatus,
@@ -321,6 +335,7 @@ export async function getUrlReviewQueueSummaryHandler(
       q,
       collectionId,
       favoritesOnly,
+      visibility,
       dateFrom,
       dateTo,
       snapshotStatus,
@@ -333,6 +348,7 @@ export async function getUrlReviewQueueSummaryHandler(
     const parsedSnapshotStatus = parseSnapshotStatusQuery(snapshotStatus);
     const parsedTaggingStatus = parseTaggingStatusQuery(taggingStatus);
     const parsedMetadataState = parseMetadataStateQuery(metadataState);
+    const parsedVisibility = parseVisibilityQuery(visibility);
 
     const data = await getUrlReviewQueueSummary({
       year,
@@ -346,6 +362,7 @@ export async function getUrlReviewQueueSummaryHandler(
           ? collectionId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
+      visibility: parsedVisibility,
       dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
       dateTo: typeof dateTo === "string" ? dateTo : undefined,
       snapshotStatus: parsedSnapshotStatus,

@@ -118,12 +118,15 @@ function buildListWhere(opts: GetAllOpts): Prisma.UrlWhereInput {
 
   if (opts.q && String(opts.q).trim()) {
     const term = String(opts.q).trim();
+    const normalizedTagTerm = term.toLowerCase();
+
     and.push({
       OR: [
         { title: { contains: term, mode: "insensitive" } },
         { url: { contains: term, mode: "insensitive" } },
         { snippet: { contains: term, mode: "insensitive" } },
         { notes: { contains: term, mode: "insensitive" } },
+        { tags: { has: normalizedTagTerm } },
       ],
     });
   }

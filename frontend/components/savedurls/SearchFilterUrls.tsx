@@ -139,7 +139,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
               name="saved_urls_query"
               aria-label="Search saved URLs"
               type="text"
-              placeholder="Search title, URL, description, domain, or tags"
+              placeholder="Search title, URL, description, notes, exact tag, or domain text"
               value={state.query}
               onChange={(e) =>
                 setState((s) => ({ ...s, query: e.target.value }))
@@ -154,6 +154,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
             />
 
             <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              Search matches title, URL, description, notes, and exact tags.
               Filters update automatically. Press Enter to apply immediately.
             </p>
           </div>

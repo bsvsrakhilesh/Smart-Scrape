@@ -1123,27 +1123,33 @@ const SavedUrlsPage: React.FC = () => {
     };
   }, [urls]);
 
-  // The server now owns the primary query pipeline:
+  // The server owns the primary query pipeline:
   // search, tags, domains, favorites, date range, collection, snapshot state,
   // tagging state, metadata state, year, sort, and pagination.
-  // Keep only the local "updated since review" queue on the client because it
-  // depends on browser-local review stamps.
+  // Keep "updated since review" separate because it is browser-local and only
+  // evaluates the rows loaded on the current page.
+
+  const updatedSinceReviewCount = useMemo(
+    () =>
+      urls.filter((u) =>
+        isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
+      ).length,
+    [urls, reviewedAtById],
+  );
+
+  const isLocalReviewQueueActive = activeQueueId === "updated-since-review";
 
   const queueFiltered = useMemo(() => {
-    if (activeQueueId !== "updated-since-review") return urls;
+    if (!isLocalReviewQueueActive) return urls;
     return urls.filter((u) =>
       isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
     );
-  }, [urls, activeQueueId, reviewedAtById]);
+  }, [urls, isLocalReviewQueueActive, reviewedAtById]);
 
   const sorted = useMemo(() => queueFiltered, [queueFiltered]);
 
-  const reviewQueues = useMemo(() => {
-    const updatedSinceReviewCount = urls.filter((u) =>
-      isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
-    ).length;
-
-    return [
+  const reviewQueues = useMemo(
+    () => [
       {
         id: "all" as SavedUrlQueueId,
         label: "All",
@@ -1174,14 +1180,19 @@ const SavedUrlsPage: React.FC = () => {
         count: queueSummary.metadataMissing,
         help: "Missing published date, authors, or tags",
       },
-      {
-        id: "updated-since-review" as SavedUrlQueueId,
-        label: "Updated since review",
-        count: updatedSinceReviewCount,
-        help: "Local browser review state for the currently loaded page",
-      },
-    ];
-  }, [queueSummary, reviewedAtById, urls]);
+    ],
+    [queueSummary],
+  );
+
+  const localReviewQueue = useMemo(
+    () => ({
+      id: "updated-since-review" as SavedUrlQueueId,
+      label: "Updated since review",
+      count: updatedSinceReviewCount,
+      help: "Browser-local review state for the rows loaded on this page only",
+    }),
+    [updatedSinceReviewCount],
+  );
 
   const activeSavedSearch = useMemo(
     () => savedSearches.find((s) => s.id === activeSavedSearchId) ?? null,
@@ -2389,8 +2400,12 @@ const SavedUrlsPage: React.FC = () => {
             <span className="page-header-pill-value">{sorted.length}</span>
           </div>
           <div className="page-header-pill">
-            <span className="page-header-pill-label">Matches</span>
-            <span className="page-header-pill-value">{totalResults}</span>
+            <span className="page-header-pill-label">
+              {isLocalReviewQueueActive ? "Page queue matches" : "Matches"}
+            </span>
+            <span className="page-header-pill-value">
+              {isLocalReviewQueueActive ? sorted.length : totalResults}
+            </span>
           </div>
           {selection.size > 0 && (
             <div className="page-header-pill page-header-pill--accent">
@@ -2562,8 +2577,9 @@ const SavedUrlsPage: React.FC = () => {
               Review queues & saved searches
             </h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-1">
-              Jump straight into stale captures, failed AI jobs, metadata gaps,
-              or anything updated since the last review pass.
+              Jump straight into stale captures, failed AI jobs, and metadata
+              gaps. Local review checks stay separate and only apply to the rows
+              loaded on the current page.
             </p>
           </div>
 
@@ -2580,7 +2596,7 @@ const SavedUrlsPage: React.FC = () => {
               className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
               onClick={markVisibleReviewed}
               disabled={sorted.length === 0}
-              title="Mark every visible result as reviewed right now"
+              title="Mark every visible row on this page as reviewed right now"
             >
               Mark visible reviewed
             </button>
@@ -2617,32 +2633,69 @@ const SavedUrlsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 items-start xl:items-center">
-          {reviewQueues.map((queue) => {
-            const active = activeQueueId === queue.id;
-            return (
-              <button
-                key={queue.id}
-                type="button"
-                onClick={() => setActiveQueueId(queue.id)}
-                title={queue.help}
-                className={[
-                  "rounded-xl border px-3 py-2 text-left transition min-w-[180px]",
-                  active
-                    ? "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm"
-                    : "border-black/10 dark:border-white/10 hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
-                ].join(" ")}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium">{queue.label}</span>
-                  <span className="chip chip-slate">{queue.count}</span>
-                </div>
-                <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {queue.help}
-                </div>
-              </button>
-            );
-          })}
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2 items-start xl:items-center">
+            {reviewQueues.map((queue) => {
+              const active = activeQueueId === queue.id;
+              return (
+                <button
+                  key={queue.id}
+                  type="button"
+                  onClick={() => setActiveQueueId(queue.id)}
+                  title={queue.help}
+                  className={[
+                    "rounded-xl border px-3 py-2 text-left transition min-w-[180px]",
+                    active
+                      ? "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm"
+                      : "border-black/10 dark:border-white/10 hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">{queue.label}</span>
+                    <span className="chip chip-slate">{queue.count}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                    {queue.help}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="rounded-2xl border border-dashed border-black/10 bg-neutral-50/70 p-3 dark:border-white/10 dark:bg-neutral-900/40">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+              Local review queue
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActiveQueueId(localReviewQueue.id)}
+              title={localReviewQueue.help}
+              className={[
+                "w-full rounded-xl border px-3 py-2 text-left transition",
+                activeQueueId === localReviewQueue.id
+                  ? "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm"
+                  : "border-black/10 dark:border-white/10 hover:bg-white dark:hover:bg-neutral-900/60",
+              ].join(" ")}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">
+                  {localReviewQueue.label}
+                </span>
+                <span className="chip chip-slate">
+                  {localReviewQueue.count}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {localReviewQueue.help}
+              </div>
+            </button>
+
+            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              This queue uses browser-local review stamps and only evaluates the
+              rows already loaded on the current page.
+            </p>
+          </div>
         </div>
 
         {savedSearches.length > 0 && (
@@ -3129,6 +3182,17 @@ const SavedUrlsPage: React.FC = () => {
                       Paste a URL above and press Enter to save your first one.
                     </div>
                   </div>
+                ) : isLocalReviewQueueActive ? (
+                  <div className="space-y-2">
+                    <div className="font-medium text-gray-800 dark:text-gray-100">
+                      No rows on this page have changed since your local review
+                      stamp.
+                    </div>
+                    <div>
+                      Move to another page, clear the local review queue, or
+                      mark this page as reviewed again after new changes land.
+                    </div>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     <div className="font-medium text-gray-800 dark:text-gray-100">
@@ -3146,16 +3210,29 @@ const SavedUrlsPage: React.FC = () => {
             {!loading && !error && totalResults > 0 && (
               <div className="flex flex-col gap-3 rounded-xl border border-black/10 dark:border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between">
                 <div className="text-sm text-neutral-600 dark:text-neutral-300">
-                  Showing{" "}
-                  <span className="font-medium">
-                    {urls.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
-                  </span>{" "}
-                  –{" "}
-                  <span className="font-medium">
-                    {Math.min(page * PAGE_SIZE, totalResults)}
-                  </span>{" "}
-                  of <span className="font-medium">{totalResults}</span>{" "}
-                  matching URLs across all pages
+                  {isLocalReviewQueueActive ? (
+                    <>
+                      Showing{" "}
+                      <span className="font-medium">{sorted.length}</span>{" "}
+                      locally queued URLs on this page. The broader filtered
+                      result set still contains{" "}
+                      <span className="font-medium">{totalResults}</span> URLs
+                      across all pages.
+                    </>
+                  ) : (
+                    <>
+                      Showing{" "}
+                      <span className="font-medium">
+                        {urls.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
+                      </span>{" "}
+                      –{" "}
+                      <span className="font-medium">
+                        {Math.min(page * PAGE_SIZE, totalResults)}
+                      </span>{" "}
+                      of <span className="font-medium">{totalResults}</span>{" "}
+                      matching URLs across all pages
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">

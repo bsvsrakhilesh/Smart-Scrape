@@ -1402,6 +1402,22 @@ export async function queryFiles(params: Record<string, any>) {
   return res.data;
 }
 
+export type FileReviewQueueCounts = {
+  all: number;
+  "ai-failed": number;
+  "metadata-missing": number;
+  "hash-pending": number;
+  "updated-since-review": number;
+};
+
+export async function getFileReviewQueueCounts(body: {
+  scope: Record<string, any>;
+  reviewedAtById: Record<string, string>;
+}) {
+  const res = await api.post("/api/files/review-queue-counts", body);
+  return res.data as FileReviewQueueCounts;
+}
+
 export type GovernanceRelationType =
   | "contradiction"
   | "tension"

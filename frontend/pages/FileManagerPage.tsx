@@ -34,6 +34,7 @@ import {
   toFileItem,
   normalizeFileDetail,
   type BackendStoredFile,
+  type FileReviewQueueCounts,
   duplicateFile,
   moveFile,
   getFileTagJob,
@@ -44,6 +45,7 @@ import {
   getFileById,
   refreshFileMetadata,
   queryFiles,
+  getFileReviewQueueCounts,
   getStorageUsage,
   renameFile,
   renameFolder,
@@ -137,6 +139,16 @@ const DEFAULT_ARCHIVE_FILTERS: ArchiveFilterState = {
   sourceDomain: "",
   taggingStatus: "all",
   metadataState: "all",
+};
+
+type ReviewQueueCountsStatus = "idle" | "loading" | "ready" | "error";
+
+const EMPTY_FILE_REVIEW_QUEUE_COUNTS: FileReviewQueueCounts = {
+  all: 0,
+  "ai-failed": 0,
+  "metadata-missing": 0,
+  "hash-pending": 0,
+  "updated-since-review": 0,
 };
 
 type ArchiveViewSnapshot = {
@@ -541,12 +553,6 @@ const TextEntryModal: React.FC<{
   );
 };
 
-function fileHasMissingMetadata(file: FileItem) {
-  return (
-    !file.sourcePublishedAt || !file.sourceAuthors?.length || !file.tags?.length
-  );
-}
-
 export default function FileManagerPage() {
   const { notify } = useToast();
   const { confirm } = useConfirm();
@@ -937,6 +943,10 @@ export default function FileManagerPage() {
   const [allFiles, setAllFiles] = useState<FileItem[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [totalBytes, setTotalBytes] = useState<number>(0);
+  const [reviewQueueCounts, setReviewQueueCounts] =
+    useState<FileReviewQueueCounts>(EMPTY_FILE_REVIEW_QUEUE_COUNTS);
+  const [reviewQueueCountsStatus, setReviewQueueCountsStatus] =
+    useState<ReviewQueueCountsStatus>("idle");
   const [storageUsedBytes, setStorageUsedBytes] = useState<number>(0);
   const [storageCapacityBytes, setStorageCapacityBytes] = useState<
     number | null
@@ -2026,24 +2036,87 @@ export default function FileManagerPage() {
     };
   }, [refreshToken, totalBytes]);
 
-  const reviewQueueCounts = useMemo(
-    () => ({
-      all: allFiles.length,
-      "ai-failed": allFiles.filter(
-        (file) => (file.taggingStatus ?? "NONE") === "FAILED",
-      ).length,
-      "metadata-missing": allFiles.filter((file) =>
-        fileHasMissingMetadata(file),
-      ).length,
-      "hash-pending": allFiles.filter(
-        (file) => !file.sha256 && !file.contentHash,
-      ).length,
-      "updated-since-review": allFiles.filter((file) =>
-        isUpdatedSinceReview(file.uploadDate, reviewedAtById[file.id]),
-      ).length,
-    }),
-    [allFiles, reviewedAtById],
-  );
+  const reviewQueueScope = useMemo(() => {
+    if (viewMode !== "drive" || virtualZip) return null;
+
+    const scope: Record<string, string> = {
+      folderId: currentFolderId ? String(currentFolderId) : "root",
+    };
+
+    const q = searchQuery.trim();
+    if (q) scope.q = q;
+
+    if (archiveFilters.captureKind !== "all") {
+      scope.captureKind = archiveFilters.captureKind;
+    }
+
+    if (archiveFilters.visibility !== "all") {
+      scope.visibility = archiveFilters.visibility;
+    }
+
+    if (archiveFilters.integrity !== "all") {
+      scope.integrity = archiveFilters.integrity;
+    }
+
+    if (archiveFilters.revision !== "all") {
+      scope.revision = archiveFilters.revision;
+    }
+
+    if (archiveFilters.sourceDomain.trim()) {
+      scope.sourceDomain = archiveFilters.sourceDomain.trim();
+    }
+
+    if (archiveFilters.taggingStatus !== "all") {
+      scope.taggingStatus = archiveFilters.taggingStatus;
+    }
+
+    if (archiveFilters.metadataState !== "all") {
+      scope.metadataState = archiveFilters.metadataState;
+    }
+
+    return scope;
+  }, [viewMode, virtualZip, currentFolderId, searchQuery, archiveFilters]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!reviewQueueScope) {
+      setReviewQueueCounts(EMPTY_FILE_REVIEW_QUEUE_COUNTS);
+      setReviewQueueCountsStatus("idle");
+      return;
+    }
+
+    setReviewQueueCountsStatus("loading");
+
+    (async () => {
+      try {
+        const data = await getFileReviewQueueCounts({
+          scope: reviewQueueScope,
+          reviewedAtById,
+        });
+
+        if (!cancelled) {
+          setReviewQueueCounts({
+            all: Number(data?.all ?? 0),
+            "ai-failed": Number(data?.["ai-failed"] ?? 0),
+            "metadata-missing": Number(data?.["metadata-missing"] ?? 0),
+            "hash-pending": Number(data?.["hash-pending"] ?? 0),
+            "updated-since-review": Number(data?.["updated-since-review"] ?? 0),
+          });
+          setReviewQueueCountsStatus("ready");
+        }
+      } catch {
+        if (!cancelled) {
+          setReviewQueueCounts(EMPTY_FILE_REVIEW_QUEUE_COUNTS);
+          setReviewQueueCountsStatus("error");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reviewQueueScope, reviewedAtById, refreshToken]);
 
   const reviewQueueViews = useMemo(
     () => ({
@@ -4351,7 +4424,11 @@ export default function FileManagerPage() {
                             {queue.label}
                           </span>
                           <span className="fm-view-preset__meta">
-                            {queue.count} in current scope
+                            {reviewQueueCountsStatus === "ready"
+                              ? `${queue.count} in current scope`
+                              : reviewQueueCountsStatus === "error"
+                                ? "Count unavailable"
+                                : "Counting…"}
                           </span>
                         </button>
                       ))}

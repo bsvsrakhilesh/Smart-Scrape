@@ -736,6 +736,199 @@ function isUnknownFolderIdError(error: any): boolean {
   return String(error?.message || "").includes("Unknown argument `folderId`");
 }
 
+type StoredFileScopeParams = {
+  q?: string;
+  tags?: string;
+  mimeTypes?: string;
+  visibility?: string;
+  favoritesOnly?: string;
+  captureKind?: string;
+  integrity?: string;
+  revision?: string;
+  sourceDomain?: string;
+  taggingStatus?: string;
+  metadataState?: string;
+  folderId?: string;
+};
+
+function metadataMissingWhereClause() {
+  return {
+    OR: [
+      { sourcePublishedAt: null },
+      { sourceAuthors: { isEmpty: true } },
+      { tags: { isEmpty: true } },
+    ],
+  };
+}
+
+function buildStoredFileScopeWhere(params: StoredFileScopeParams) {
+  const {
+    q,
+    tags,
+    mimeTypes,
+    visibility,
+    favoritesOnly,
+    captureKind,
+    integrity,
+    revision,
+    sourceDomain,
+    taggingStatus,
+    metadataState,
+    folderId,
+  } = params;
+
+  const where: any = {
+    deletedAt: null,
+  };
+
+  const andClauses: any[] = [];
+
+  if (q && q.trim()) {
+    const term = q.trim();
+    const searchTokens = Array.from(
+      new Set(
+        term
+          .split(/[,\s]+/)
+          .map((token) => token.trim())
+          .filter((token) => token.length >= 2),
+      ),
+    ).slice(0, 8);
+
+    andClauses.push({
+      OR: [
+        { fileName: { contains: term, mode: "insensitive" } },
+        { description: { contains: term, mode: "insensitive" } },
+        { sourceUrl: { contains: term, mode: "insensitive" } },
+        { uploaderName: { contains: term, mode: "insensitive" } },
+        ...(searchTokens.length
+          ? [
+              { tags: { hasSome: searchTokens } },
+              { sourceAuthors: { hasSome: searchTokens } },
+              {
+                url: {
+                  is: {
+                    authors: { hasSome: searchTokens },
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
+    });
+  }
+
+  if (tags) {
+    const arr = String(tags)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (arr.length) {
+      andClauses.push({ tags: { hasEvery: arr } });
+    }
+  }
+
+  if (mimeTypes) {
+    const arr = String(mimeTypes)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (arr.length) {
+      andClauses.push({ mimeType: { in: arr } });
+    }
+  }
+
+  if (visibility && (visibility === "public" || visibility === "private")) {
+    andClauses.push({ visibility });
+  }
+
+  if (favoritesOnly === "true") {
+    andClauses.push({ isFavorited: true });
+  }
+
+  if (captureKind === "upload") {
+    andClauses.push({ captureType: "UPLOAD" });
+  } else if (captureKind === "web") {
+    andClauses.push({
+      captureType: { in: ["URL_TEXT", "URL_PDF"] },
+    });
+  }
+
+  if (integrity === "verified") {
+    andClauses.push({ sha256: { not: null } });
+  } else if (integrity === "hashed") {
+    andClauses.push({
+      OR: [{ sha256: { not: null } }, { contentHash: { not: null } }],
+    });
+  } else if (integrity === "pending") {
+    andClauses.push({ sha256: null, contentHash: null });
+  }
+
+  if (revision === "revisioned") {
+    andClauses.push({ documentRevision: { isNot: null } });
+  } else if (revision === "base") {
+    andClauses.push({ documentRevision: { is: null } });
+  }
+
+  if (sourceDomain && sourceDomain.trim()) {
+    andClauses.push({
+      sourceUrl: {
+        contains: sourceDomain.trim(),
+        mode: "insensitive",
+      },
+    });
+  }
+
+  if (
+    taggingStatus &&
+    ["NONE", "PENDING", "RUNNING", "SUCCESS", "FAILED"].includes(taggingStatus)
+  ) {
+    andClauses.push({ taggingStatus: taggingStatus as any });
+  }
+
+  if (metadataState === "missing") {
+    andClauses.push(metadataMissingWhereClause());
+  } else if (metadataState === "complete") {
+    andClauses.push({
+      sourcePublishedAt: { not: null },
+      sourceAuthors: { isEmpty: false },
+      tags: { isEmpty: false },
+    });
+  }
+
+  if (typeof folderId === "string") {
+    if (!prismaSupportsFolders()) {
+      const error: any = new Error(folderSchemaOutOfSyncMessage());
+      error.code = "FOLDER_SCHEMA_OUT_OF_SYNC";
+      throw error;
+    }
+
+    if (folderId === "root" || folderId === "") where.folderId = null;
+    else where.folderId = folderId;
+  }
+
+  if (andClauses.length) {
+    where.AND = andClauses;
+  }
+
+  return where;
+}
+
+function withAdditionalStoredFileClause(baseWhere: any, clause: any) {
+  const andClauses = Array.isArray(baseWhere.AND) ? [...baseWhere.AND] : [];
+  return {
+    ...baseWhere,
+    AND: [...andClauses, clause],
+  };
+}
+
+function isFolderScopeUnavailableError(error: any): boolean {
+  return (
+    error?.code === "FOLDER_SCHEMA_OUT_OF_SYNC" || isUnknownFolderIdError(error)
+  );
+}
+
 // --- helpers (add once) ---
 function normalizeMime(m?: string) {
   return (m || "").toLowerCase().split(";")[0].trim();
@@ -1345,147 +1538,29 @@ r.get("/files", async (req, res, next) => {
       folderId,
     } = req.query as Record<string, string>;
 
-    const where: any = {
-      deletedAt: null,
-    };
-
-    const andClauses: any[] = [];
-
-    if (q && q.trim()) {
-      const term = q.trim();
-      const searchTokens = Array.from(
-        new Set(
-          term
-            .split(/[,\s]+/)
-            .map((token) => token.trim())
-            .filter((token) => token.length >= 2),
-        ),
-      ).slice(0, 8);
-
-      andClauses.push({
-        OR: [
-          { fileName: { contains: term, mode: "insensitive" } },
-          { description: { contains: term, mode: "insensitive" } },
-          { sourceUrl: { contains: term, mode: "insensitive" } },
-          { uploaderName: { contains: term, mode: "insensitive" } },
-          ...(searchTokens.length
-            ? [
-                { tags: { hasSome: searchTokens } },
-                { sourceAuthors: { hasSome: searchTokens } },
-                {
-                  url: {
-                    is: {
-                      authors: { hasSome: searchTokens },
-                    },
-                  },
-                },
-              ]
-            : []),
-        ],
-      });
-    }
-
-    if (tags) {
-      const arr = String(tags)
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-
-      if (arr.length) {
-        andClauses.push({ tags: { hasEvery: arr } });
-      }
-    }
-
-    if (mimeTypes) {
-      const arr = String(mimeTypes)
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-
-      if (arr.length) {
-        andClauses.push({ mimeType: { in: arr } });
-      }
-    }
-
-    if (visibility && (visibility === "public" || visibility === "private")) {
-      andClauses.push({ visibility });
-    }
-
-    if (favoritesOnly === "true") {
-      andClauses.push({ isFavorited: true });
-    }
-
-    if (captureKind === "upload") {
-      andClauses.push({ captureType: "UPLOAD" });
-    } else if (captureKind === "web") {
-      andClauses.push({
-        captureType: { in: ["URL_TEXT", "URL_PDF"] },
-      });
-    }
-
-    if (integrity === "verified") {
-      andClauses.push({ sha256: { not: null } });
-    } else if (integrity === "hashed") {
-      andClauses.push({
-        OR: [{ sha256: { not: null } }, { contentHash: { not: null } }],
-      });
-    } else if (integrity === "pending") {
-      andClauses.push({ sha256: null, contentHash: null });
-    }
-
-    if (revision === "revisioned") {
-      andClauses.push({ documentRevision: { isNot: null } });
-    } else if (revision === "base") {
-      andClauses.push({ documentRevision: { is: null } });
-    }
-
-    if (sourceDomain && sourceDomain.trim()) {
-      andClauses.push({
-        sourceUrl: {
-          contains: sourceDomain.trim(),
-          mode: "insensitive",
-        },
-      });
-    }
-
-    if (
-      taggingStatus &&
-      ["NONE", "PENDING", "RUNNING", "SUCCESS", "FAILED"].includes(
+    let where: any;
+    try {
+      where = buildStoredFileScopeWhere({
+        q,
+        tags,
+        mimeTypes,
+        visibility,
+        favoritesOnly,
+        captureKind,
+        integrity,
+        revision,
+        sourceDomain,
         taggingStatus,
-      )
-    ) {
-      andClauses.push({ taggingStatus: taggingStatus as any });
-    }
-
-    if (metadataState === "missing") {
-      andClauses.push({
-        OR: [
-          { sourcePublishedAt: null },
-          { sourceAuthors: { isEmpty: true } },
-          { tags: { isEmpty: true } },
-        ],
+        metadataState,
+        folderId,
       });
-    } else if (metadataState === "complete") {
-      andClauses.push({
-        sourcePublishedAt: { not: null },
-        sourceAuthors: { isEmpty: false },
-        tags: { isEmpty: false },
-      });
-    }
-
-    if (typeof folderId === "string") {
-      if (!prismaSupportsFolders()) {
+    } catch (e: any) {
+      if (isFolderScopeUnavailableError(e)) {
         return res.status(503).json({
           message: folderSchemaOutOfSyncMessage(),
         });
       }
-
-      if (folderId === "root" || folderId === "") where.folderId = null;
-      else where.folderId = folderId;
-    }
-
-    if (andClauses.length) {
-      where.AND = andClauses;
+      throw e;
     }
 
     const orderBy: any = {};
@@ -1611,6 +1686,82 @@ r.get("/files", async (req, res, next) => {
 
       throw e;
     }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/files/review-queue-counts
+r.post("/files/review-queue-counts", async (req, res, next) => {
+  try {
+    const scope = ((req.body as any)?.scope ?? {}) as StoredFileScopeParams;
+    const reviewedAtByIdRaw = (req.body as any)?.reviewedAtById ?? {};
+    const reviewedAtById =
+      reviewedAtByIdRaw && typeof reviewedAtByIdRaw === "object"
+        ? reviewedAtByIdRaw
+        : {};
+
+    let baseWhere: any;
+    try {
+      baseWhere = buildStoredFileScopeWhere(scope);
+    } catch (e: any) {
+      if (isFolderScopeUnavailableError(e)) {
+        return res.status(503).json({
+          message: folderSchemaOutOfSyncMessage(),
+        });
+      }
+      throw e;
+    }
+
+    const [all, aiFailed, metadataMissing, hashPending, scopedFiles] =
+      await Promise.all([
+        prisma.storedFile.count({ where: baseWhere }),
+        prisma.storedFile.count({
+          where: withAdditionalStoredFileClause(baseWhere, {
+            taggingStatus: "FAILED",
+          }),
+        }),
+        prisma.storedFile.count({
+          where: withAdditionalStoredFileClause(
+            baseWhere,
+            metadataMissingWhereClause(),
+          ),
+        }),
+        prisma.storedFile.count({
+          where: withAdditionalStoredFileClause(baseWhere, {
+            sha256: null,
+            contentHash: null,
+          }),
+        }),
+        prisma.storedFile.findMany({
+          where: baseWhere,
+          select: { id: true, createdAt: true },
+        }),
+      ]);
+
+    const updatedSinceReview = scopedFiles.reduce((count, file) => {
+      const reviewedAt = String(
+        (reviewedAtById as any)?.[file.id] ?? "",
+      ).trim();
+      if (!reviewedAt) return count + 1;
+
+      const updatedMs = new Date(file.createdAt).getTime();
+      const reviewedMs = new Date(reviewedAt).getTime();
+
+      if (!Number.isFinite(updatedMs) || !Number.isFinite(reviewedMs)) {
+        return count + 1;
+      }
+
+      return updatedMs > reviewedMs ? count + 1 : count;
+    }, 0);
+
+    return res.json({
+      all,
+      "ai-failed": aiFailed,
+      "metadata-missing": metadataMissing,
+      "hash-pending": hashPending,
+      "updated-since-review": updatedSinceReview,
+    });
   } catch (err) {
     next(err);
   }

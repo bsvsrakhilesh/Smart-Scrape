@@ -28,14 +28,14 @@ const CHUNK_UPLOAD_TTL_MS = Number(
   process.env.CHUNK_UPLOAD_TTL_MS || 24 * 60 * 60 * 1000, // 24h default
 );
 
-// Fingerprint hardening:
-// Frontend uses SHA-1 hex (40 chars) of "name-size-lastModified".
-const FINGERPRINT_RE = /^[a-f0-9]{40}$/i;
+// Upload-session hardening:
+// Frontend generates a separate uploadSessionId for resumable transport.
+const UPLOAD_SESSION_ID_RE = /^[a-z0-9-]{16,128}$/i;
 
-function normalizeFingerprint(fp: unknown): string {
-  const s = String(fp || "").trim();
-  if (!FINGERPRINT_RE.test(s)) {
-    throw new Error("INVALID_FINGERPRINT");
+function normalizeUploadSessionId(raw: unknown): string {
+  const s = String(raw || "").trim();
+  if (!UPLOAD_SESSION_ID_RE.test(s)) {
+    throw new Error("INVALID_UPLOAD_SESSION_ID");
   }
   return s.toLowerCase();
 }
@@ -281,8 +281,8 @@ async function streamFileWithRange(opts: {
   stream.pipe(res);
 }
 
-function chunkDirFor(fingerprint: string) {
-  return safeResolveUnder(STORAGE_DIR, "chunks", fingerprint);
+function chunkDirFor(uploadSessionId: string) {
+  return safeResolveUnder(STORAGE_DIR, "chunks", uploadSessionId);
 }
 
 function removeChunkUploadDirByPath(dir: string): boolean {
@@ -296,9 +296,9 @@ function removeChunkUploadDirByPath(dir: string): boolean {
   }
 }
 
-function removeChunkUploadDir(fingerprint: string): boolean {
-  const safeFingerprint = normalizeFingerprint(fingerprint);
-  return removeChunkUploadDirByPath(chunkDirFor(safeFingerprint));
+function removeChunkUploadDir(uploadSessionId: string): boolean {
+  const safeUploadSessionId = normalizeUploadSessionId(uploadSessionId);
+  return removeChunkUploadDirByPath(chunkDirFor(safeUploadSessionId));
 }
 
 function cleanupExpiredChunkUploadDirs(maxAgeMs = CHUNK_UPLOAD_TTL_MS) {
@@ -308,7 +308,7 @@ function cleanupExpiredChunkUploadDirs(maxAgeMs = CHUNK_UPLOAD_TTL_MS) {
   const now = Date.now();
 
   for (const entry of fs.readdirSync(chunksRoot)) {
-    if (!FINGERPRINT_RE.test(entry)) continue;
+    if (!UPLOAD_SESSION_ID_RE.test(entry)) continue;
 
     const dir = safeResolveUnder(chunksRoot, entry);
 
@@ -328,9 +328,13 @@ function cleanupExpiredChunkUploadDirs(maxAgeMs = CHUNK_UPLOAD_TTL_MS) {
   }
 }
 
-function finalFilePathFor(fingerprint: string, fileName: string) {
+function finalFilePathFor(uploadSessionId: string, fileName: string) {
   const safeName = fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
-  return safeResolveUnder(STORAGE_DIR, "files", `${fingerprint}__${safeName}`);
+  return safeResolveUnder(
+    STORAGE_DIR,
+    "files",
+    `${uploadSessionId}__${safeName}`,
+  );
 }
 
 async function stitchChunksToFile(
@@ -963,26 +967,29 @@ async function sha256File(filePath: string) {
 }
 
 // POST /api/files/upload/chunk
-// Fields: chunk (blob), fingerprint, chunkIndex, totalChunks, fileName
+// Fields: chunk (blob), uploadSessionId, chunkIndex, totalChunks, fileName
 r.post(
   "/files/upload/chunk",
   chunkUpload.single("chunk"),
   async (req, res, next) => {
     try {
       cleanupExpiredChunkUploadDirs();
-      const { fingerprint, chunkIndex, totalChunks, fileName, folderId } =
+      const { uploadSessionId, chunkIndex, totalChunks, fileName, folderId } =
         req.body as Record<string, string>;
-      if (!fingerprint || !fileName)
+
+      if (!uploadSessionId || !fileName) {
         return res
           .status(400)
-          .json({ message: "Missing fingerprint or fileName" });
+          .json({ message: "Missing uploadSessionId or fileName" });
+      }
+
       if (!req.file) return res.status(400).json({ message: "Missing chunk" });
 
-      let safeFingerprint: string;
+      let safeUploadSessionId: string;
       try {
-        safeFingerprint = normalizeFingerprint(fingerprint);
+        safeUploadSessionId = normalizeUploadSessionId(uploadSessionId);
       } catch {
-        return res.status(400).json({ message: "Invalid fingerprint" });
+        return res.status(400).json({ message: "Invalid uploadSessionId" });
       }
 
       const safeFileName = sanitizeFilename(fileName);
@@ -1002,7 +1009,7 @@ r.post(
         return res.status(400).json({ message: "Invalid chunk bounds" });
       }
 
-      const dir = chunkDirFor(safeFingerprint);
+      const dir = chunkDirFor(safeUploadSessionId);
       fs.mkdirSync(dir, { recursive: true });
       const chunkPath = path.join(dir, `${idx}.part`);
       fs.writeFileSync(chunkPath, req.file.buffer);
@@ -1019,7 +1026,7 @@ r.post(
         parts.sort((a, b) => a - b)[parts.length - 1] === total - 1;
 
       if (haveAll) {
-        const finalPath = finalFilePathFor(safeFingerprint, safeFileName);
+        const finalPath = finalFilePathFor(safeUploadSessionId, safeFileName);
 
         await stitchChunksToFile(dir, total, finalPath);
 
@@ -1081,6 +1088,7 @@ r.post(
         const sha256 = await sha256File(finalPath);
 
         const updateData: any = {
+          uploadSessionId: safeUploadSessionId,
           fileName: safeFileName,
           mimeType: canonicalMime,
           size: stat.size,
@@ -1094,8 +1102,9 @@ r.post(
           taggingJobId: null,
           taggingError: aiTaggingError,
         };
+
         const createData: any = {
-          id: safeFingerprint,
+          uploadSessionId: safeUploadSessionId,
           fileName: safeFileName,
           mimeType: canonicalMime,
           size: stat.size,
@@ -1120,8 +1129,9 @@ r.post(
               ? folderId.trim()
               : null;
         }
+
         const rec = await prisma.storedFile.upsert({
-          where: { id: fingerprint },
+          where: { uploadSessionId: safeUploadSessionId },
           update: updateData,
           create: createData,
         });
@@ -1155,6 +1165,8 @@ r.post(
         } catch (e) {
           console.error("aiTagAuto import failed", e);
         }
+
+        return res.status(200).json(rec);
       }
 
       return res.status(204).send();
@@ -1164,24 +1176,26 @@ r.post(
   },
 );
 
-// DELETE /api/files/upload/chunk/:fingerprint
+// DELETE /api/files/upload/chunk/:uploadSessionId
 // Cancel a chunked upload and remove any partial chunk files
-r.delete("/files/upload/chunk/:fingerprint", async (req, res, next) => {
+r.delete("/files/upload/chunk/:uploadSessionId", async (req, res, next) => {
   try {
     cleanupExpiredChunkUploadDirs();
 
-    let safeFingerprint: string;
+    let safeUploadSessionId: string;
     try {
-      safeFingerprint = normalizeFingerprint(req.params.fingerprint);
+      safeUploadSessionId = normalizeUploadSessionId(
+        req.params.uploadSessionId,
+      );
     } catch {
-      return res.status(400).json({ message: "Invalid fingerprint" });
+      return res.status(400).json({ message: "Invalid uploadSessionId" });
     }
 
-    const removed = removeChunkUploadDir(safeFingerprint);
+    const removed = removeChunkUploadDir(safeUploadSessionId);
 
     return res.json({
       ok: true,
-      fingerprint: safeFingerprint,
+      uploadSessionId: safeUploadSessionId,
       removed,
     });
   } catch (err) {
@@ -1329,7 +1343,7 @@ r.post("/files/finalize", async (req, res, next) => {
   try {
     cleanupExpiredChunkUploadDirs();
     const {
-      fingerprint,
+      uploadSessionId,
       fileName,
       mimeType,
       uploaderName = "You",
@@ -1337,22 +1351,23 @@ r.post("/files/finalize", async (req, res, next) => {
       description = "",
       folderId,
     } = req.body ?? {};
-    if (!fingerprint || !fileName) {
+
+    if (!uploadSessionId || !fileName) {
       return res
         .status(400)
-        .json({ message: "fingerprint and fileName are required" });
+        .json({ message: "uploadSessionId and fileName are required" });
     }
 
-    let safeFingerprint: string;
+    let safeUploadSessionId: string;
     try {
-      safeFingerprint = normalizeFingerprint(fingerprint);
+      safeUploadSessionId = normalizeUploadSessionId(uploadSessionId);
     } catch {
-      return res.status(400).json({ message: "Invalid fingerprint" });
+      return res.status(400).json({ message: "Invalid uploadSessionId" });
     }
 
     const safeFileName = sanitizeFilename(fileName);
 
-    const dir = chunkDirFor(safeFingerprint);
+    const dir = chunkDirFor(safeUploadSessionId);
     if (!fs.existsSync(dir))
       return res.status(400).json({ message: "No chunks found to finalize" });
 
@@ -1363,7 +1378,7 @@ r.post("/files/finalize", async (req, res, next) => {
         (a, b) => Number(a.split(".part")[0]) - Number(b.split(".part")[0]),
       );
 
-    const finalPath = finalFilePathFor(safeFingerprint, safeFileName);
+    const finalPath = finalFilePathFor(safeUploadSessionId, safeFileName);
     await stitchChunksToFile(dir, partFiles.length, finalPath);
 
     // cleanup chunk dir
@@ -1424,6 +1439,7 @@ r.post("/files/finalize", async (req, res, next) => {
     }
 
     const updateData: any = {
+      uploadSessionId: safeUploadSessionId,
       fileName: safeFileName,
       mimeType: finalMime,
       size: stat.size,
@@ -1440,8 +1456,9 @@ r.post("/files/finalize", async (req, res, next) => {
       taggingJobId: null,
       taggingError: aiTaggingError,
     };
+
     const createData: any = {
-      id: fingerprint,
+      uploadSessionId: safeUploadSessionId,
       fileName: safeFileName,
       mimeType: finalMime,
       size: stat.size,
@@ -1471,7 +1488,7 @@ r.post("/files/finalize", async (req, res, next) => {
     }
 
     const record = await prisma.storedFile.upsert({
-      where: { id: fingerprint },
+      where: { uploadSessionId: safeUploadSessionId },
       update: updateData,
       create: createData,
     });

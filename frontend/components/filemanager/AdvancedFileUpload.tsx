@@ -22,7 +22,8 @@ type UploadStatus =
 
 interface FileProgress {
   file: File;
-  fingerprint: string;
+  fingerprint: string; // local resume key derived from file metadata
+  uploadSessionId: string; // transport/session id for chunk upload
   uploadedChunks: Set<number>;
   totalChunks: number;
   status: UploadStatus;
@@ -41,6 +42,7 @@ const STORAGE_KEY = "advanced_file_upload_state";
 
 interface StoredState {
   [fingerprint: string]: {
+    uploadSessionId: string;
     uploadedChunks: number[];
     fileName: string;
     size: number;
@@ -73,10 +75,10 @@ const readErrorMessage = async (resp: Response) => {
 
 const cancelChunkUploadOnServer = async (
   uploadChunkUrl: string,
-  fingerprint: string,
+  uploadSessionId: string,
 ) => {
   const base = uploadChunkUrl.replace(/\/+$/, "");
-  const resp = await fetch(`${base}/${encodeURIComponent(fingerprint)}`, {
+  const resp = await fetch(`${base}/${encodeURIComponent(uploadSessionId)}`, {
     method: "DELETE",
   });
 
@@ -98,6 +100,18 @@ const hashString = async (input: string) => {
   const data = new TextEncoder().encode(input);
   const digest = await crypto.subtle.digest("SHA-1", data);
   return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const createUploadSessionId = () => {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 };
@@ -214,11 +228,13 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
 
   const persistUploadedChunks = (
     fingerprint: string,
+    uploadSessionId: string,
     uploadedChunks: Set<number>,
     file: File,
   ) => {
     const existing = loadStoredState();
     existing[fingerprint] = {
+      uploadSessionId,
       uploadedChunks: Array.from(uploadedChunks),
       fileName: file.name,
       size: file.size,
@@ -237,18 +253,24 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
 
   const handleFiles = async (files: FileList | null) => {
     if (!files) return;
+
     for (const file of Array.from(files)) {
       const fingerprint = await fingerprintFor(file);
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const stored = loadStoredState();
+      const existing = stored[fingerprint];
+      const uploadSessionId =
+        existing?.uploadSessionId || createUploadSessionId();
 
       setFileProgressMap((prev) => {
-        if (prev[fingerprint]) return prev; // already tracking
+        if (prev[fingerprint]) return prev; // already tracking this local resume key
         return {
           ...prev,
           [fingerprint]: {
             file,
             fingerprint,
-            uploadedChunks: new Set<number>(),
+            uploadSessionId,
+            uploadedChunks: new Set<number>(existing?.uploadedChunks || []),
             totalChunks,
             status: "pending",
           },
@@ -281,18 +303,26 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const stored = loadStoredState();
     const existing = stored[fingerprint];
+    const uploadSessionId =
+      progressRef.current[fingerprint]?.uploadSessionId ||
+      existing?.uploadSessionId ||
+      createUploadSessionId();
+
     const uploadedChunks = new Set<number>(
       existing ? existing.uploadedChunks : [],
     );
 
-    const uploadChunk = async (index: number) => {
-      if (uploadedChunks.has(index)) return;
+    const uploadChunk = async (
+      index: number,
+    ): Promise<BackendStoredFile | null> => {
+      if (uploadedChunks.has(index)) return null;
+
       const start = index * CHUNK_SIZE;
       const end = Math.min(file.size, start + CHUNK_SIZE);
       const blob = file.slice(start, end);
       const form = new FormData();
       form.append("chunk", blob);
-      form.append("fingerprint", fingerprint);
+      form.append("uploadSessionId", uploadSessionId);
       form.append("chunkIndex", index.toString());
       form.append("totalChunks", totalChunks.toString());
       form.append("fileName", file.name);
@@ -308,39 +338,54 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
         const msg = await readErrorMessage(resp);
         throw new Error(`Chunk ${index} failed: ${msg}`);
       }
+
       uploadedChunks.add(index);
-      persistUploadedChunks(fingerprint, uploadedChunks, file);
+      persistUploadedChunks(fingerprint, uploadSessionId, uploadedChunks, file);
 
       setFileProgressMap((prev) => ({
         ...prev,
         [fingerprint]: {
           ...(prev[fingerprint] || ({} as FileProgress)),
+          fingerprint,
+          uploadSessionId,
           uploadedChunks: new Set(uploadedChunks),
           totalChunks,
           status: "uploading",
         },
       }));
+
+      if (resp.status === 200) {
+        return (await resp.json()) as BackendStoredFile;
+      }
+
+      return null;
     };
 
     try {
+      let autoFinalizedFile: FileItem | null = null;
+
       for (let i = 0; i < totalChunks; i++) {
         const st = progressRef.current[fingerprint]?.status;
         if (st === "paused" || st === "cancelled") break;
-        await uploadChunk(i);
+
+        const maybeFinalized = await uploadChunk(i);
+        if (maybeFinalized?.id) {
+          autoFinalizedFile = toFileItem(maybeFinalized);
+        }
       }
 
       if (uploadedChunks.size === totalChunks) {
         // If user cancelled right at the end, do not finalize
         if (progressRef.current[fingerprint]?.status === "cancelled") return;
 
-        let finalizedFile: FileItem | null = null;
+        let finalizedFile: FileItem | null = autoFinalizedFile;
 
-        if (finalizeUrl) {
+        if (!finalizedFile && finalizeUrl) {
           const finalizeResp = await fetch(finalizeUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              fingerprint,
+              uploadSessionId,
               fileName: file.name,
               folderId,
             }),
@@ -366,12 +411,14 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...prev,
           [fingerprint]: {
             ...(prev[fingerprint] || ({} as FileProgress)),
+            fingerprint,
+            uploadSessionId,
             status: "completed",
           },
         }));
 
         const optimistic: FileItem = finalizedFile ?? {
-          id: fingerprint,
+          id: uploadSessionId,
           title: file.name,
           description: "",
           uploader: { id: "self", name: "You" },
@@ -392,6 +439,8 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...prev,
           [fingerprint]: {
             ...(prev[fingerprint] || ({} as FileProgress)),
+            fingerprint,
+            uploadSessionId,
             status: "paused",
           },
         }));
@@ -404,6 +453,8 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
           ...prev,
           [fingerprint]: {
             ...(prev[fingerprint] || ({} as FileProgress)),
+            fingerprint,
+            uploadSessionId,
             status: st === "cancelled" ? "cancelled" : "paused",
             error: undefined,
           },
@@ -415,6 +466,8 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
         ...prev,
         [fingerprint]: {
           ...(prev[fingerprint] || ({} as FileProgress)),
+          fingerprint,
+          uploadSessionId,
           status: "error",
           error: err?.message || "Upload failed",
         },
@@ -447,6 +500,11 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
   const cancelUpload = async (fingerprint: string) => {
     abortActive(fingerprint);
 
+    const uploadSessionId =
+      progressRef.current[fingerprint]?.uploadSessionId ||
+      loadStoredState()[fingerprint]?.uploadSessionId ||
+      "";
+
     setFileProgressMap((prev) => ({
       ...prev,
       [fingerprint]: {
@@ -457,7 +515,9 @@ const AdvancedFileUpload: React.FC<AdvancedFileUploadProps> = ({
     }));
 
     try {
-      await cancelChunkUploadOnServer(uploadChunkUrl, fingerprint);
+      if (uploadSessionId) {
+        await cancelChunkUploadOnServer(uploadChunkUrl, uploadSessionId);
+      }
     } catch (err) {
       console.warn("Failed to cancel chunk upload on server", err);
     }

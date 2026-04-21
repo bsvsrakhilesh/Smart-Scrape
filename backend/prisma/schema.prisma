@@ -216,7 +216,8 @@ model CollectionUrl {
 }
 
 model StoredFile {
-  id             String    @id
+  id              String    @id @default(cuid())
+  uploadSessionId String?   @unique
   fileName       String
   mimeType       String
   size           Int

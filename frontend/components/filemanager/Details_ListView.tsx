@@ -254,6 +254,21 @@ const getTypeLabel = (f: FileItem): string => {
 const getTagList = (f: FileItem): string[] =>
   Array.isArray((f as any).tags) ? ((f as any).tags as string[]) : [];
 
+const getListSummary = (f: FileItem): string => {
+  const parts: string[] = [getSourceHost(f), getCaptureLabel(f)];
+
+  const rawSize = (f as any).size;
+  if (rawSize != null && rawSize !== "") {
+    const size =
+      typeof rawSize === "string" ? parseFloat(rawSize) : Number(rawSize);
+    if (Number.isFinite(size) && size > 0) {
+      parts.push(formatBytes(size));
+    }
+  }
+
+  return parts.join(" · ");
+};
+
 const canRetryAiTag = (f: FileItem): boolean => {
   const mime = String((f as any).mimeType || "").toLowerCase();
   const folder = Boolean((f as any).isFolder) || mime === "folder";
@@ -1044,8 +1059,11 @@ export default function Details_ListView({
               <span className="fm-source-name" title={sourceHost}>
                 {sourceHost}
               </span>
-              <span className="fm-cell-subtle" title={sourceUrl || actorLabel}>
-                {sourceUrl ? sourceUrl : actorLabel}
+              <span
+                className="fm-cell-subtle"
+                title={sourceUrl ? `${actorLabel} • ${sourceUrl}` : actorLabel}
+              >
+                {actorLabel}
               </span>
             </div>
           </div>
@@ -1188,7 +1206,7 @@ export default function Details_ListView({
                 {fileDisplayName(f)}
               </div>
               <div className="fm-list-subtle fm-list-subline">
-                {getSourceHost(f)} · {getCaptureLabel(f)}
+                {getListSummary(f)}
               </div>
             </div>
           </div>

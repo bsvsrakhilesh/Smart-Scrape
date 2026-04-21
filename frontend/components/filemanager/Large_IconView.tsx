@@ -41,6 +41,22 @@ const getSize = (f: FileItem): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const getSourceHost = (f: FileItem): string => {
+  const raw =
+    (f as any).sourceUrl ??
+    (f as any).url ??
+    (f as any).link ??
+    (f as any).capturedUrl ??
+    "";
+
+  try {
+    const u = new URL(String(raw));
+    return u.hostname.replace(/^www\./, "") || "Web source";
+  } catch {
+    return raw ? "Web source" : "Local file";
+  }
+};
+
 const isFolder = (f: FileItem): boolean =>
   (f as any).isFolder === true ||
   (f as any).mimeType === "folder" ||
@@ -125,6 +141,21 @@ const getTaggingInfo = (
     default:
       return null;
   }
+};
+
+const getTileSecondaryText = (f: FileItem): string => {
+  const captureType = String((f as any).captureType || "");
+  const size = getSize(f);
+
+  if (captureType.startsWith("URL_")) {
+    return getSourceHost(f);
+  }
+
+  if (size != null && Number.isFinite(size) && size > 0) {
+    return formatBytes(size);
+  }
+
+  return getMime(f)?.split("/").pop() || "File";
 };
 
 const renderIcon = (f: FileItem, size = 24) => {
@@ -746,14 +777,18 @@ export default function Large_IconView({
           return;
         }
 
-        const file = sortedFiles.find((item) => sel.has(String((item as any).id)));
+        const file = sortedFiles.find((item) =>
+          sel.has(String((item as any).id)),
+        );
         if (file) onDelete?.(file);
         return;
       }
 
       if (e.key === "Enter" && selIds.length === 1) {
         e.preventDefault();
-        const file = sortedFiles.find((item) => sel.has(String((item as any).id)));
+        const file = sortedFiles.find((item) =>
+          sel.has(String((item as any).id)),
+        );
         if (file) onOpen(file);
         return;
       }
@@ -886,19 +921,24 @@ export default function Large_IconView({
               </div>
 
               <div className="ex-tile-meta">
-                {tagging && (
-                  <div className="ex-tile-status">
+                <div className="ex-tile-status">
+                  {tagging ? (
                     <span
                       className={`fm-state-pill fm-state-pill--${tagging.tone} ex-tile-status-pill`}
                       title={tagging.meta}
                     >
                       {tagging.label}
                     </span>
-                  </div>
-                )}
+                  ) : (
+                    <span
+                      className="ex-tile-status-placeholder"
+                      aria-hidden="true"
+                    />
+                  )}
+                </div>
 
-                {canRetry && onRetryAiTag && (
-                  <div className="ex-tile-retry">
+                <div className="ex-tile-retry">
+                  {canRetry && onRetryAiTag ? (
                     <button
                       type="button"
                       className="fm-mini-pill fm-mini-pill--ghost fm-inline-action"
@@ -910,28 +950,29 @@ export default function Large_IconView({
                     >
                       Retry AI
                     </button>
-                  </div>
-                )}
-
-                <div className="ex-tile-name">{title}</div>
-
-                {(f as any).captureType &&
-                  String((f as any).captureType).startsWith("URL_") && (
-                    <div
-                      className="ex-tile-sub"
-                      title={
-                        (f as any).sourceUrl
-                          ? `Source: ${(f as any).sourceUrl}`
-                          : "URL Snapshot"
-                      }
-                    >
-                      Snapshot
-                    </div>
+                  ) : (
+                    <span
+                      className="ex-tile-retry-placeholder"
+                      aria-hidden="true"
+                    />
                   )}
+                </div>
 
-                {!folder && size != null && (
-                  <div className="ex-tile-sub">{formatBytes(size)}</div>
-                )}
+                <div className="ex-tile-name" title={title}>
+                  {title}
+                </div>
+
+                <div
+                  className="ex-tile-sub"
+                  title={
+                    String((f as any).captureType || "").startsWith("URL_") &&
+                    (f as any).sourceUrl
+                      ? String((f as any).sourceUrl)
+                      : getTileSecondaryText(f)
+                  }
+                >
+                  {getTileSecondaryText(f)}
+                </div>
               </div>
             </div>
           );

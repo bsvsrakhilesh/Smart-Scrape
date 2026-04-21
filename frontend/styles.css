@@ -1259,6 +1259,7 @@ body,
 
 .fm-row--details {
   position: relative;
+  min-height: 72px;
   border: 1px solid transparent;
   border-radius: 14px;
   background: hsl(var(--surface));
@@ -1281,6 +1282,8 @@ body,
 
 .fm-td {
   position: relative;
+  display: flex;
+  align-items: center;
   padding: 10px 12px;
   min-width: 0;
   font-size: 13px;
@@ -2515,12 +2518,13 @@ body,
 }
 
 .fm-list-compact .fm-row {
-  /* grid: [left content] [meta] [actions] */
+  /* grid: [left content] [meta rail] [actions rail] */
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) 44px;
   align-items: center;
   gap: 12px;
 
+  min-height: 68px;
   padding: 10px 12px;
   border-radius: 12px;
   background: var(--fm-bg);
@@ -2580,9 +2584,13 @@ body,
 @media (min-width: 768px) {
   .fm-row-meta {
     display: inline-flex;
+    min-width: 0;
+    max-width: min(42vw, 440px);
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
     justify-content: flex-end;
+    gap: 6px;
+    row-gap: 6px;
     font-size: 12px;
     color: hsl(var(--muted));
   }
@@ -2602,6 +2610,8 @@ body,
 
 /* right hover actions */
 .fm-row-actions {
+  width: 44px;
+  justify-content: flex-end;
   opacity: 0;
   pointer-events: none;
   display: inline-flex;
@@ -2694,6 +2704,12 @@ body,
 }
 
 .fm-list-subline {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-list-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3086,19 +3102,30 @@ body,
   left: 10px;
   right: 10px;
   bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 70px;
   text-align: center;
 }
 
 .ex-tile-retry {
   display: flex;
   justify-content: center;
-  margin-bottom: 6px;
+  min-height: 26px;
 }
 
 .ex-tile-status {
   display: flex;
   justify-content: center;
-  margin-bottom: 6px;
+  min-height: 24px;
+}
+
+.ex-tile-status-placeholder,
+.ex-tile-retry-placeholder {
+  display: inline-block;
+  min-height: 1px;
+  min-width: 1px;
 }
 
 .ex-tile-status-pill {
@@ -3110,12 +3137,14 @@ body,
 
 .ex-tile-name {
   font-size: 13px;
-  line-height: 1.15;
+  line-height: 1.2;
   font-weight: 520;
   color: hsl(var(--text));
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  min-height: 2.4em;
 }
 
 .ex-tile[data-selected="true"] .ex-tile-name {
@@ -3124,9 +3153,13 @@ body,
 }
 
 .ex-tile-sub {
-  margin-top: 2px;
+  margin-top: 0;
+  min-height: 16px;
   font-size: 11px;
   color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Slightly tighter look for pure "Icons" view */
@@ -4919,12 +4952,12 @@ body,
 
 .fm-table-wrap--archive .fm-row-grid {
   grid-template-columns:
-    minmax(300px, 2.7fr)
-    minmax(210px, 1.55fr)
+    minmax(320px, 2.9fr)
+    minmax(200px, 1.45fr)
     minmax(170px, 1.15fr)
     minmax(150px, 1fr)
-    minmax(140px, 0.9fr)
-    minmax(180px, 1.2fr);
+    minmax(140px, 0.95fr)
+    minmax(210px, 1.25fr);
 }
 
 .fm-th.is-static {
@@ -5073,7 +5106,9 @@ body,
 
 .fm-row--details .fm-td--tags {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 
 @media (max-width: 1400px) {

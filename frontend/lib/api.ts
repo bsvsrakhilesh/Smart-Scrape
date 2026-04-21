@@ -1396,6 +1396,35 @@ export async function listTrash(params?: Record<string, any>) {
   return listTrashFiles(params);
 }
 
+export type BackendExplorerFolder = BackendFolder & {
+  kind: "folder";
+  itemType: "folder";
+  deletedAt?: string | null;
+  hasChildren?: boolean;
+};
+
+export type BackendExplorerFile = BackendStoredFile & {
+  kind: "file";
+  itemType: "file";
+};
+
+export type BackendExplorerResponse = {
+  items: Array<BackendExplorerFolder | BackendExplorerFile>;
+  total: number;
+  totalBytes: number;
+  counts: {
+    folders: number;
+    files: number;
+  };
+  page: number;
+  pageSize: number;
+};
+
+export async function listExplorerItems(params: Record<string, any>) {
+  const res = await api.get("/api/explorer", { params });
+  return res.data as BackendExplorerResponse;
+}
+
 // ---------- Generic files query (sorting/filtering/paging passthrough) ----------
 export async function queryFiles(params: Record<string, any>) {
   const res = await api.get("/api/files", { params });

@@ -46,6 +46,7 @@ import {
   streamZipFile,
   getFileById,
   refreshFileMetadata,
+  listExplorerItems,
   queryFiles,
   getFileReviewQueueCounts,
   getStorageUsage,
@@ -1774,81 +1775,48 @@ export default function FileManagerPage() {
         }
 
         if (!inTrash && !inFavorites) {
-          const folderRows = await listFolders(currentFolderId ?? "root");
-
-          const folderItems: FileItem[] = (folderRows as FolderRow[]).map(
-            (fr) => ({
-              id: `folder:${fr.id}`,
-              title: fr.name,
-              description: "",
-              uploader: { id: "system", name: "—" },
-              uploadDate: String(fr.createdAt ?? new Date().toISOString()),
-              size: 0,
-              mimeType: "folder",
-              tags: [],
-              visibility: "private",
-            }),
+          const explorerData = await listExplorerItems(
+            Object.fromEntries(params.entries()),
           );
 
-          const q = searchQuery.trim().toLowerCase();
-          const filteredFolderItems =
-            q.length > 0
-              ? folderItems.filter((f) =>
-                  String(f.title || "")
-                    .toLowerCase()
-                    .includes(q),
-                )
-              : folderItems;
-
-          const sortedFolderItems = sortFolderItemsForExplorer(
-            filteredFolderItems,
-            sortKey,
-            sortDir,
-          );
-
-          const window = getExplorerWindow(
-            sortedFolderItems.length,
-            page,
-            pageSize,
-          );
-
-          const fileData = await queryFiles({
-            ...Object.fromEntries(params.entries()),
-            offset: window.fileOffset,
-            limit: window.fileLimit,
-          });
-
-          const fileRows: BackendStoredFile[] = Array.isArray(fileData)
-            ? (fileData as any)
-            : Array.isArray((fileData as any).items)
-              ? (fileData as any).items
-              : [];
-
-          const fileItems: FileItem[] = fileRows.map(toFileItem);
-          const pageFolders = sortedFolderItems.slice(window.start, window.end);
-          const items = [...pageFolders, ...fileItems];
+          const items: FileItem[] = Array.isArray((explorerData as any)?.items)
+            ? (explorerData as any).items.map((row: any) =>
+                row?.kind === "folder"
+                  ? {
+                      id: `folder:${row.id}`,
+                      title: row.name,
+                      description: "",
+                      uploader: { id: "system", name: "—" },
+                      uploadDate: String(
+                        row.createdAt ?? new Date().toISOString(),
+                      ),
+                      size: 0,
+                      mimeType: "folder",
+                      tags: [],
+                      visibility: "private",
+                    }
+                  : toFileItem(row as BackendStoredFile),
+              )
+            : [];
 
           if (!cancelled) {
             lastResolvedListingScopeRef.current = requestScopeKey;
             setIsStaleView(false);
             setAllFiles(items);
-
-            const totalFileCount =
-              typeof (fileData as any)?.total === "number"
-                ? (fileData as any).total
-                : fileItems.length;
-
-            setTotal(sortedFolderItems.length + totalFileCount);
-
-            const bytes =
-              typeof (fileData as any)?.totalBytes === "number"
-                ? (fileData as any).totalBytes
-                : fileItems.reduce(
-                    (acc, f) => acc + (typeof f.size === "number" ? f.size : 0),
+            setTotal(
+              typeof (explorerData as any)?.total === "number"
+                ? (explorerData as any).total
+                : items.length,
+            );
+            setTotalBytes(
+              typeof (explorerData as any)?.totalBytes === "number"
+                ? (explorerData as any).totalBytes
+                : items.reduce(
+                    (acc, item) =>
+                      acc + (item.mimeType === "folder" ? 0 : item.size || 0),
                     0,
-                  );
-
-            setTotalBytes(bytes);
+                  ),
+            );
           }
 
           return;

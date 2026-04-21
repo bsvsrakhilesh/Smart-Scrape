@@ -933,7 +933,127 @@ function isFolderScopeUnavailableError(error: any): boolean {
   );
 }
 
-// --- helpers (add once) ---
+type ExplorerSortKey = "name" | "date" | "type" | "size";
+type ExplorerSortDir = "asc" | "desc";
+
+type ExplorerWindow = {
+  start: number;
+  end: number;
+  fileOffset: number;
+  fileLimit: number;
+};
+
+function normalizeExplorerSortKey(raw: unknown): ExplorerSortKey {
+  const value = String(raw || "").trim();
+
+  if (value === "fileName") return "name";
+  if (value === "createdAt") return "date";
+  if (value === "mimeType") return "type";
+  if (value === "size") return "size";
+  if (value === "name" || value === "date" || value === "type") return value;
+
+  return "date";
+}
+
+function normalizeExplorerSortDir(raw: unknown): ExplorerSortDir {
+  return String(raw || "")
+    .trim()
+    .toLowerCase() === "asc"
+    ? "asc"
+    : "desc";
+}
+
+function getExplorerWindow(
+  folderCount: number,
+  page: number,
+  pageSize: number,
+): ExplorerWindow {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.max(1, pageSize);
+
+  const start = (safePage - 1) * safePageSize;
+  const end = start + safePageSize;
+
+  const fileOffset = Math.max(0, start - folderCount);
+  const fileLimit = Math.max(0, end - Math.max(start, folderCount));
+
+  return { start, end, fileOffset, fileLimit };
+}
+
+function compareExplorerFolderRows(
+  a: { name: string; createdAt?: Date | string | null },
+  b: { name: string; createdAt?: Date | string | null },
+  sortKey: ExplorerSortKey,
+  sortDir: ExplorerSortDir,
+): number {
+  const dir = sortDir === "asc" ? 1 : -1;
+
+  const safeTime = (value?: Date | string | null) => {
+    const t = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const compareName = (left: { name: string }, right: { name: string }) =>
+    String(left.name || "").localeCompare(String(right.name || ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+
+  let cmp = 0;
+
+  if (sortKey === "date") {
+    cmp = safeTime(a.createdAt) - safeTime(b.createdAt);
+  } else {
+    // preserve current UX: folders use name fallback for type/size
+    cmp = compareName(a, b);
+  }
+
+  if (cmp === 0) cmp = compareName(a, b);
+  return cmp * dir;
+}
+
+function buildFolderExplorerWhere(
+  params: Pick<StoredFileScopeParams, "q" | "folderId">,
+) {
+  const where: any = { deletedAt: null };
+  const { q, folderId } = params;
+
+  if (typeof folderId === "string") {
+    if (folderId === "root" || folderId === "") where.parentId = null;
+    else where.parentId = folderId;
+  } else {
+    where.parentId = null;
+  }
+
+  if (q && q.trim()) {
+    where.name = { contains: q.trim(), mode: "insensitive" };
+  }
+
+  return where;
+}
+
+function mapExplorerFileOrderBy(
+  sortKey: ExplorerSortKey,
+  sortDir: ExplorerSortDir,
+) {
+  if (sortKey === "name") return { fileName: sortDir } as const;
+  if (sortKey === "type") return { mimeType: sortDir } as const;
+  if (sortKey === "size") return { size: sortDir } as const;
+  return { createdAt: sortDir } as const;
+}
+
+function toExplorerFolderItem(folder: any) {
+  const { children, ...rest } = folder ?? {};
+
+  return {
+    kind: "folder" as const,
+    itemType: "folder" as const,
+    ...rest,
+    hasChildren: Array.isArray(children) && children.length > 0,
+  };
+}
+
+// --- helpers  ---
 function normalizeMime(m?: string) {
   return (m || "").toLowerCase().split(";")[0].trim();
 }
@@ -1526,6 +1646,202 @@ r.post("/files/finalize", async (req, res, next) => {
   }
 });
 
+const storedFileExplorerInclude = {
+  url: {
+    select: {
+      publishedAt: true,
+      authors: true,
+    },
+  },
+  documentRevision: {
+    select: {
+      id: true,
+      documentId: true,
+      ordinal: true,
+      createdAt: true,
+      captureType: true,
+      contentHash: true,
+      storedFileId: true,
+    },
+  },
+  captureEvent: {
+    select: {
+      id: true,
+      createdAt: true,
+      requestId: true,
+      actorId: true,
+      actorName: true,
+      sourceUrl: true,
+      urlId: true,
+      pipelineConfig: {
+        select: {
+          id: true,
+          name: true,
+          version: true,
+          configHash: true,
+          codeSha: true,
+          createdAt: true,
+        },
+      },
+    },
+  },
+};
+
+// GET /api/explorer
+// Mixed folders + files for the main drive view.
+r.get("/explorer", async (req, res, next) => {
+  try {
+    if (!prismaSupportsFolders()) {
+      return res.status(503).json({
+        message: folderSchemaOutOfSyncMessage(),
+      });
+    }
+
+    const {
+      q,
+      tags,
+      mimeTypes,
+      visibility,
+      favoritesOnly,
+      captureKind,
+      integrity,
+      revision,
+      sourceDomain,
+      taggingStatus,
+      metadataState,
+      sortKey = "createdAt",
+      sortOrder = "desc",
+      page,
+      pageSize,
+      offset,
+      limit,
+      folderId,
+    } = req.query as Record<string, string>;
+
+    const normalizedSortKey = normalizeExplorerSortKey(sortKey);
+    const normalizedSortDir = normalizeExplorerSortDir(sortOrder);
+
+    let fileWhere: any;
+    try {
+      fileWhere = buildStoredFileScopeWhere({
+        q,
+        tags,
+        mimeTypes,
+        visibility,
+        favoritesOnly,
+        captureKind,
+        integrity,
+        revision,
+        sourceDomain,
+        taggingStatus,
+        metadataState,
+        folderId,
+      });
+    } catch (e: any) {
+      if (isFolderScopeUnavailableError(e)) {
+        return res.status(503).json({
+          message: folderSchemaOutOfSyncMessage(),
+        });
+      }
+      throw e;
+    }
+
+    const folderWhere = buildFolderExplorerWhere({ q, folderId });
+
+    const hasOffsetPagination =
+      Number.isInteger(Number(offset)) && Number.isInteger(Number(limit));
+    const hasPagePagination =
+      Number.isInteger(Number(page)) && Number.isInteger(Number(pageSize));
+
+    const skip = hasOffsetPagination
+      ? Math.max(0, Number(offset))
+      : (Math.max(1, Number(page || 1)) - 1) *
+        Math.min(100, Math.max(1, Number(pageSize || 15)));
+
+    const take = hasOffsetPagination
+      ? Math.min(100, Math.max(0, Number(limit)))
+      : Math.min(100, Math.max(1, Number(pageSize || 15)));
+
+    const responsePage = hasPagePagination
+      ? Math.max(1, Number(page))
+      : Math.floor(skip / Math.max(1, take || 1)) + 1;
+
+    const responsePageSize = hasPagePagination
+      ? Math.min(100, Math.max(1, Number(pageSize)))
+      : take;
+
+    const [folderRows, totalFiles, sum] = await Promise.all([
+      favoritesOnly === "true"
+        ? Promise.resolve([] as any[])
+        : prisma.folder.findMany({
+            where: folderWhere,
+            orderBy: { name: "asc" },
+            include: {
+              children: {
+                where: { deletedAt: null },
+                select: { id: true },
+                take: 1,
+              },
+            },
+          }),
+      prisma.storedFile.count({ where: fileWhere }),
+      prisma.storedFile.aggregate({ where: fileWhere, _sum: { size: true } }),
+    ]);
+
+    const sortedFolders = [...folderRows].sort((a, b) =>
+      compareExplorerFolderRows(a, b, normalizedSortKey, normalizedSortDir),
+    );
+
+    const folderCount = sortedFolders.length;
+    const window = getExplorerWindow(
+      folderCount,
+      responsePage,
+      responsePageSize,
+    );
+
+    const pageFolders = sortedFolders
+      .slice(window.start, window.end)
+      .map(toExplorerFolderItem);
+
+    const files =
+      window.fileLimit > 0
+        ? await prisma.storedFile.findMany({
+            where: fileWhere,
+            orderBy: mapExplorerFileOrderBy(
+              normalizedSortKey,
+              normalizedSortDir,
+            ),
+            skip: window.fileOffset,
+            take: window.fileLimit,
+            include: storedFileExplorerInclude,
+          })
+        : [];
+
+    const items = [
+      ...pageFolders,
+      ...files.map((file) => ({
+        ...file,
+        kind: "file" as const,
+        itemType: "file" as const,
+      })),
+    ];
+
+    return res.json({
+      items,
+      total: folderCount + totalFiles,
+      totalBytes: sum?._sum?.size ?? 0,
+      counts: {
+        folders: folderCount,
+        files: totalFiles,
+      },
+      page: responsePage,
+      pageSize: responsePageSize,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/files
 // Supports optional filtering and pagination
 // Query: q, tags (csv), mimeTypes (csv), visibility, favoritesOnly,
@@ -1589,47 +1905,6 @@ r.get("/files", async (req, res, next) => {
       orderBy.createdAt = "desc";
     }
 
-    const fileInclude = {
-      url: {
-        select: {
-          publishedAt: true,
-          authors: true,
-        },
-      },
-      documentRevision: {
-        select: {
-          id: true,
-          documentId: true,
-          ordinal: true,
-          createdAt: true,
-          captureType: true,
-          contentHash: true,
-          storedFileId: true,
-        },
-      },
-      captureEvent: {
-        select: {
-          id: true,
-          createdAt: true,
-          requestId: true,
-          actorId: true,
-          actorName: true,
-          sourceUrl: true,
-          urlId: true,
-          pipelineConfig: {
-            select: {
-              id: true,
-              name: true,
-              version: true,
-              configHash: true,
-              codeSha: true,
-              createdAt: true,
-            },
-          },
-        },
-      },
-    };
-
     const hasOffsetPagination =
       Number.isInteger(Number(offset)) && Number.isInteger(Number(limit));
     const hasPagePagination =
@@ -1662,7 +1937,7 @@ r.get("/files", async (req, res, next) => {
                 orderBy,
                 skip,
                 take,
-                include: fileInclude,
+                include: storedFileExplorerInclude,
               }),
           prisma.storedFile.count({ where }),
           prisma.storedFile.aggregate({ where, _sum: { size: true } }),
@@ -1691,7 +1966,7 @@ r.get("/files", async (req, res, next) => {
       const files = await prisma.storedFile.findMany({
         where,
         orderBy,
-        include: fileInclude,
+        include: storedFileExplorerInclude,
       });
       res.json(files);
     } catch (e: any) {

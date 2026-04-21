@@ -4199,6 +4199,20 @@ export default function FileManagerPage() {
                 {!virtualZip && viewMode !== "trash" && (
                   <div className="fm-filter-strip">
                     <div className="fm-filter-strip__head">
+                      <div className="fm-filter-strip__copy">
+                        <div className="fm-filter-strip__eyebrow">
+                          Archive filters
+                        </div>
+                        <div className="fm-filter-strip__title">
+                          Refine the current scope
+                        </div>
+                        <div className="fm-filter-strip__summary">
+                          {activeArchiveFilterCount > 0
+                            ? `${activeArchiveFilterCount} active filter${activeArchiveFilterCount === 1 ? "" : "s"} applied`
+                            : "No extra filters applied. Results already reflect the current location, search, and queue."}
+                        </div>
+                      </div>
+
                       <div className="fm-filter-strip__meta">
                         <span
                           className="fm-filter-count"

@@ -118,15 +118,15 @@ export default function CommandBar({
       : "Select all items on this page";
 
   const summaryText = hasSelection
-    ? `${formatCount(safeSelectedCount)} selected · ${formatCount(safeVisibleCount)} visible${showsTotal ? ` · ${formatCount(safeTotalCount)} total` : ""}`
-    : `${formatCount(safeVisibleCount)} visible on this page${showsTotal ? ` · ${formatCount(safeTotalCount)} total in scope` : ""}`;
+    ? `${formatCount(safeSelectedCount)} selected · ${formatCount(safeVisibleCount)} visible${showsTotal ? ` · ${formatCount(safeTotalCount)} in scope` : ""}`
+    : `${formatCount(safeVisibleCount)} visible${showsTotal ? ` · ${formatCount(safeTotalCount)} in scope` : ""}`;
 
   return (
     <div className="fm-toolbar" role="toolbar" aria-label="Explorer commands">
       <div className="cmdbar-surface">
         <div className="cmdbar-top">
           <section className="cmdbar-context" aria-label="Scope overview">
-            <div className="cmdbar-eyebrow">Workspace controls</div>
+            <div className="cmdbar-eyebrow">Explorer</div>
 
             <div className="cmdbar-heading-row">
               <div className="cmdbar-heading-wrap">
@@ -145,10 +145,12 @@ export default function CommandBar({
                   {readOnly ? "Read-only" : "Editable"}
                 </span>
 
-                <span className="cmdbar-badge">
-                  <Layers3 className="h-3.5 w-3.5" />
-                  {formatCount(safeVisibleCount)} on page
-                </span>
+                {hasSelection ? (
+                  <span className="cmdbar-badge">
+                    <Layers3 className="h-3.5 w-3.5" />
+                    {formatCount(safeSelectedCount)} selected
+                  </span>
+                ) : null}
 
                 {showsTotal ? (
                   <span className="cmdbar-badge">
@@ -173,7 +175,11 @@ export default function CommandBar({
               <span
                 className="cmdbar-checkbox"
                 data-state={
-                  isAllSelected ? "checked" : isMixedSelection ? "mixed" : "empty"
+                  isAllSelected
+                    ? "checked"
+                    : isMixedSelection
+                      ? "mixed"
+                      : "empty"
                 }
                 aria-hidden="true"
               >
@@ -224,7 +230,11 @@ export default function CommandBar({
               <span className="cmdbar-block-label">View</span>
             </div>
 
-            <div className="cmdbar-segmented" role="group" aria-label="Layout mode">
+            <div
+              className="cmdbar-segmented"
+              role="group"
+              aria-label="Layout mode"
+            >
               {LAYOUT_OPTIONS.map((option) => {
                 const Icon = option.icon;
                 const active = layout === option.key;
@@ -247,7 +257,10 @@ export default function CommandBar({
             </div>
           </section>
 
-          <section className="cmdbar-control-block cmdbar-control-block--utility" aria-label="Sort and density controls">
+          <section
+            className="cmdbar-control-block cmdbar-control-block--utility"
+            aria-label="Sort and density controls"
+          >
             <div className="cmdbar-select-field">
               <span className="cmdbar-block-label">Sort</span>
               <label className="cmdbar-select-wrap">

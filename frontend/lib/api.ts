@@ -1229,6 +1229,83 @@ export async function moveFiles(ids: string[], folderId?: string | null) {
   return moved;
 }
 
+function getDownloadFilenameFromDisposition(
+  header?: string | null,
+  fallback = "files.zip",
+) {
+  const raw = String(header || "");
+
+  const utf8Match = raw.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]).replace(/[\\/:*?"<>|]+/g, "_");
+    } catch {
+      // fall through to basic filename parsing
+    }
+  }
+
+  const basicMatch = raw.match(/filename="?([^"]+)"?/i);
+  if (basicMatch?.[1]) {
+    return basicMatch[1].replace(/[\\/:*?"<>|]+/g, "_");
+  }
+
+  return fallback;
+}
+
+export async function downloadFilesAsZip(
+  ids: string[],
+  fallbackFileName = "files.zip",
+): Promise<void> {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+
+  try {
+    const res = await api.post(
+      "/api/files/zip",
+      { ids },
+      {
+        responseType: "blob",
+        headers: {
+          Accept: "application/zip, application/octet-stream",
+        },
+      },
+    );
+
+    const blob =
+      res.data instanceof Blob
+        ? res.data
+        : new Blob([res.data], { type: "application/zip" });
+
+    const fileName = getDownloadFilenameFromDisposition(
+      res.headers?.["content-disposition"] ??
+        res.headers?.["Content-Disposition"] ??
+        null,
+      fallbackFileName,
+    );
+
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = fileName;
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.setTimeout(() => URL.revokeObjectURL(href), 1000);
+  } catch (err: any) {
+    if (err?.response?.data instanceof Blob) {
+      try {
+        const text = await err.response.data.text();
+        err.response.data = JSON.parse(text);
+      } catch {
+        // keep original blob if it isn't JSON
+      }
+    }
+
+    normalizeApiError(err, "Bulk download failed");
+  }
+}
+
 // ---------- Tags ----------
 export async function fetchAllTags(): Promise<
   { label: string; count: number }[]

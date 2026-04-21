@@ -39,6 +39,7 @@ import {
   type FileReviewQueueCounts,
   duplicateFile,
   moveFile,
+  downloadFilesAsZip,
   getFileTagJob,
   startFileTagJob,
   listFolders,
@@ -1238,6 +1239,7 @@ export default function FileManagerPage() {
       canAutoTag: !inArchive && !inTrash && realFileCount > 0,
       canAddTag: !inArchive && !inTrash && realFileCount > 0,
       canFavorite: !inArchive && !inTrash && realFileCount > 0,
+      canDownload: realFileCount > 0,
       showCopy: !inArchive && !inTrash,
       showCut: !inArchive && !inTrash,
       showPaste: !inArchive && inDrive,
@@ -3812,6 +3814,36 @@ export default function FileManagerPage() {
     [notify, refresh],
   );
 
+  const onDownloadSelected = useCallback(
+    async (sel: FileItem[]) => {
+      const filesOnly = sel.filter(isRealPersistedFileItem);
+      const fileIds = filesOnly.map((f) => String(f.id));
+
+      if (!fileIds.length) {
+        notify("No downloadable files in the current selection.", "error");
+        return;
+      }
+
+      try {
+        await downloadFilesAsZip(fileIds, "selected-files.zip");
+
+        notify(
+          fileIds.length === sel.length
+            ? `Downloading ${fileIds.length} selected file${
+                fileIds.length === 1 ? "" : "s"
+              } as ZIP.`
+            : `Downloading ${fileIds.length} selected file${
+                fileIds.length === 1 ? "" : "s"
+              } as ZIP. Folders were skipped.`,
+          "success",
+        );
+      } catch (e: any) {
+        notify(e?.message || "Bulk download failed.", "error");
+      }
+    },
+    [notify],
+  );
+
   const onExportSelected = useCallback((sel: FileItem[]) => {
     if (!sel.length) return;
     const headers = [
@@ -4639,6 +4671,11 @@ export default function FileManagerPage() {
                           ? onFavoriteSelected
                           : undefined
                       }
+                      onDownload={
+                        selectionCapabilities.canDownload
+                          ? onDownloadSelected
+                          : undefined
+                      }
                       onExport={onExportSelected}
                       onCopy={
                         selectionCapabilities.showCopy
@@ -4660,6 +4697,10 @@ export default function FileManagerPage() {
                         viewMode === "trash" ? "Delete permanently" : "Delete"
                       }
                       restoreLabel="Restore"
+                      downloadLabel="Download selected"
+                      downloadTitle="Download the selected files as a ZIP archive"
+                      exportLabel="Export metadata CSV"
+                      exportTitle="Export the selected items as a CSV metadata file"
                     />
                   </motion.div>
                 )}

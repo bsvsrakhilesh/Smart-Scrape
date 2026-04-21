@@ -8,6 +8,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   onAddTag?: (ids: string[], tag: string) => void;
   onRequestAddTag?: (ids: string[]) => void;
   onFavorite?: (ids: string[]) => void;
+  onDownload?: (selected: T[]) => void;
   onExport: (selected: T[]) => void;
   onCopy?: (ids: string[]) => void;
   onCut?: (ids: string[]) => void;
@@ -17,6 +18,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   selectionSummary?: string;
   deleteLabel?: string;
   restoreLabel?: string;
+  downloadLabel?: string;
   exportLabel?: string;
   copyLabel?: string;
   cutLabel?: string;
@@ -26,6 +28,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   addTagTitle?: string;
   deleteTitle?: string;
   restoreTitle?: string;
+  downloadTitle?: string;
   exportTitle?: string;
   copyTitle?: string;
   cutTitle?: string;
@@ -40,6 +43,7 @@ function BulkActionBar<T extends Selectable>({
   onAddTag,
   onRequestAddTag,
   onFavorite,
+  onDownload,
   onExport,
   onCopy,
   onCut,
@@ -49,6 +53,7 @@ function BulkActionBar<T extends Selectable>({
   selectionSummary,
   deleteLabel = "Delete",
   restoreLabel = "Restore",
+  downloadLabel = "Download",
   exportLabel = "Export",
   copyLabel = "Copy",
   cutLabel = "Cut",
@@ -58,6 +63,7 @@ function BulkActionBar<T extends Selectable>({
   addTagTitle = "Add a tag to the selected items",
   deleteTitle = "Delete the selected items",
   restoreTitle = "Restore the selected items",
+  downloadTitle = "Download the selected items",
   exportTitle = "Export the selected items as CSV",
   copyTitle = "Copy (Ctrl/Cmd+C)",
   cutTitle = "Cut (Ctrl/Cmd+X)",
@@ -157,6 +163,16 @@ function BulkActionBar<T extends Selectable>({
       )}
 
       {hasPrimaryActions && <span className="mx-1 opacity-30">|</span>}
+
+      {onDownload && (
+        <button
+          onClick={() => onDownload(selected)}
+          className={baseBtn}
+          title={downloadTitle}
+        >
+          {downloadLabel}
+        </button>
+      )}
 
       <button
         onClick={() => onExport(selected)}

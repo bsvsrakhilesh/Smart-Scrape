@@ -1,29 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { getDocument, GlobalWorkerOptions, PDFDocumentProxy } from "pdfjs-dist";
+import PdfJsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?worker";
 
-// Ensure a worker for pdf.js (Vite-compatible)
+// Use a bundled same-origin worker so PDF preview stays CSP-safe in production.
 let pdfWorkerPortReady: Promise<void> | null = null;
+
 async function ensurePdfWorker() {
-  if (
-    (GlobalWorkerOptions as any).workerPort ||
-    (GlobalWorkerOptions as any).workerSrc
-  )
-    return;
+  if ((GlobalWorkerOptions as any).workerPort) return;
   if (pdfWorkerPortReady) return pdfWorkerPortReady;
 
-  pdfWorkerPortReady = (async () => {
-    try {
-      const url = new URL(
-        "pdfjs-dist/build/pdf.worker.min.mjs",
-        import.meta.url,
-      );
-      const worker = new Worker(url, { type: "module" });
-      (GlobalWorkerOptions as any).workerPort = worker;
-    } catch {
-      (GlobalWorkerOptions as any).workerSrc =
-        "https://unpkg.com/pdfjs-dist@4/build/pdf.worker.min.mjs";
-    }
-  })();
+  pdfWorkerPortReady = Promise.resolve().then(() => {
+    (GlobalWorkerOptions as any).workerSrc = undefined;
+    (GlobalWorkerOptions as any).workerPort = new PdfJsWorker();
+  });
+
   return pdfWorkerPortReady;
 }
 

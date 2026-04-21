@@ -941,6 +941,7 @@ export default function FileManagerPage() {
   // data
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [isStaleView, setIsStaleView] = useState(false);
   const [allFiles, setAllFiles] = useState<FileItem[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [totalBytes, setTotalBytes] = useState<number>(0);
@@ -972,6 +973,39 @@ export default function FileManagerPage() {
   // refresh flag
   const [refreshToken, setRefreshToken] = useState<number>(0);
   const refresh = useCallback(() => setRefreshToken((n) => n + 1), []);
+
+  const listingScopeKey = useMemo(
+    () =>
+      JSON.stringify({
+        page,
+        pageSize,
+        currentFolderId: currentFolderId ?? null,
+        viewMode,
+        sortKey,
+        sortDir,
+        searchQuery: searchQuery.trim(),
+        archiveFilters,
+        virtualZip: virtualZip
+          ? {
+              zipId: virtualZip.zipId,
+              prefix: virtualZip.prefix,
+            }
+          : null,
+      }),
+    [
+      page,
+      pageSize,
+      currentFolderId,
+      viewMode,
+      sortKey,
+      sortDir,
+      searchQuery,
+      archiveFilters,
+      virtualZip,
+    ],
+  );
+
+  const lastResolvedListingScopeRef = useRef<string | null>(null);
 
   // ------- Sidebar Storage (global usage) -------
   const fetchStorageUsage = useCallback(async () => {
@@ -1576,8 +1610,11 @@ export default function FileManagerPage() {
   // ------- Data fetch -------
   useEffect(() => {
     let cancelled = false;
+    const requestScopeKey = listingScopeKey;
+
     setIsLoading(true);
     setError(null);
+    setIsStaleView(false);
 
     const inZip = !!virtualZip;
     const inFavorites = !inZip && viewMode === "favorites";
@@ -1724,6 +1761,8 @@ export default function FileManagerPage() {
           const items = [...pageFolders, ...pageFiles];
 
           if (!cancelled) {
+            lastResolvedListingScopeRef.current = requestScopeKey;
+            setIsStaleView(false);
             setAllFiles(items);
             setTotal(sortedFolderItems.length + sortedFileItems.length);
             setTotalBytes(
@@ -1790,6 +1829,8 @@ export default function FileManagerPage() {
           const items = [...pageFolders, ...fileItems];
 
           if (!cancelled) {
+            lastResolvedListingScopeRef.current = requestScopeKey;
+            setIsStaleView(false);
             setAllFiles(items);
 
             const totalFileCount =
@@ -1882,6 +1923,8 @@ export default function FileManagerPage() {
           const items = [...pageFolders, ...fileItems];
 
           if (!cancelled) {
+            lastResolvedListingScopeRef.current = requestScopeKey;
+            setIsStaleView(false);
             setAllFiles(items);
 
             const totalFileCount =
@@ -1946,6 +1989,9 @@ export default function FileManagerPage() {
         );
 
         if (!cancelled) {
+          lastResolvedListingScopeRef.current = requestScopeKey;
+          setIsStaleView(false);
+
           const q = searchQuery.trim().toLowerCase();
           const filteredFolderItems =
             q.length > 0
@@ -1980,10 +2026,20 @@ export default function FileManagerPage() {
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e?.message || "Failed to load");
-          setAllFiles([]);
-          setTotal(0);
-          setTotalBytes(0);
+          const nextError = e?.message || "Failed to load";
+          const canKeepPreviousResults =
+            lastResolvedListingScopeRef.current === requestScopeKey;
+
+          setError(nextError);
+
+          if (canKeepPreviousResults) {
+            setIsStaleView(true);
+          } else {
+            setIsStaleView(false);
+            setAllFiles([]);
+            setTotal(0);
+            setTotalBytes(0);
+          }
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -2004,6 +2060,7 @@ export default function FileManagerPage() {
     archiveFilters,
     refreshToken,
     virtualZip,
+    listingScopeKey,
   ]);
 
   const reviewQueueScope = useMemo(() => {
@@ -4681,8 +4738,23 @@ export default function FileManagerPage() {
                         <div className="p-6 text-sm opacity-70">Loading…</div>
                       )}
                       {error && !isLoading && (
-                        <div className="m-4 p-3 rounded bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-200">
-                          {error}
+                        <div
+                          className={
+                            isStaleView
+                              ? "m-4 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800/70 dark:bg-amber-900/20 dark:text-amber-100"
+                              : "m-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-red-800 dark:border-red-800/70 dark:bg-red-900/20 dark:text-red-200"
+                          }
+                        >
+                          {isStaleView ? (
+                            <div className="space-y-1">
+                              <div className="text-sm font-semibold">
+                                Showing the last successful results
+                              </div>
+                              <div className="text-sm opacity-90">{error}</div>
+                            </div>
+                          ) : (
+                            error
+                          )}
                         </div>
                       )}
                       {!isLoading && !error && visibleFiles.length === 0 && (

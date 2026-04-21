@@ -1,10 +1,12 @@
 import React, {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -54,6 +56,7 @@ import {
 } from "../lib/api";
 import BulkActionBar from "../components/common/BulkActionBar";
 import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
+import TextEntryModal from "../components/common/TextEntryModal";
 import Details_ListView from "../components/filemanager/Details_ListView";
 import Large_IconView from "../components/filemanager/Large_IconView";
 import AdvancedFileUpload from "../components/filemanager/AdvancedFileUpload";
@@ -67,6 +70,7 @@ import CommandPalette, {
 } from "../components/filemanager/CommandPalette";
 import FileSidebar from "../components/filemanager/FileSidebar";
 import PageTransition from "../components/motion/PageTransition";
+import { useDialogA11y } from "../components/common/useDialogA11y";
 import { useExplorerHistory } from "../hooks/useExplorerHistory";
 import { formatBytes } from "../utils/fileHelpers";
 import {
@@ -467,89 +471,86 @@ const Modal: React.FC<{
   open: boolean;
   onClose: () => void;
   title: string;
+  description?: string;
   children: React.ReactNode;
-}> = ({ open, onClose, title, children }) => {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/30 dark:bg-black/50"
-        onClick={onClose}
-      />
-      <div className="relative w-full max-w-2xl rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl">
-        <div className="px-5 py-4 border-b dark:border-neutral-800 flex items-center justify-between">
-          <h3 className="text-base font-semibold">{title}</h3>
-          <button className="btn-ghost text-sm px-3" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-};
-
-const TextEntryModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  description: string;
-  value: string;
-  placeholder?: string;
-  submitLabel: string;
-  busy?: boolean;
-  onChange: (value: string) => void;
-  onSubmit: () => void | Promise<void>;
+  maxWidthClassName?: string;
+  closeDisabled?: boolean;
 }> = ({
   open,
   onClose,
   title,
   description,
-  value,
-  placeholder,
-  submitLabel,
-  busy = false,
-  onChange,
-  onSubmit,
+  children,
+  maxWidthClassName = "max-w-2xl",
+  closeDisabled = false,
 }) => {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const handleClose = useCallback(() => {
+    if (!closeDisabled) onClose();
+  }, [closeDisabled, onClose]);
+
+  useDialogA11y({
+    isOpen: open,
+    onClose: handleClose,
+    dialogRef,
+    initialFocusRef: closeButtonRef,
+    closeOnEsc: !closeDisabled,
+    closeOnOutsideClick: !closeDisabled,
+  });
+
   if (!open) return null;
 
-  return (
-    <Modal open={open} onClose={busy ? () => {} : onClose} title={title}>
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onSubmit();
-        }}
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+      />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        className={`relative z-[101] w-full ${maxWidthClassName} rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900`}
       >
-        <p className="text-sm text-neutral-600 dark:text-neutral-300">
-          {description}
-        </p>
+        <div className="flex items-start justify-between gap-3 border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+          <div className="min-w-0">
+            <h3
+              id={titleId}
+              className="text-base font-semibold text-neutral-950 dark:text-neutral-100"
+            >
+              {title}
+            </h3>
+            {description ? (
+              <p
+                id={descriptionId}
+                className="mt-1 text-sm text-neutral-600 dark:text-neutral-300"
+              >
+                {description}
+              </p>
+            ) : null}
+          </div>
 
-        <input
-          autoFocus
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-neutral-400 focus:ring-4 focus:ring-black/5 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white dark:focus:border-neutral-500 dark:focus:ring-white/10"
-        />
-
-        <div className="flex justify-end gap-2">
-          <ToolbarButton variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
-          </ToolbarButton>
-          <ToolbarButton
-            variant="primary"
-            type="submit"
-            disabled={busy || !value.trim()}
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="btn-ghost shrink-0 px-3 text-sm"
+            onClick={handleClose}
+            disabled={closeDisabled}
           >
-            {busy ? "Saving..." : submitLabel}
-          </ToolbarButton>
+            Close
+          </button>
         </div>
-      </form>
-    </Modal>
+
+        <div className="p-5">{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 };
 
@@ -5446,46 +5447,47 @@ export default function FileManagerPage() {
         </div>
       )}
 
-      {showHotkeys && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-[hsl(var(--popover))] border border-[hsl(var(--border))] rounded-2xl shadow-2xl p-6 w-[460px] max-w-[90%]">
-            <h2 className="text-lg font-semibold mb-3">Keyboard Shortcuts</h2>
-            <div className="grid grid-cols-2 gap-y-2 text-sm">
-              <div>
-                <kbd className="kbd">Enter</kbd>
-              </div>
-              <div>Open file / folder</div>
-              <div>
-                <kbd className="kbd">F2</kbd>
-              </div>
-              <div>Rename</div>
-              <div>
-                <kbd className="kbd">Delete</kbd>
-              </div>
-              <div>Move to trash</div>
-              <div>
-                <kbd className="kbd">Ctrl + C / V / X</kbd>
-              </div>
-              <div>Copy / Paste / Cut</div>
-              <div>
-                <kbd className="kbd">Arrow Keys</kbd>
-              </div>
-              <div>Navigate items</div>
-              <div>
-                <kbd className="kbd">Ctrl + F</kbd>
-              </div>
-              <div>Search within folder</div>
-              <div>
-                <kbd className="kbd">?</kbd>
-              </div>
-              <div>Show this overlay</div>
-            </div>
-            <p className="mt-4 text-xs text-[hsl(var(--muted))]">
-              Press Esc to close.
-            </p>
+      <Modal
+        open={showHotkeys}
+        onClose={() => setShowHotkeys(false)}
+        title="Keyboard Shortcuts"
+        description="Quick file-manager shortcuts for faster navigation and actions."
+        maxWidthClassName="max-w-lg"
+      >
+        <div className="grid grid-cols-2 gap-y-2 text-sm">
+          <div>
+            <kbd className="kbd">Enter</kbd>
           </div>
+          <div>Open file / folder</div>
+          <div>
+            <kbd className="kbd">F2</kbd>
+          </div>
+          <div>Rename</div>
+          <div>
+            <kbd className="kbd">Delete</kbd>
+          </div>
+          <div>Move to trash</div>
+          <div>
+            <kbd className="kbd">Ctrl + C / V / X</kbd>
+          </div>
+          <div>Copy / Paste / Cut</div>
+          <div>
+            <kbd className="kbd">Arrow Keys</kbd>
+          </div>
+          <div>Navigate items</div>
+          <div>
+            <kbd className="kbd">Ctrl + F</kbd>
+          </div>
+          <div>Search within folder</div>
+          <div>
+            <kbd className="kbd">?</kbd>
+          </div>
+          <div>Show this overlay</div>
         </div>
-      )}
+        <p className="mt-4 text-xs text-[hsl(var(--muted))]">
+          Press Esc to close.
+        </p>
+      </Modal>
     </PageTransition>
   );
 }

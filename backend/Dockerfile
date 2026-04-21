@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-bookworm-slim AS base
+FROM node:22-bookworm-slim AS base
 WORKDIR /app
-RUN npm install -g npm@latest
 # Faster Puppeteer installs & use system Chromium
 ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
@@ -30,7 +29,7 @@ COPY src ./src
 RUN npm run build
 
 # ---------- production ----------
-FROM node:20-bookworm-slim AS prod
+FROM node:22-bookworm-slim AS prod
 WORKDIR /app
 
 # Runtime deps for Chromium

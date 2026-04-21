@@ -1,15 +1,10 @@
 // frontend/App.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import AppShell from "./layouts/AppShell";
 import Sidebar from "./components/common/Sidebar";
 import RouteSurfaceSkeleton from "./components/common/RouteSurfaceSkeleton";
-
-import UrlCollectorPage from "./pages/UrlCollectorPage";
-import SavedUrlsPage from "./pages/SavedUrlsPage";
-import FileManagerPage from "./pages/FileManagerPage";
-import GovernanceWorkspacePage from "./pages/GovernanceWorkspacePage";
 
 import { Page } from "./lib/types";
 import { ToastProvider } from "./components/providers/Toast";
@@ -18,6 +13,13 @@ import { hydrateCollectionsFromBackend } from "./utils/collections";
 
 const DESKTOP_SIDEBAR_STORAGE_KEY = "sidebar.desktop.expanded";
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
+
+const UrlCollectorPage = lazy(() => import("./pages/UrlCollectorPage"));
+const SavedUrlsPage = lazy(() => import("./pages/SavedUrlsPage"));
+const FileManagerPage = lazy(() => import("./pages/FileManagerPage"));
+const GovernanceWorkspacePage = lazy(
+  () => import("./pages/GovernanceWorkspacePage"),
+);
 
 const App: React.FC = () => {
   const navigate = useNavigate();
@@ -146,7 +148,7 @@ const App: React.FC = () => {
       window.cancelAnimationFrame(raf1);
       window.cancelAnimationFrame(raf2);
     };
-  }, []);
+  }, [currentPage]);
 
   const renderPages = () => {
     if (currentPage === "url-collector") return <UrlCollectorPage />;
@@ -186,7 +188,9 @@ const App: React.FC = () => {
           variant="workspace"
         >
           {isRouteContentReady ? (
-            renderPages()
+            <Suspense fallback={<RouteSurfaceSkeleton variant="workspace" />}>
+              {renderPages()}
+            </Suspense>
           ) : (
             <RouteSurfaceSkeleton variant="workspace" />
           )}

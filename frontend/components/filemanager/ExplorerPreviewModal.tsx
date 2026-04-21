@@ -1,6 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -8,7 +15,6 @@ import type { FileDetail } from "../../lib/types";
 import { apiUrl } from "../../lib/api";
 import { formatBytes, formatDate } from "../../utils/fileHelpers";
 
-import PdfCanvas from "../common/PdfCanvas";
 import AITagButton from "../common/AITagButton";
 import FavoriteButton from "../common/FavoriteButton";
 
@@ -22,17 +28,19 @@ type Props = {
   autoFocusTags?: boolean;
 };
 
+const PdfCanvas = lazy(() => import("../common/PdfCanvas"));
+
 function getFocusable(root: HTMLElement): HTMLElement[] {
   const nodes = root.querySelectorAll<HTMLElement>(
     [
-      'a[href]',
-      'button:not([disabled])',
-      'input:not([disabled])',
-      'select:not([disabled])',
-      'textarea:not([disabled])',
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
       '[tabindex]:not([tabindex="-1"])',
-      'summary',
-    ].join(",")
+      "summary",
+    ].join(","),
   );
 
   return Array.from(nodes).filter((el) => {
@@ -80,8 +88,14 @@ export default function ExplorerPreviewModal(props: Props) {
   const [pdfPages, setPdfPages] = useState<number>(0);
   const [pdfPage, setPdfPage] = useState<number>(1);
 
-  const rawMime = useMemo(() => (f?.mimeType || "").toLowerCase(), [f?.mimeType]);
-  const mimeBase = useMemo(() => rawMime.split(";")[0]?.trim() || "", [rawMime]);
+  const rawMime = useMemo(
+    () => (f?.mimeType || "").toLowerCase(),
+    [f?.mimeType],
+  );
+  const mimeBase = useMemo(
+    () => rawMime.split(";")[0]?.trim() || "",
+    [rawMime],
+  );
 
   const previewUrl = f ? apiUrl(`/api/files/${f.id}/preview`) : "";
 
@@ -93,7 +107,9 @@ export default function ExplorerPreviewModal(props: Props) {
     mimeBase.endsWith("+json");
 
   const uploadedRaw =
-    (f ? (f as any).uploadDate : null) ?? (f ? (f as any).createdAt : null) ?? null;
+    (f ? (f as any).uploadDate : null) ??
+    (f ? (f as any).createdAt : null) ??
+    null;
 
   const metaRows: Array<[string, string]> = [
     ["Title", f?.title || ""],
@@ -120,7 +136,8 @@ export default function ExplorerPreviewModal(props: Props) {
     const prevActive = document.activeElement as HTMLElement | null;
 
     // ensure dialog focusable
-    if (!dialogEl.hasAttribute("tabindex")) dialogEl.setAttribute("tabindex", "-1");
+    if (!dialogEl.hasAttribute("tabindex"))
+      dialogEl.setAttribute("tabindex", "-1");
 
     // initial focus
     const t = window.setTimeout(() => {
@@ -136,7 +153,10 @@ export default function ExplorerPreviewModal(props: Props) {
       }
 
       // Optional: "F" toggles favorite (only when not typing)
-      if ((e.key === "f" || e.key === "F") && !isTypingElement(document.activeElement)) {
+      if (
+        (e.key === "f" || e.key === "F") &&
+        !isTypingElement(document.activeElement)
+      ) {
         if (onToggleFavorite && f) {
           e.preventDefault();
           onToggleFavorite(f);
@@ -204,7 +224,10 @@ export default function ExplorerPreviewModal(props: Props) {
   useEffect(() => {
     if (!isOpen || !autoFocusTags) return;
     const t = setTimeout(() => {
-      tagSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      tagSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       tagInputRef.current?.focus();
     }, 50);
     return () => clearTimeout(t);
@@ -349,10 +372,15 @@ export default function ExplorerPreviewModal(props: Props) {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-app flex-shrink-0 gap-2">
             <div className="min-w-0">
-              <h2 id="preview-title" className="text-sm font-semibold line-clamp-1">
+              <h2
+                id="preview-title"
+                className="text-sm font-semibold line-clamp-1"
+              >
                 {f.title}
               </h2>
-              <div className="text-xs text-neutral-500 line-clamp-1">{rawMime || "—"}</div>
+              <div className="text-xs text-neutral-500 line-clamp-1">
+                {rawMime || "—"}
+              </div>
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -368,7 +396,8 @@ export default function ExplorerPreviewModal(props: Props) {
                     Prev
                   </button>
                   <span className="text-xs text-neutral-600 dark:text-neutral-400 tabular-nums min-w-[84px] text-center">
-                    {Math.min(pdfPage, Math.max(1, pdfPages || 1))}/{pdfPages || "—"}
+                    {Math.min(pdfPage, Math.max(1, pdfPages || 1))}/
+                    {pdfPages || "—"}
                   </span>
                   <button
                     className="px-2 py-1 rounded border border-app text-xs disabled:opacity-50"
@@ -385,7 +414,11 @@ export default function ExplorerPreviewModal(props: Props) {
               {onToggleFavorite && (
                 <FavoriteButton
                   isOn={!!f.isFavorited}
-                  count={typeof f.favoritesCount === "number" ? f.favoritesCount : undefined}
+                  count={
+                    typeof f.favoritesCount === "number"
+                      ? f.favoritesCount
+                      : undefined
+                  }
                   size="sm"
                   variant="ghost"
                   onToggle={() => onToggleFavorite(f)}
@@ -430,7 +463,9 @@ export default function ExplorerPreviewModal(props: Props) {
                       src={previewUrl}
                       alt={f.title}
                       style={imageStyle}
-                      className={fitMode === "contain" ? "rounded-xl shadow-sm" : ""}
+                      className={
+                        fitMode === "contain" ? "rounded-xl shadow-sm" : ""
+                      }
                       onLoad={() => setIsLoading(false)}
                       onError={() => {
                         setHadError("image");
@@ -478,21 +513,33 @@ export default function ExplorerPreviewModal(props: Props) {
               {/* PDF */}
               {!hadError && isPDF && (
                 <div className="w-full">
-                  <PdfCanvas
-                    url={previewUrl}
-                    page={pdfPage}
-                    onReady={(numPages) => {
-                      setPdfPages(numPages);
-                      setPdfPage((p) => Math.min(Math.max(1, p), numPages || 1));
-                      setIsLoading(false);
-                    }}
-                    onRendered={() => setIsLoading(false)}
-                    onError={(msg) => {
-                      console.error(msg);
-                      setHadError("pdf");
-                      setIsLoading(false);
-                    }}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="h-[40vh] grid place-items-center">
+                        <div className="w-28 h-2 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                          <div className="h-full w-1/2 animate-pulse" />
+                        </div>
+                      </div>
+                    }
+                  >
+                    <PdfCanvas
+                      url={previewUrl}
+                      page={pdfPage}
+                      onReady={(numPages) => {
+                        setPdfPages(numPages);
+                        setPdfPage((p) =>
+                          Math.min(Math.max(1, p), numPages || 1),
+                        );
+                        setIsLoading(false);
+                      }}
+                      onRendered={() => setIsLoading(false)}
+                      onError={(msg) => {
+                        console.error(msg);
+                        setHadError("pdf");
+                        setIsLoading(false);
+                      }}
+                    />
+                  </Suspense>
 
                   <div className="mt-2 text-sm text-neutral-500">
                     PDF preview (rendered). Use Download for the original file.
@@ -509,7 +556,8 @@ export default function ExplorerPreviewModal(props: Props) {
                         Prev
                       </button>
                       <span className="text-sm tabular-nums">
-                        Page {Math.min(pdfPage, Math.max(1, pdfPages || 1))} / {pdfPages || "—"}
+                        Page {Math.min(pdfPage, Math.max(1, pdfPages || 1))} /{" "}
+                        {pdfPages || "—"}
                       </span>
                       <button
                         className="px-2 py-1 rounded border border-app disabled:opacity-50"
@@ -537,7 +585,8 @@ export default function ExplorerPreviewModal(props: Props) {
               {/* Unsupported */}
               {!isLoading && !hadError && !isImage && !isPDF && !isText && (
                 <div className="p-4 text-center text-neutral-500">
-                  Preview not available for this file type. Use Download to view.
+                  Preview not available for this file type. Use Download to
+                  view.
                 </div>
               )}
             </div>
@@ -604,7 +653,9 @@ export default function ExplorerPreviewModal(props: Props) {
                     kind="file"
                     id={String(f.id)}
                     onMerge={(aiTags) => {
-                      const merged = Array.from(new Set([...(f.tags || []), ...aiTags]));
+                      const merged = Array.from(
+                        new Set([...(f.tags || []), ...aiTags]),
+                      );
                       setLocalTags(merged);
                       persistTags(merged);
                     }}

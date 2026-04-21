@@ -728,6 +728,14 @@ function prismaSupportsFolders(): boolean {
   return typeof (prisma as any).folder?.findMany === "function";
 }
 
+function folderSchemaOutOfSyncMessage(): string {
+  return "Folder filtering is unavailable because the deployed Prisma client or database schema is out of sync. Run Prisma migrate/generate and restart the server.";
+}
+
+function isUnknownFolderIdError(error: any): boolean {
+  return String(error?.message || "").includes("Unknown argument `folderId`");
+}
+
 // --- helpers (add once) ---
 function normalizeMime(m?: string) {
   return (m || "").toLowerCase().split(";")[0].trim();
@@ -1465,7 +1473,13 @@ r.get("/files", async (req, res, next) => {
       });
     }
 
-    if (typeof folderId === "string" && prismaSupportsFolders()) {
+    if (typeof folderId === "string") {
+      if (!prismaSupportsFolders()) {
+        return res.status(503).json({
+          message: folderSchemaOutOfSyncMessage(),
+        });
+      }
+
       if (folderId === "root" || folderId === "") where.folderId = null;
       else where.folderId = folderId;
     }
@@ -1571,33 +1585,9 @@ r.get("/files", async (req, res, next) => {
           pageSize: responsePageSize,
         });
       } catch (e: any) {
-        if (String(e?.message || "").includes("Unknown argument `folderId`")) {
-          const { folderId: _omit, ...whereNoFolder } = where;
-
-          const [items, total, sum] = await Promise.all([
-            take === 0
-              ? Promise.resolve([] as any[])
-              : prisma.storedFile.findMany({
-                  where: whereNoFolder,
-                  orderBy,
-                  skip,
-                  take,
-                  include: fileInclude,
-                }),
-            prisma.storedFile.count({ where: whereNoFolder }),
-            prisma.storedFile.aggregate({
-              where: whereNoFolder,
-              _sum: { size: true },
-            }),
-          ]);
-
-          const totalBytes = sum?._sum?.size ?? 0;
-          return res.json({
-            items,
-            total,
-            totalBytes,
-            page: responsePage,
-            pageSize: responsePageSize,
+        if (isUnknownFolderIdError(e)) {
+          return res.status(503).json({
+            message: folderSchemaOutOfSyncMessage(),
           });
         }
 
@@ -1613,14 +1603,12 @@ r.get("/files", async (req, res, next) => {
       });
       res.json(files);
     } catch (e: any) {
-      if (String(e?.message || "").includes("Unknown argument `folderId`")) {
-        const { folderId: _omit, ...whereNoFolder } = where;
-        const files = await prisma.storedFile.findMany({
-          where: whereNoFolder,
-          orderBy,
+      if (isUnknownFolderIdError(e)) {
+        return res.status(503).json({
+          message: folderSchemaOutOfSyncMessage(),
         });
-        return res.json(files);
       }
+
       throw e;
     }
   } catch (err) {

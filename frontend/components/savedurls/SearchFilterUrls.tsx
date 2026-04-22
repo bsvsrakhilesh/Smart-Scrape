@@ -131,7 +131,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   const chipSelected = "ring-2 ring-brand-primary/40";
 
   return (
-    <div className="space-y-4">
+    <div className="saved-urls-filter space-y-4" data-search-filter>
       {/* Search row */}
       <div className="space-y-2">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-start">
@@ -202,7 +202,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
       {/* Filters grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm">
         {/* Domains */}
-        <div className="card p-3">
+        <div className="saved-urls-section-card p-3">
           <div className="font-semibold mb-2">Domains</div>
           <div className="flex flex-wrap gap-2 min-w-0">
             {availableDomains.map((d) => {
@@ -231,7 +231,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
         </div>
 
         {/* Tags */}
-        <div className="card p-3">
+        <div className="saved-urls-section-card p-3">
           <div className="font-semibold mb-2">Tags</div>
           <div className="flex flex-wrap gap-2 min-w-0">
             {availableTags.map((t) => {
@@ -260,7 +260,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
         </div>
 
         {/* Dates & status */}
-        <div className="card p-3">
+        <div className="saved-urls-section-card p-3">
           <div className="font-semibold mb-2">Dates & status</div>
           <div className="flex flex-col gap-3">
             <div>

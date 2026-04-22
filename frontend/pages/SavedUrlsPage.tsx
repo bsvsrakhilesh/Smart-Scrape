@@ -2657,7 +2657,7 @@ const SavedUrlsPage: React.FC = () => {
   ]);
 
   return (
-    <main className="space-y-6 px-4 md:px-6 lg:px-8 pt-6 md:pt-8">
+    <main className="saved-urls-page space-y-6 px-4 md:px-6 lg:px-8 pt-6 md:pt-8">
       <header className="page-header">
         <div className="page-header-main">
           <p className="page-header-kicker">Library</p>
@@ -2691,7 +2691,7 @@ const SavedUrlsPage: React.FC = () => {
       </header>
 
       {tagSummary && (tagSummary.inProgress > 0 || tagSummary.failed > 0) && (
-        <div className="fm-panel p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-900/10">
+        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-900/10">
           <div className="text-sm text-amber-950 dark:text-amber-100">
             <span className="font-semibold">AI Tagging</span>
             <span className="ml-2">
@@ -2725,7 +2725,7 @@ const SavedUrlsPage: React.FC = () => {
       )}
 
       {(snapshotHealth.missingCount > 0 || snapshotHealth.staleCount > 0) && (
-        <div className="fm-panel p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-sky-200 bg-sky-50/60 dark:border-sky-900/40 dark:bg-sky-900/10">
+        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-sky-200 bg-sky-50/60 dark:border-sky-900/40 dark:bg-sky-900/10">
           <div className="text-sm text-sky-950 dark:text-sky-100">
             <span className="font-semibold">Snapshots</span>
             <span className="ml-2">
@@ -2843,7 +2843,7 @@ const SavedUrlsPage: React.FC = () => {
         </div>
       )}
 
-      <div className="fm-panel p-4 sm:p-5 space-y-4">
+      <div className="saved-urls-panel p-4 sm:p-5 space-y-4">
         <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
           <div>
             <p className="page-header-kicker">Review operations</p>
@@ -3017,7 +3017,7 @@ const SavedUrlsPage: React.FC = () => {
       </div>
 
       {bulkFailures.length > 0 && !bulkRunning && (
-        <div className="fm-panel p-3 sm:p-4 border border-rose-200 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-900/10">
+        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 border border-rose-200 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-900/10">
           <div className="text-sm text-rose-950 dark:text-rose-100">
             <span className="font-semibold">Snapshot failures:</span>{" "}
             {bulkFailures.length}
@@ -3040,7 +3040,7 @@ const SavedUrlsPage: React.FC = () => {
         {/* Sidebar */}
         <div className="col-span-12 md:col-span-4 lg:col-span-3">
           <div className="md:sticky md:top-20 lg:top-[76px]">
-            <div className="fm-panel h-full p-4 sm:p-5">
+            <div className="saved-urls-panel saved-urls-sidebar-panel h-full p-4 sm:p-5">
               <CollectionSidebar
                 collections={collections}
                 collectionCounts={collectionCounts}
@@ -3057,10 +3057,10 @@ const SavedUrlsPage: React.FC = () => {
 
         {/* Main content */}
         <div className="col-span-12 md:col-span-8 lg:col-span-9">
-          <div className="fm-panel p-4 sm:p-5 space-y-4 md:space-y-5 mb-10">
+          <div className="saved-urls-panel saved-urls-main-panel p-4 sm:p-5 space-y-4 md:space-y-5 mb-10">
             {/* Toolbar: 2-row responsive grid to avoid collisions */}
             <header
-              className="toolbar--glass relative grid grid-cols-12 gap-3 rounded-xl p-3 md:p-4 ring-1 ring-black/5 dark:ring-white/10 supports-backdrop:backdrop-blur-md"
+              className="saved-urls-toolbar relative grid grid-cols-12 gap-3 rounded-xl p-3 md:p-4"
               role="toolbar"
               aria-label="Saved URLs controls"
             >

@@ -6077,3 +6077,181 @@ body,
     min-width: calc(50% - 4px);
   }
 }
+
+/* ===========================
+   Saved URLs page: isolated surface system
+   Prevent File Manager panel styles from leaking into review UI.
+   =========================== */
+.saved-urls-page {
+  --su-surface: rgba(255, 255, 255, 0.88);
+  --su-surface-strong: rgba(255, 255, 255, 0.96);
+  --su-surface-muted: rgba(248, 250, 252, 0.86);
+  --su-border: rgba(15, 23, 42, 0.08);
+  --su-border-strong: rgba(15, 23, 42, 0.12);
+  --su-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 18px 48px rgba(15, 23, 42, 0.08);
+  --su-shadow-hover:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 24px 60px rgba(15, 23, 42, 0.12);
+  --su-radius: 26px;
+  --su-radius-md: 20px;
+}
+
+.dark .saved-urls-page {
+  --su-surface: rgba(10, 15, 26, 0.86);
+  --su-surface-strong: rgba(11, 18, 32, 0.94);
+  --su-surface-muted: rgba(15, 23, 42, 0.76);
+  --su-border: rgba(148, 163, 184, 0.16);
+  --su-border-strong: rgba(148, 163, 184, 0.22);
+  --su-shadow:
+    0 1px 2px rgba(2, 6, 23, 0.32),
+    0 22px 64px rgba(2, 6, 23, 0.44);
+  --su-shadow-hover:
+    0 1px 2px rgba(2, 6, 23, 0.4),
+    0 28px 72px rgba(2, 6, 23, 0.54);
+}
+
+.saved-urls-panel {
+  position: relative;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
+  border-radius: var(--su-radius);
+  border: 1px solid var(--su-border);
+  background:
+    radial-gradient(130% 160% at 0% 0%, rgba(16, 185, 129, 0.08), transparent 52%),
+    radial-gradient(130% 160% at 100% 0%, rgba(59, 130, 246, 0.08), transparent 56%),
+    linear-gradient(180deg, var(--su-surface-strong), var(--su-surface));
+  box-shadow: var(--su-shadow);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+
+.saved-urls-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.34),
+    rgba(255, 255, 255, 0.08) 24%,
+    transparent 42%
+  );
+  opacity: 0.6;
+}
+
+.dark .saved-urls-panel::before {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.06),
+    rgba(255, 255, 255, 0.02) 24%,
+    transparent 42%
+  );
+}
+
+.saved-urls-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.saved-urls-banner {
+  border-radius: 22px;
+}
+
+.saved-urls-sidebar-panel,
+.saved-urls-main-panel {
+  overflow: hidden;
+}
+
+.saved-urls-toolbar {
+  overflow: visible;
+  position: relative;
+  border: 1px solid var(--su-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(248, 250, 252, 0.82)),
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.09), transparent 38%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+}
+
+.dark .saved-urls-toolbar {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(10, 15, 26, 0.84)),
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.1), transparent 38%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.saved-urls-filter .input,
+.saved-urls-page .input-pill,
+.saved-urls-page .input {
+  min-height: 44px;
+}
+
+.saved-urls-filter input,
+.saved-urls-filter select,
+.saved-urls-page input,
+.saved-urls-page select {
+  max-width: 100%;
+}
+
+.saved-urls-section-card {
+  border-radius: 20px;
+  border: 1px solid var(--su-border);
+  background: var(--su-surface-muted);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.dark .saved-urls-section-card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.saved-urls-page .card {
+  border: 1px solid var(--su-border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.saved-urls-page .saved-urls-panel:hover {
+  box-shadow: var(--su-shadow-hover);
+}
+
+.saved-urls-page .page-header {
+  align-items: flex-start;
+}
+
+.saved-urls-page .page-header-meta {
+  align-self: flex-start;
+}
+
+.saved-urls-page .chip {
+  white-space: nowrap;
+}
+
+.saved-urls-page .btn-primary,
+.saved-urls-page .btn-secondary,
+.saved-urls-page .btn-ghost {
+  white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+  .saved-urls-panel {
+    border-radius: 22px;
+  }
+}
+
+@media (max-width: 768px) {
+  .saved-urls-page {
+    --su-radius: 22px;
+    --su-radius-md: 18px;
+  }
+
+  .saved-urls-page .page-header {
+    flex-direction: column;
+  }
+
+  .saved-urls-page .page-header-meta {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

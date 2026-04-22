@@ -1,7 +1,8 @@
 import { TaggingStatus } from "../generated/prisma/client";
 import prisma from "../config/database";
-import { createJobFromFile, getJob } from "./pyTaggerClient";
-import { syncGovernanceForStoredFileTx } from "./governanceGraphSync.service";
+import { createJobFromFile } from "./pyTaggerClient";
+import { finalizeAiTagJobForFile } from "./aiTagJobFinalize.service";
+import { persistAiTagFailureForFile } from "./aiTagPersistence.service";
 import {
   getAiTaggingUnavailableMessage,
   getFileCapability,
@@ -10,66 +11,16 @@ import {
 const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
 
-// Poll tuning
-const MAX_WAIT_MS = Number(process.env.TAGS_JOB_MAX_WAIT_MS || 4 * 60 * 1000); // 4 min
-const INITIAL_DELAY_MS = Number(process.env.TAGS_JOB_POLL_INITIAL_MS || 1000); // 1s
-const MAX_DELAY_MS = Number(process.env.TAGS_JOB_POLL_MAX_MS || 8000); // 8s
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function mergeUnique(
-  existing: string[] | null | undefined,
-  incoming: string[] | null | undefined,
-) {
-  return Array.from(new Set([...(existing || []), ...(incoming || [])]));
-}
-
-function parseStructuredDate(value: unknown): Date | null {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const direct = new Date(raw);
-  if (!Number.isNaN(direct.getTime())) return direct;
-
-  const dmy = raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
-  if (dmy) {
-    const day = Number(dmy[1]);
-    const month = Number(dmy[2]);
-    let year = Number(dmy[3]);
-
-    if (year < 100) year += year >= 70 ? 1900 : 2000;
-
-    const dt = new Date(Date.UTC(year, month - 1, day));
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-
-  return null;
-}
-
-function derivePublishedAtFromAiTaggerPayload(data: any): Date | null {
-  const candidates = Array.isArray(data?.structured?.entities?.dates)
-    ? data.structured.entities.dates
-    : [];
-
-  for (const candidate of candidates) {
-    const parsed = parseStructuredDate(candidate);
-    if (parsed) return parsed;
-  }
-
-  return null;
-}
-
 /**
  * Runs Python ai-tagger for an existing StoredFile row and persists results when done.
- * Safe to call multiple times (merges tags).
+ * This now uses the same finalization path as the manual route.
  */
 export async function runAiTagForFile(
   fileId: string,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; throwOnTerminalFailure?: boolean },
 ) {
   const force = Boolean(opts?.force);
+  const throwOnTerminalFailure = opts?.throwOnTerminalFailure !== false;
 
   const rec = await prisma.storedFile.findUnique({
     where: { id: String(fileId) },
@@ -96,17 +47,21 @@ export async function runAiTagForFile(
       skipped: true as const,
       reason: "unsupported_type" as const,
       message: msg,
+      tags: rec.tags || [],
     };
   }
 
-  // Avoid duplicate work unless forced
   if (
     !force &&
     rec.taggerVersion &&
     rec.contentHash &&
     (rec.tags?.length || 0) > 0
   ) {
-    return { skipped: true as const, reason: "already_tagged" as const };
+    return {
+      skipped: true as const,
+      reason: "already_tagged" as const,
+      tags: rec.tags || [],
+    };
   }
 
   const { jobId } = await createJobFromFile(rec.storagePath, TOPK, USE_LLM);
@@ -120,117 +75,52 @@ export async function runAiTagForFile(
     },
   });
 
-  const startedAt = Date.now();
-  let delay = INITIAL_DELAY_MS;
-
-  while (true) {
-    if (Date.now() - startedAt > MAX_WAIT_MS) {
-      throw new Error(
-        `ai-tagger job timed out for fileId=${fileId} jobId=${jobId}`,
-      );
-    }
-
-    let data: any;
-    try {
-      data = await getJob(jobId);
-    } catch (e) {
-      console.warn(
-        "[aiTagAuto] getJob transient error",
-        { fileId, jobId, delay },
-        e,
-      );
-      await sleep(delay);
-      delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
-      continue;
-    }
-
-    if (data?.state === "SUCCESS") {
-      const tags = Array.isArray(data?.tags) ? data.tags : [];
-      const phrases = Array.isArray(data?.phrases) ? data.phrases : [];
-      const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
-      const structured = data?.structured ?? null;
-      const governance = data?.governance ?? null;
-      const extraction = data?.extraction ?? null;
-
-      const latest = await prisma.storedFile.findUnique({
-        where: { id: String(fileId) },
-        select: {
-          tags: true,
-          tagsMeta: true,
-          sourcePublishedAt: true,
-          sourceAuthors: true,
-        },
-      });
-
-      const merged = mergeUnique(latest?.tags, tags);
-      const structuredPublishedAt = derivePublishedAtFromAiTaggerPayload(data);
-
-      await prisma.$transaction(async (tx) => {
-        await tx.storedFile.update({
-          where: { id: String(fileId) },
-          data: {
-            tags: { set: merged },
-            contentHash: data?.hash ?? null,
-            taggerVersion: data?.tagger_version ?? null,
-            sourcePublishedAt:
-              latest?.sourcePublishedAt ?? structuredPublishedAt ?? null,
-            tagsMeta: {
-              ...((latest?.tagsMeta as any) || {}),
-              tagger: {
-                phrases: phrases || [],
-                unigrams: unigrams || [],
-                structured: structured || null,
-                governance: governance || null,
-                extraction: extraction || null,
-                topk: TOPK,
-                use_llm: USE_LLM,
-                jobId,
-                updatedAt: new Date().toISOString(),
-                normalizedTextSha256: data?.hash ?? null,
-                normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
-                structuredLlmUsed: data?.structured_llm_used ?? false,
-                structuredLlmModel: data?.structured_llm_model ?? null,
-                governanceLlmUsed: data?.governance_llm_used ?? false,
-                governanceLlmModel: data?.governance_llm_model ?? null,
-              },
-              aiTagger: {
-                phrases,
-                unigrams,
-                governance,
-              },
-            } as any,
-            taggingStatus: TaggingStatus.SUCCESS,
-            taggingJobId: null,
-            taggingError: null,
-          },
-        });
-
-        await tx.documentRevision.updateMany({
-          where: { storedFileId: String(fileId) },
-          data: {
-            contentHash: data?.hash ?? null,
-          },
-        });
-
-        await syncGovernanceForStoredFileTx(tx, String(fileId), {
-          governance,
-          taggerVersion: data?.tagger_version ?? null,
-          llmModel: data?.governance_llm_model ?? null,
-        });
-      });
-
-      return { skipped: false as const, jobId, tags: merged };
-    }
+  try {
+    const data = await finalizeAiTagJobForFile(String(fileId), jobId);
 
     if (data?.state === "FAILURE") {
       const err = data?.error || data?.message || "Unknown ai-tagger failure";
-      throw new Error(
-        `ai-tagger failed for fileId=${fileId} jobId=${jobId}: ${err}`,
-      );
+
+      if (throwOnTerminalFailure) {
+        throw new Error(
+          `ai-tagger failed for fileId=${fileId} jobId=${jobId}: ${err}`,
+        );
+      }
+
+      return {
+        skipped: false as const,
+        failed: true as const,
+        jobId,
+        tags: [] as string[],
+      };
     }
 
-    await sleep(delay);
-    delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
+    const latest = await prisma.storedFile.findUnique({
+      where: { id: String(fileId) },
+      select: { tags: true },
+    });
+
+    return {
+      skipped: false as const,
+      jobId,
+      tags: latest?.tags ?? (Array.isArray(data?.tags) ? data.tags : []),
+    };
+  } catch (e: any) {
+    const msg = String(e?.message || e || "Unknown ai-tagger error").slice(
+      0,
+      500,
+    );
+
+    await persistAiTagFailureForFile(String(fileId), jobId, { error: msg });
+
+    if (throwOnTerminalFailure) throw e;
+
+    return {
+      skipped: false as const,
+      failed: true as const,
+      jobId,
+      tags: [] as string[],
+    };
   }
 }
 
@@ -250,7 +140,10 @@ export function scheduleAiTagForFile(
         },
       });
 
-      await runAiTagForFile(fileId, opts);
+      await runAiTagForFile(String(fileId), {
+        ...(opts || {}),
+        throwOnTerminalFailure: false,
+      });
     } catch (e: any) {
       const msg = String(e?.message || e || "Unknown error").slice(0, 500);
 

@@ -1,53 +1,40 @@
 // backend/src/services/aiTagUrlAuto.service.ts
 import { TaggingStatus } from "../generated/prisma/client";
 import prisma from "../config/database";
-import { createJobFromFile, createJobFromUrl, getJob } from "./pyTaggerClient";
-import { syncGovernanceForUrlTx } from "./governanceGraphSync.service";
+import { createJobFromFile, createJobFromUrl } from "./pyTaggerClient";
+import { finalizeAiTagJobForUrl } from "./aiTagJobFinalize.service";
+import { persistAiTagFailureForUrl } from "./aiTagPersistence.service";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
 
-// Poll tuning
-const MAX_WAIT_MS = Number(process.env.TAGS_JOB_MAX_WAIT_MS || 4 * 60 * 1000); // 4 min
-const INITIAL_DELAY_MS = Number(process.env.TAGS_JOB_POLL_INITIAL_MS || 1000); // 1s
-const MAX_DELAY_MS = Number(process.env.TAGS_JOB_POLL_MAX_MS || 8000); // 8s
-
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-function mergeUnique(
-  existing: string[] | null | undefined,
-  incoming: string[] | null | undefined,
-) {
-  return Array.from(new Set([...(existing || []), ...(incoming || [])]));
-}
-
 /**
  * Runs Python ai-tagger for an existing Url row and persists results when done.
- * Safe to call multiple times (merges tags).
+ * This now uses the same finalization path as the manual route.
  */
 export async function runAiTagForUrl(
   urlId: number,
-  opts?: { force?: boolean },
+  opts?: { force?: boolean; throwOnTerminalFailure?: boolean },
 ) {
   const force = Boolean(opts?.force);
+  const throwOnTerminalFailure = opts?.throwOnTerminalFailure !== false;
 
   const rec = await prisma.url.findUnique({ where: { id: urlId } });
   if (!rec) throw new Error(`Url not found: ${urlId}`);
 
-  // Avoid duplicate work unless forced
   if (
     !force &&
     rec.taggerVersion &&
     rec.contentHash &&
     (rec.tags?.length || 0) > 0
   ) {
-    return { skipped: true as const, reason: "already_tagged" as const };
+    return {
+      skipped: true as const,
+      reason: "already_tagged" as const,
+      tags: rec.tags || [],
+    };
   }
 
-  // Prefer tagging from the latest stored snapshot for this URL (especially PDFs).
-  // This avoids timeouts / redirects / paywalls and guarantees we tag what we saved.
   const latestSnapshot = await prisma.storedFile.findFirst({
     where: { urlId },
     orderBy: { createdAt: "desc" },
@@ -77,99 +64,52 @@ export async function runAiTagForUrl(
     },
   });
 
-  const startedAt = Date.now();
-  let delay = INITIAL_DELAY_MS;
-
-  while (true) {
-    if (Date.now() - startedAt > MAX_WAIT_MS) {
-      throw new Error(
-        `ai-tagger job timed out for urlId=${urlId} jobId=${jobId}`,
-      );
-    }
-
-    let data: any;
-    try {
-      data = await getJob(jobId);
-    } catch (e) {
-      // Treat as transient (network hiccup / timeout / tagger under load).
-      // Keep polling until MAX_WAIT_MS instead of failing the whole auto-tag run.
-      console.warn(
-        "[aiTagUrlAuto] getJob transient error",
-        { urlId, jobId, delay },
-        e,
-      );
-      await sleep(delay);
-      delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
-      continue;
-    }
-
-    if (data?.state === "SUCCESS") {
-      const tags = Array.isArray(data?.tags) ? data.tags : [];
-      const phrases = Array.isArray(data?.phrases) ? data.phrases : [];
-      const unigrams = Array.isArray(data?.unigrams) ? data.unigrams : [];
-      const structured = data?.structured ?? null;
-      const governance = data?.governance ?? null;
-
-      const latest = await prisma.url.findUnique({
-        where: { id: urlId },
-        select: { tags: true, tagsMeta: true },
-      });
-
-      const merged = mergeUnique(latest?.tags, tags);
-
-      await prisma.$transaction(async (tx) => {
-        await tx.url.update({
-          where: { id: urlId },
-          data: {
-            tags: { set: merged },
-            contentHash: data?.hash ?? null,
-            taggerVersion: data?.tagger_version ?? null,
-            tagsMeta: {
-              ...((latest?.tagsMeta as any) || {}),
-              tagger: {
-                phrases,
-                unigrams,
-                structured,
-                governance,
-                topk: TOPK,
-                use_llm: USE_LLM,
-                jobId,
-                updatedAt: new Date().toISOString(),
-                normalizedTextSha256: data?.hash ?? null,
-                normalizedTextHashAlgorithm: data?.hash ? "sha256" : null,
-                structuredLlmUsed: data?.structured_llm_used ?? false,
-                structuredLlmModel: data?.structured_llm_model ?? null,
-                governanceLlmUsed: data?.governance_llm_used ?? false,
-                governanceLlmModel: data?.governance_llm_model ?? null,
-              },
-
-              aiTagger: { phrases, unigrams, governance },
-            } as any,
-            taggingStatus: TaggingStatus.SUCCESS,
-            taggingJobId: null,
-            taggingError: null,
-          },
-        });
-
-        await syncGovernanceForUrlTx(tx, urlId, {
-          governance,
-          taggerVersion: data?.tagger_version ?? null,
-          llmModel: data?.governance_llm_model ?? null,
-        });
-      });
-
-      return { skipped: false as const, jobId, tags: merged };
-    }
+  try {
+    const data = await finalizeAiTagJobForUrl(urlId, jobId);
 
     if (data?.state === "FAILURE") {
       const err = data?.error || data?.message || "Unknown ai-tagger failure";
-      throw new Error(
-        `ai-tagger failed for urlId=${urlId} jobId=${jobId}: ${err}`,
-      );
+
+      if (throwOnTerminalFailure) {
+        throw new Error(
+          `ai-tagger failed for urlId=${urlId} jobId=${jobId}: ${err}`,
+        );
+      }
+
+      return {
+        skipped: false as const,
+        failed: true as const,
+        jobId,
+        tags: [] as string[],
+      };
     }
 
-    await sleep(delay);
-    delay = Math.min(MAX_DELAY_MS, Math.round(delay * 1.3));
+    const latest = await prisma.url.findUnique({
+      where: { id: urlId },
+      select: { tags: true },
+    });
+
+    return {
+      skipped: false as const,
+      jobId,
+      tags: latest?.tags ?? (Array.isArray(data?.tags) ? data.tags : []),
+    };
+  } catch (e: any) {
+    const msg = String(e?.message || e || "Unknown ai-tagger error").slice(
+      0,
+      500,
+    );
+
+    await persistAiTagFailureForUrl(urlId, jobId, { error: msg });
+
+    if (throwOnTerminalFailure) throw e;
+
+    return {
+      skipped: false as const,
+      failed: true as const,
+      jobId,
+      tags: [] as string[],
+    };
   }
 }
 
@@ -177,7 +117,6 @@ export async function runAiTagForUrl(
 export function scheduleAiTagForUrl(urlId: number, opts?: { force?: boolean }) {
   setImmediate(async () => {
     try {
-      // Show status immediately in UI
       await prisma.url.update({
         where: { id: urlId },
         data: {
@@ -186,7 +125,10 @@ export function scheduleAiTagForUrl(urlId: number, opts?: { force?: boolean }) {
         },
       });
 
-      await runAiTagForUrl(urlId, opts);
+      await runAiTagForUrl(urlId, {
+        ...(opts || {}),
+        throwOnTerminalFailure: false,
+      });
     } catch (e: any) {
       const msg = String(e?.message || e || "Unknown error").slice(0, 500);
 

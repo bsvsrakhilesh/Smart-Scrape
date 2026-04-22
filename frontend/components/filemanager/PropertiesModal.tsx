@@ -17,6 +17,7 @@ import { FileItem } from "../../lib/types";
 import { formatBytes } from "../../utils/fileHelpers";
 
 import StructuredTags from "../common/StructuredTags";
+import { canRetryAiTag, getAiTagUiSummary } from "../../lib/aiTagUi";
 
 type PropertiesModalProps = {
   file: FileItem | null;
@@ -187,27 +188,16 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
     displayText((file as any).name) ||
     "Untitled file";
 
-  const taggingStatus = file.taggingStatus ?? "NONE";
-  const canRetryAiTag =
-    taggingStatus === "FAILED" || Boolean(file.taggingError);
+  const aiSummary = getAiTagUiSummary(file);
+  const canRetryAiTagNow = canRetryAiTag(file);
 
-  const taggingLabel =
-    taggingStatus === "SUCCESS"
-      ? "Ready"
-      : taggingStatus === "RUNNING"
-        ? "Running"
-        : taggingStatus === "PENDING"
-          ? "Queued"
-          : taggingStatus === "FAILED"
-            ? "Failed"
-            : "Not started";
-
+  const taggingLabel = aiSummary.label;
   const taggingTone =
-    taggingStatus === "SUCCESS"
+    aiSummary.tone === "success"
       ? "success"
-      : taggingStatus === "RUNNING" || taggingStatus === "PENDING"
+      : aiSummary.tone === "progress"
         ? "progress"
-        : taggingStatus === "FAILED"
+        : aiSummary.tone === "danger"
           ? "danger"
           : "neutral";
 
@@ -528,7 +518,7 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {canRetryAiTag && onRetryAiTag ? (
+                    {canRetryAiTagNow && onRetryAiTag ? (
                       <button
                         type="button"
                         className="btn-ghost h-8 px-3 text-xs"
@@ -566,7 +556,61 @@ const PropertiesModal: React.FC<PropertiesModalProps> = ({
                           {displayText(file.taggingJobId, "—")}
                         </div>
                       </div>
+                      <div>
+                        <div className={labelClass}>Stage</div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {displayText((file as any).aiTagJobStage, "—")}
+                        </div>
+                      </div>
+                      <div>
+                        <div className={labelClass}>Attempt</div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {(file as any).aiTagJobAttempt != null
+                            ? String((file as any).aiTagJobAttempt)
+                            : "—"}
+                        </div>
+                      </div>
                     </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between text-xs text-muted">
+                        <span>Progress</span>
+                        <span>
+                          {(file as any).aiTagJobProgress != null
+                            ? `${Math.round((file as any).aiTagJobProgress)}%`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-blue-500 transition-all"
+                          style={{
+                            width:
+                              typeof (file as any).aiTagJobProgress === "number"
+                                ? `${Math.max(
+                                    0,
+                                    Math.min(
+                                      100,
+                                      (file as any).aiTagJobProgress,
+                                    ),
+                                  )}%`
+                                : "0%",
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-[hsl(var(--border))] bg-white/80 p-3 text-sm text-foreground dark:bg-white/[0.03]">
+                      {(file as any).aiTagJobMessage ||
+                        aiSummary.detail ||
+                        "No active AI runtime details"}
+                    </div>
+
+                    {(file as any).aiTagJobCached ? (
+                      <div className="mt-3 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                        Cached result
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-2xl border border-[hsl(var(--border))] bg-black/[0.02] p-4 dark:bg-white/[0.03]">

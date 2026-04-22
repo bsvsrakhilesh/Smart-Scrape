@@ -106,6 +106,11 @@ export interface FileItem {
   taggingStatus?: TaggingStatus;
   taggingJobId?: string | null;
   taggingError?: string | null;
+  aiTagJobProgress?: number | null;
+  aiTagJobStage?: string | null;
+  aiTagJobMessage?: string | null;
+  aiTagJobAttempt?: number | null;
+  aiTagJobCached?: boolean | null;
   tagsMetaRaw?: any;
 
   document?: {
@@ -191,6 +196,12 @@ export interface SavedUrl {
   contentHash?: string | null;
   taggingStatus?: TaggingStatus;
   taggingError?: string | null;
+  taggingJobId?: string | null;
+  aiTagJobProgress?: number | null;
+  aiTagJobStage?: string | null;
+  aiTagJobMessage?: string | null;
+  aiTagJobAttempt?: number | null;
+  aiTagJobCached?: boolean | null;
   notes?: string;
   isFavorited: boolean;
   collections: string[]; // collection IDs

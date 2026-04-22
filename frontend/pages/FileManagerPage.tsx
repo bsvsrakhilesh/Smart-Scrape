@@ -57,6 +57,12 @@ import {
   apiUrl,
 } from "../lib/api";
 import { mergeUniqueTags, normalizeTagList } from "../lib/tagBuckets";
+import {
+  AI_TAG_JOB_POLL_MS,
+  AI_TAG_JOB_TIMEOUT_SEC,
+  canRetryAiTag as canRetryAiTagForItem,
+  deriveAiTagRuntimeFromJob,
+} from "../lib/aiTagUi";
 import BulkActionBar from "../components/common/BulkActionBar";
 import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
 import TextEntryModal from "../components/common/TextEntryModal";
@@ -2388,6 +2394,7 @@ export default function FileManagerPage() {
   );
 
   const liveTagPollRef = useRef<Set<string>>(new Set());
+  const liveTagRuntimePollRef = useRef<Set<string>>(new Set());
 
   const refreshPendingTaggingFiles = useCallback(
     async (fileIds: string[]) => {
@@ -2413,6 +2420,125 @@ export default function FileManagerPage() {
       }
     },
     [upsertLatestFileEverywhere],
+  );
+
+  const pollLiveAiTagJobsForFiles = useCallback(
+    async (rows: FileItem[]) => {
+      const targets = rows
+        .filter((f) => {
+          const id = String((f as any)?.id ?? "");
+          const jobId = String((f as any)?.taggingJobId ?? "").trim();
+          const status = String(
+            (f as any)?.taggingStatus ?? "NONE",
+          ).toUpperCase();
+
+          return (
+            !isFolderId(id) &&
+            Boolean(jobId) &&
+            !jobId.startsWith("claim:") &&
+            (status === "PENDING" || status === "RUNNING")
+          );
+        })
+        .filter((f) => !liveTagRuntimePollRef.current.has(String(f.id)))
+        .slice(0, 8);
+
+      if (!targets.length) return;
+
+      targets.forEach((f) => liveTagRuntimePollRef.current.add(String(f.id)));
+
+      try {
+        await Promise.allSettled(
+          targets.map(async (f) => {
+            const fileId = String(f.id);
+            const jobId = String((f as any)?.taggingJobId ?? "").trim();
+            if (!jobId) return;
+
+            const data = await getFileTagJob(jobId, fileId);
+
+            if (data?.state === "SUCCESS") {
+              const aiTags = normalizeTagList((data as any).tags ?? []);
+
+              patchFileEverywhere(fileId, (current) => {
+                const effectiveTags = mergeUniqueTags(
+                  current.userTags ?? [],
+                  aiTags,
+                );
+
+                return {
+                  taggingStatus: "SUCCESS",
+                  taggingJobId: null,
+                  taggingError: null,
+                  aiTags,
+                  effectiveTags,
+                  tags: effectiveTags,
+                  aiTagJobProgress: 100,
+                  aiTagJobStage: null,
+                  aiTagJobMessage: null,
+                  aiTagJobAttempt: null,
+                  aiTagJobCached:
+                    typeof (data as any).cached === "boolean"
+                      ? Boolean((data as any).cached)
+                      : null,
+                };
+              });
+
+              try {
+                const fresh = await getFileById(fileId);
+                applyLatestFileEverywhere(fresh);
+              } catch {
+                // optimistic success is already visible
+              }
+              return;
+            }
+
+            if (data?.state === "FAILURE") {
+              patchFileEverywhere(fileId, {
+                taggingStatus: "FAILED",
+                taggingJobId: null,
+                taggingError:
+                  (data as any)?.error ||
+                  (data as any)?.message ||
+                  "AI tagging failed",
+                aiTagJobProgress:
+                  typeof (data as any)?.progress === "number"
+                    ? Number((data as any).progress)
+                    : null,
+                aiTagJobStage: (data as any)?.stage ?? null,
+                aiTagJobMessage: (data as any)?.message ?? null,
+                aiTagJobAttempt:
+                  typeof (data as any)?.attempt === "number"
+                    ? Number((data as any).attempt)
+                    : null,
+                aiTagJobCached: null,
+              });
+              return;
+            }
+
+            const runtime = deriveAiTagRuntimeFromJob(
+              data,
+              (f as any)?.aiTagJobProgress ?? null,
+            );
+
+            patchFileEverywhere(fileId, {
+              taggingStatus:
+                runtime.taggingStatus ??
+                (data?.state === "PENDING" ? "PENDING" : "RUNNING"),
+              aiTagJobProgress: runtime.aiTagJobProgress ?? null,
+              aiTagJobStage: runtime.aiTagJobStage ?? null,
+              aiTagJobMessage: runtime.aiTagJobMessage ?? null,
+              aiTagJobAttempt: runtime.aiTagJobAttempt ?? null,
+              aiTagJobCached: runtime.aiTagJobCached ?? null,
+              taggingError: null,
+            });
+          }),
+        );
+      } finally {
+        targets.forEach((f) =>
+          liveTagRuntimePollRef.current.delete(String(f.id)),
+        );
+      }
+    },
+    [applyLatestFileEverywhere, patchFileEverywhere],
   );
 
   useEffect(() => {
@@ -2444,6 +2570,39 @@ export default function FileManagerPage() {
       window.clearInterval(timer);
     };
   }, [allFiles, refreshPendingTaggingFiles]);
+
+  useEffect(() => {
+    const liveRows = allFiles.filter((f) => {
+      const id = String((f as any)?.id ?? "");
+      const jobId = String((f as any)?.taggingJobId ?? "").trim();
+      const status = String((f as any)?.taggingStatus ?? "NONE").toUpperCase();
+
+      return (
+        !isFolderId(id) &&
+        Boolean(jobId) &&
+        !jobId.startsWith("claim:") &&
+        (status === "PENDING" || status === "RUNNING")
+      );
+    });
+
+    if (!liveRows.length) return;
+
+    let cancelled = false;
+
+    const run = () => {
+      if (!cancelled) {
+        void pollLiveAiTagJobsForFiles(liveRows);
+      }
+    };
+
+    run();
+    const timer = window.setInterval(run, AI_TAG_JOB_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [allFiles, pollLiveAiTagJobsForFiles]);
 
   const handleRename = async (file: FileItem, newName?: string) => {
     if (newName == null) {
@@ -3512,22 +3671,51 @@ export default function FileManagerPage() {
         return;
       }
 
+      const status = String(
+        (file as any)?.taggingStatus ?? "NONE",
+      ).toUpperCase();
+      if (status === "RUNNING" || status === "PENDING") {
+        notify("AI extraction is already in progress for this file.", "info");
+        return;
+      }
+
+      if (!canRetryAiTagForItem(file)) {
+        notify("This file is not retryable from the current state.", "info");
+        return;
+      }
+
       patchFileEverywhere(id, {
         taggingStatus: "RUNNING",
         taggingError: null,
-        taggingJobId: null,
+        aiTagJobProgress: 8,
+        aiTagJobStage: "queued",
+        aiTagJobMessage: "Waiting for worker pickup",
+        aiTagJobAttempt: null,
+        aiTagJobCached: null,
       });
 
       try {
-        const { jobId } = await startFileTagJob(id);
+        const started = await startFileTagJob(id);
 
         patchFileEverywhere(id, {
           taggingStatus: "RUNNING",
           taggingError: null,
-          taggingJobId: jobId,
+          taggingJobId: started.jobId,
+          aiTagJobProgress: 8,
+          aiTagJobStage: "queued",
+          aiTagJobMessage: started.reused
+            ? "Reconnected to an in-flight AI extraction"
+            : "Waiting for worker pickup",
+          aiTagJobAttempt: null,
+          aiTagJobCached: null,
         });
 
-        notify(`Retrying AI extraction for ${label}`, "info");
+        notify(
+          started.reused
+            ? `Reconnected to AI extraction for ${label}`
+            : `Retrying AI extraction for ${label}`,
+          "info",
+        );
 
         void refreshPendingTaggingFiles([id]);
       } catch (e: any) {
@@ -3537,6 +3725,11 @@ export default function FileManagerPage() {
           taggingStatus: "FAILED",
           taggingError: msg,
           taggingJobId: null,
+          aiTagJobProgress: null,
+          aiTagJobStage: null,
+          aiTagJobMessage: null,
+          aiTagJobAttempt: null,
+          aiTagJobCached: null,
         });
 
         notify(msg, "error");
@@ -3581,9 +3774,14 @@ export default function FileManagerPage() {
         // 1) start job
         const { jobId } = await startFileTagJob(fileId);
 
-        // 2) poll job (timeout ~90s)
+        // 2) poll job (aligned with backend/tagger limits)
         let attempt = 0;
-        while (attempt < 90) {
+        const maxAttempts = Math.max(
+          10,
+          Math.ceil((AI_TAG_JOB_TIMEOUT_SEC * 1000) / AI_TAG_JOB_POLL_MS),
+        );
+
+        while (attempt < maxAttempts) {
           if (autoTagCancelRef.current) {
             throw new Error("Cancelled");
           }
@@ -3601,7 +3799,7 @@ export default function FileManagerPage() {
             throw new Error(data?.error || "AI tagging failed");
           }
 
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, AI_TAG_JOB_POLL_MS));
           attempt++;
         }
 

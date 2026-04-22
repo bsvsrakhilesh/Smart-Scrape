@@ -7,6 +7,10 @@ import React, {
 } from "react";
 import type { FileItem } from "../../lib/types";
 import { formatBytes } from "../../utils/fileHelpers";
+import {
+  canRetryAiTag as canRetryAiTagForItem,
+  getAiTagUiSummary,
+} from "../../lib/aiTagUi";
 import ContextMenu, { type MenuItem } from "../common/ContextMenu";
 import { useConfirm } from "../providers/Confirm";
 
@@ -185,44 +189,20 @@ const getTaggingInfo = (
   const folder = Boolean((f as any).isFolder) || mime === "folder";
   if (folder) return null;
 
-  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
-  const tags = Array.isArray((f as any).tags) ? (f as any).tags.length : 0;
-  const err = String((f as any).taggingError || "").trim();
+  const summary = getAiTagUiSummary(f);
 
-  switch (status) {
-    case "PENDING":
-      return {
-        tone: "amber",
-        label: "AI pending",
-        meta: "Queued for extraction",
-      };
-
-    case "RUNNING":
-      return {
-        tone: "blue",
-        label: "AI processing",
-        meta: "Extracting labels",
-      };
-
-    case "SUCCESS":
-      return {
-        tone: "green",
-        label: "AI ready",
-        meta: tags
-          ? `${tags} label${tags === 1 ? "" : "s"} extracted`
-          : "Metadata extracted",
-      };
-
-    case "FAILED":
-      return {
-        tone: "red",
-        label: "AI failed",
-        meta: err || "Extraction needs retry",
-      };
-
-    default:
-      return null;
-  }
+  return {
+    tone:
+      summary.tone === "success"
+        ? "green"
+        : summary.tone === "progress"
+          ? "blue"
+          : summary.tone === "danger"
+            ? "red"
+            : "slate",
+    label: summary.label,
+    meta: summary.detail,
+  };
 };
 
 const getRevisionInfo = (f: FileItem): { label: string; meta: string } => {
@@ -269,16 +249,7 @@ const getListSummary = (f: FileItem): string => {
   return parts.join(" · ");
 };
 
-const canRetryAiTag = (f: FileItem): boolean => {
-  const mime = String((f as any).mimeType || "").toLowerCase();
-  const folder = Boolean((f as any).isFolder) || mime === "folder";
-  if (folder) return false;
-
-  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
-  const err = String((f as any).taggingError || "").trim();
-
-  return status === "FAILED" || Boolean(err);
-};
+const canRetryAiTag = (f: FileItem): boolean => canRetryAiTagForItem(f);
 
 const renderTypeIcon = (f: FileItem) => {
   const name = fileDisplayName(f).toLowerCase();

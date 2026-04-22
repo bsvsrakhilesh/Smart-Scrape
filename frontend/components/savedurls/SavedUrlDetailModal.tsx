@@ -16,6 +16,7 @@ import {
   apiUrl,
   type BackendDocumentRevision,
 } from "../../lib/api";
+import { canRetryAiTag, getAiTagUiSummary } from "../../lib/aiTagUi";
 import { openGovernanceWorkspace } from "../../lib/governanceWorkspace";
 import { openNotebookWithPendingSource } from "../../lib/notebookLaunch";
 import { useToast } from "../providers/Toast";
@@ -76,46 +77,28 @@ function getUrlTaggingSummary(saved: SavedUrl): {
   label: string;
   meta: string;
 } {
-  const status = saved.taggingStatus ?? "NONE";
+  const summary = getAiTagUiSummary(saved);
 
-  if (status === "SUCCESS") {
+  if (summary.tone === "success") {
     return {
       tone: "green",
-      label: "AI tags ready",
-      meta: saved.taggerVersion
-        ? `Tagger ${saved.taggerVersion}`
-        : `${saved.tags.length} labels on record`,
+      label: summary.label,
+      meta: summary.detail,
     };
   }
 
-  if (status === "RUNNING") {
+  if (summary.tone === "progress") {
     return {
       tone: "blue",
-      label: "AI tagging running",
-      meta: "Background extraction in progress",
-    };
-  }
-
-  if (status === "PENDING") {
-    return {
-      tone: "blue",
-      label: "AI tagging queued",
-      meta: "Waiting for worker pickup",
-    };
-  }
-
-  if (status === "FAILED") {
-    return {
-      tone: "slate",
-      label: "AI tagging failed",
-      meta: saved.taggingError || "Retry tagging from this record",
+      label: summary.label,
+      meta: summary.detail,
     };
   }
 
   return {
     tone: "slate",
-    label: "AI tags not started",
-    meta: "No background tag job recorded",
+    label: summary.label,
+    meta: summary.detail,
   };
 }
 
@@ -858,6 +841,22 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                       <AITagButton
                         kind="url"
                         id={Number(url.id)}
+                        disabled={
+                          (url.taggingStatus ?? "NONE") === "RUNNING" ||
+                          (url.taggingStatus ?? "NONE") === "PENDING" ||
+                          (!canRetryAiTag({
+                            taggingStatus: url.taggingStatus,
+                            taggingError: url.taggingError,
+                            mimeType: "text/html",
+                          }) &&
+                            (url.taggingStatus ?? "NONE") === "FAILED")
+                        }
+                        disabledReason={
+                          (url.taggingStatus ?? "NONE") === "RUNNING" ||
+                          (url.taggingStatus ?? "NONE") === "PENDING"
+                            ? "AI tagging is already in progress for this source"
+                            : url.taggingError || "AI tagging is unavailable"
+                        }
                         onMerge={async () => {
                           try {
                             const fresh = await getUrlById(Number(url.id));

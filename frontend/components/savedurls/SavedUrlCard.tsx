@@ -2,6 +2,7 @@ import React from "react";
 import { SavedUrl } from "../../lib/types";
 import { recordUrlVisit } from "../../lib/api";
 import { formatDate } from "../../utils/fileHelpers";
+import { getAiTagUiSummary } from "../../lib/aiTagUi";
 import { BookmarkIcon } from "../icons";
 import SmartCard from "../ui/SmartCard";
 
@@ -115,52 +116,36 @@ function freshnessChip(u: SavedUrl) {
 }
 
 function aiStatusChip(u: SavedUrl) {
-  const s = (u as any).taggingStatus as string | undefined;
+  const summary = getAiTagUiSummary(u);
 
-  if (!s || s === "NONE") {
+  if (summary.tone === "success") {
     return {
-      label: "Not tagged",
-      cls: "chip-gray",
-      title: "No AI tags yet",
-    };
-  }
-
-  if (s === "SUCCESS") {
-    return {
-      label: "Tagged",
+      label: summary.label,
       cls: "chip-emerald",
-      title: "AI tagging complete",
+      title: summary.detail,
     };
   }
 
-  if (s === "PENDING") {
+  if (summary.tone === "progress") {
     return {
-      label: "Queued",
-      cls: "chip-slate",
-      title: "Queued for AI tagging",
-    };
-  }
-
-  if (s === "RUNNING") {
-    return {
-      label: "Running",
+      label: summary.label,
       cls: "chip-sky",
-      title: "AI tagging in progress",
+      title: summary.detail,
     };
   }
 
-  if (s === "FAILED") {
+  if (summary.tone === "danger") {
     return {
-      label: "Failed",
+      label: summary.label,
       cls: "chip-red",
-      title: (u as any).taggingError || "AI tagging failed",
+      title: summary.detail,
     };
   }
 
   return {
-    label: s,
+    label: summary.label,
     cls: "chip-gray",
-    title: s,
+    title: summary.detail,
   };
 }
 

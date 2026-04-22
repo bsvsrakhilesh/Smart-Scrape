@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { formatBytes } from "../../utils/fileHelpers";
 import type { FileItem } from "../../lib/types";
+import {
+  canRetryAiTag as canRetryAiTagForItem,
+  getAiTagUiSummary,
+} from "../../lib/aiTagUi";
 
 /** -------------------------------
  *  Compat helpers (no type changes)
@@ -85,14 +89,7 @@ const getThumb = (f: FileItem): string | null => {
 const fileDisplayName = (f: FileItem) =>
   (f as any).title || (f as any).fileName || "";
 
-const canRetryAiTag = (f: FileItem): boolean => {
-  if (isFolder(f)) return false;
-
-  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
-  const err = String((f as any).taggingError || "").trim();
-
-  return status === "FAILED" || Boolean(err);
-};
+const canRetryAiTag = (f: FileItem): boolean => canRetryAiTagForItem(f);
 
 const getTaggingInfo = (
   f: FileItem,
@@ -103,44 +100,20 @@ const getTaggingInfo = (
 } | null => {
   if (isFolder(f)) return null;
 
-  const status = String((f as any).taggingStatus || "NONE").toUpperCase();
-  const tags = Array.isArray((f as any).tags) ? (f as any).tags.length : 0;
-  const err = String((f as any).taggingError || "").trim();
+  const summary = getAiTagUiSummary(f);
 
-  switch (status) {
-    case "PENDING":
-      return {
-        tone: "amber",
-        label: "AI pending",
-        meta: "Queued for extraction",
-      };
-
-    case "RUNNING":
-      return {
-        tone: "blue",
-        label: "AI processing",
-        meta: "Extracting labels",
-      };
-
-    case "SUCCESS":
-      return {
-        tone: "green",
-        label: "AI ready",
-        meta: tags
-          ? `${tags} label${tags === 1 ? "" : "s"} extracted`
-          : "Metadata extracted",
-      };
-
-    case "FAILED":
-      return {
-        tone: "red",
-        label: "AI failed",
-        meta: err || "Extraction needs retry",
-      };
-
-    default:
-      return null;
-  }
+  return {
+    tone:
+      summary.tone === "success"
+        ? "green"
+        : summary.tone === "progress"
+          ? "blue"
+          : summary.tone === "danger"
+            ? "red"
+            : "slate",
+    label: summary.label,
+    meta: summary.detail,
+  };
 };
 
 const getTileSecondaryText = (f: FileItem): string => {

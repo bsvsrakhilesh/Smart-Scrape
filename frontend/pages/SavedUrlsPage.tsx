@@ -42,6 +42,11 @@ import {
   mergeUniqueTags,
   normalizeTagList,
 } from "../lib/tagBuckets";
+import {
+  AI_TAG_JOB_POLL_MS,
+  AI_TAG_JOB_TIMEOUT_SEC,
+  deriveAiTagRuntimeFromJob,
+} from "../lib/aiTagUi";
 import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
 import {
   getCollections,
@@ -340,6 +345,7 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
     aiTags: tagState.aiTags,
     effectiveTags: tagState.effectiveTags,
     taggingStatus: row.taggingStatus ?? "NONE",
+    taggingJobId: row.taggingJobId ?? null,
     taggingError: (row as any).taggingError ?? null,
     notes: row.notes || "",
     isFavorited: !!row.isFavorited,
@@ -1125,24 +1131,18 @@ const SavedUrlsPage: React.FC = () => {
   }, [baseServerQuery]);
 
   useEffect(() => {
-    const needsPolling = (rows: UISavedUrl[]) => {
-      const now = Date.now();
-      return rows.some((u) => {
-        const ageMs = now - new Date(u.createdAt).getTime();
-        const status = (u as any).taggingStatus;
-        const isTagging = status === "PENDING" || status === "RUNNING";
-        const hasNoTags = (u.tags?.length ?? 0) === 0;
+    const liveRows = urls.filter((u) => {
+      const jobId = String((u as any)?.taggingJobId ?? "").trim();
+      const status = String((u as any)?.taggingStatus ?? "NONE").toUpperCase();
 
-        // If backend is actively tagging, poll. Also keep old fallback for older rows.
-        return (
-          (isTagging && ageMs < 10 * 60 * 1000) ||
-          (hasNoTags && ageMs < 10 * 60 * 1000)
-        );
-      });
-    };
+      return (
+        Boolean(jobId) &&
+        !jobId.startsWith("claim:") &&
+        (status === "PENDING" || status === "RUNNING")
+      );
+    });
 
-    // Stop polling if nothing needs it
-    if (!needsPolling(urls)) {
+    if (!liveRows.length) {
       if (tagPollRef.current) {
         window.clearInterval(tagPollRef.current);
         tagPollRef.current = null;
@@ -1150,11 +1150,7 @@ const SavedUrlsPage: React.FC = () => {
       return;
     }
 
-    // Already polling
     if (tagPollRef.current) return;
-
-    let ticks = 0;
-    const MAX_TICKS = 20; // ~60 seconds (20 * 3s)
 
     const stop = () => {
       if (tagPollRef.current) {
@@ -1164,21 +1160,119 @@ const SavedUrlsPage: React.FC = () => {
     };
 
     tagPollRef.current = window.setInterval(async () => {
-      ticks++;
       try {
-        const ui = await refreshUrlsFromServer();
+        await Promise.allSettled(
+          liveRows.slice(0, 8).map(async (u) => {
+            const idNum = Number(u.id);
+            const jobId = String((u as any)?.taggingJobId ?? "").trim();
+            if (!jobId || !Number.isFinite(idNum)) return;
 
-        if (!ui) return;
+            const data = await getUrlTagJob(jobId, idNum);
 
-        // If tags arrived (or time budget exceeded), stop polling
-        if (!needsPolling(ui) || ticks >= MAX_TICKS) stop();
+            if (data?.state === "SUCCESS") {
+              const ai = normalizeTagList((data as any).tags ?? []);
+
+              setUrls((prev) =>
+                prev.map((x) => {
+                  if (x.id !== u.id) return x;
+                  const effectiveTags = mergeUniqueTags(x.userTags ?? [], ai);
+                  return {
+                    ...x,
+                    taggingStatus: "SUCCESS",
+                    taggingJobId: null,
+                    taggingError: null,
+                    aiTags: ai,
+                    effectiveTags,
+                    tags: effectiveTags,
+                    aiTagJobProgress: 100,
+                    aiTagJobStage: null,
+                    aiTagJobMessage: null,
+                    aiTagJobAttempt: null,
+                    aiTagJobCached:
+                      typeof (data as any).cached === "boolean"
+                        ? Boolean((data as any).cached)
+                        : null,
+                  };
+                }),
+              );
+
+              try {
+                const fresh = await getUrlById(idNum);
+                const next = toUISaved(fresh);
+                setUrls((prev) =>
+                  prev.map((row) =>
+                    row.id === next.id ? { ...row, ...next } : row,
+                  ),
+                );
+              } catch {
+                // optimistic success is already visible
+              }
+
+              return;
+            }
+
+            if (data?.state === "FAILURE") {
+              setUrls((prev) =>
+                prev.map((x) =>
+                  x.id === u.id
+                    ? {
+                        ...x,
+                        taggingStatus: "FAILED",
+                        taggingJobId: null,
+                        taggingError:
+                          (data as any)?.error ||
+                          (data as any)?.message ||
+                          "AI tagging failed",
+                        aiTagJobProgress:
+                          typeof (data as any)?.progress === "number"
+                            ? Number((data as any).progress)
+                            : null,
+                        aiTagJobStage: (data as any)?.stage ?? null,
+                        aiTagJobMessage: (data as any)?.message ?? null,
+                        aiTagJobAttempt:
+                          typeof (data as any)?.attempt === "number"
+                            ? Number((data as any).attempt)
+                            : null,
+                        aiTagJobCached: null,
+                      }
+                    : x,
+                ),
+              );
+              return;
+            }
+
+            const runtime = deriveAiTagRuntimeFromJob(
+              data,
+              (u as any)?.aiTagJobProgress ?? null,
+            );
+
+            setUrls((prev) =>
+              prev.map((x) =>
+                x.id === u.id
+                  ? {
+                      ...x,
+                      taggingStatus:
+                        runtime.taggingStatus ??
+                        (data?.state === "PENDING" ? "PENDING" : "RUNNING"),
+                      aiTagJobProgress: runtime.aiTagJobProgress ?? null,
+                      aiTagJobStage: runtime.aiTagJobStage ?? null,
+                      aiTagJobMessage: runtime.aiTagJobMessage ?? null,
+                      aiTagJobAttempt: runtime.aiTagJobAttempt ?? null,
+                      aiTagJobCached: runtime.aiTagJobCached ?? null,
+                      taggingError: null,
+                    }
+                  : x,
+              ),
+            );
+          }),
+        );
       } catch {
-        if (ticks >= MAX_TICKS) stop();
+        // keep existing interval alive; this is best-effort UI runtime polling
       }
-    }, 3000);
+    }, AI_TAG_JOB_POLL_MS);
 
     return stop;
-  }, [refreshUrlsFromServer, urls]);
+  }, [urls]);
 
   // Global facet options from the backend query scope.
   // Keep currently-selected values merged in so users can always see/remove them
@@ -1949,7 +2043,12 @@ const SavedUrlsPage: React.FC = () => {
           let attempt = 0;
           let success = false;
 
-          while (attempt < 90) {
+          const maxAttempts = Math.max(
+            10,
+            Math.ceil((AI_TAG_JOB_TIMEOUT_SEC * 1000) / AI_TAG_JOB_POLL_MS),
+          );
+
+          while (attempt < maxAttempts) {
             if (bulkAiTagCancelRef.current) break;
 
             const data = await getUrlTagJob(jobId, idNum);
@@ -1978,7 +2077,7 @@ const SavedUrlsPage: React.FC = () => {
               throw new Error(data?.error || "AI tagging failed");
             }
 
-            await new Promise((r) => setTimeout(r, 1000));
+            await new Promise((r) => setTimeout(r, AI_TAG_JOB_POLL_MS));
             attempt++;
           }
 

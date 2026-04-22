@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import type { SavedUrl } from "../../lib/types";
 import { recordUrlVisit } from "../../lib/api";
 import { formatDate } from "../../utils/fileHelpers";
+import { getAiTagUiSummary } from "../../lib/aiTagUi";
 import { BookmarkIcon } from "../icons";
 
 type Props = {
@@ -48,29 +49,31 @@ function getFreshnessMeta(url: SavedUrl) {
 }
 
 function getAiMeta(url: SavedUrl) {
-  const s = (url as any).taggingStatus as string | undefined;
+  const summary = getAiTagUiSummary(url);
 
-  if (!s || s === "NONE") {
-    return { label: "Not tagged", cls: "chip chip-gray" };
-  }
-  if (s === "SUCCESS") {
-    return { label: "Tagged", cls: "chip chip-emerald" };
-  }
-  if (s === "PENDING") {
-    return { label: "Queued", cls: "chip chip-slate" };
-  }
-  if (s === "RUNNING") {
-    return { label: "Running", cls: "chip chip-sky" };
-  }
-  if (s === "FAILED") {
+  if (summary.tone === "success") {
     return {
-      label: "Failed",
+      label: summary.label,
+      cls: "chip chip-emerald",
+      title: summary.detail,
+    };
+  }
+  if (summary.tone === "progress") {
+    return {
+      label: summary.label,
+      cls: "chip chip-sky",
+      title: summary.detail,
+    };
+  }
+  if (summary.tone === "danger") {
+    return {
+      label: summary.label,
       cls: "chip chip-red",
-      title: (url as any).taggingError || "AI tagging failed",
+      title: summary.detail,
     };
   }
 
-  return { label: s, cls: "chip chip-gray" };
+  return { label: summary.label, cls: "chip chip-gray", title: summary.detail };
 }
 
 function getSnapshotMeta(url: SavedUrl) {

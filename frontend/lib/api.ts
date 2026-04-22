@@ -1387,14 +1387,14 @@ export async function startFileTagJob(fileId: string) {
   const { data } = await api.post(
     `/api/files/${encodeURIComponent(fileId)}/auto-tags`,
   );
-  return data as { jobId: string };
+  return data as { jobId: string; reused?: boolean };
 }
 
 export async function startUrlTagJob(urlId: number) {
   const { data } = await api.post(
     `/api/urls/${encodeURIComponent(String(urlId))}/auto-tags`,
   );
-  return data as { jobId: string };
+  return data as { jobId: string; reused?: boolean; source?: string };
 }
 
 export async function getJob(jobId: string, query: string) {
@@ -1405,13 +1405,11 @@ export async function getJob(jobId: string, query: string) {
 }
 
 export async function getFileTagJob(jobId: string, fileId: string) {
-  // Backend persists tags ONLY when fileId is present on /api/tag-jobs/:jobId
   const q = `fileId=${encodeURIComponent(fileId)}`;
   return getJob(jobId, q);
 }
 
 export async function getUrlTagJob(jobId: string, urlId: number) {
-  // Same concept for URLs (used later / elsewhere)
   const q = `urlId=${encodeURIComponent(String(urlId))}`;
   return getJob(jobId, q);
 }

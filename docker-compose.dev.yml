@@ -127,8 +127,13 @@ services:
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
       TAGGER_CACHE_NS: tagger:v1
+      TAGGER_SHARED_FILE_ROOTS: /data,/ingress
+      TAGGER_INGRESS_DIR: /ingress
     env_file:
       - ./ai-tagger/.env
+    volumes:
+      - backend_storage:/data:ro
+      - ai_tagger_ingress:/ingress
     ports:
       - "127.0.0.1:7071:7071"
     depends_on:
@@ -148,8 +153,13 @@ services:
       URL_CONNECT_TIMEOUT: 8
       URL_READ_TIMEOUT: 20
       TAGGER_CACHE_NS: tagger:v1
+      TAGGER_SHARED_FILE_ROOTS: /data,/ingress
+      TAGGER_INGRESS_DIR: /ingress
     env_file:
       - ./ai-tagger/.env
+    volumes:
+      - backend_storage:/data:ro
+      - ai_tagger_ingress:/ingress
     depends_on:
       - redis
     command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=2"
@@ -159,3 +169,4 @@ volumes:
   backend_node_modules:
   frontend_node_modules:
   backend_storage:
+  ai_tagger_ingress:

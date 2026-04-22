@@ -68,6 +68,35 @@ def _normalize_ws(s: Optional[str]) -> str:
     return " ".join(s.split())
 
 
+def _file_identity_from_path(file_path: Optional[str]) -> str:
+    if not file_path:
+        return ""
+
+    try:
+        p = pathlib.Path(file_path).resolve(strict=True)
+        st = p.stat()
+        return f"{p}|size={st.st_size}|mtime_ns={st.st_mtime_ns}"
+    except Exception:
+        return str(file_path)
+
+
+def _cleanup_ingress_file(file_path: Optional[str]) -> None:
+    if not file_path:
+        return
+
+    try:
+        ingress_root = pathlib.Path(
+            os.getenv("TAGGER_INGRESS_DIR", "/ingress")
+        ).resolve(strict=False)
+        target = pathlib.Path(file_path).resolve(strict=True)
+
+        if target == ingress_root or ingress_root in target.parents:
+            if target.exists():
+                target.unlink()
+    except Exception:
+        pass
+
+
 def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     """
     Build a stable fingerprint for idempotency:
@@ -82,8 +111,15 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     elif t == "url":
         base = (payload.get("url") or "").strip()
     elif t == "file":
-        # b64 + file_name; if enormous, b64 is already a compact transfer form
-        base = f"{payload.get('file_base64') or ''}|{payload.get('file_name') or ''}"
+        if payload.get("file_path"):
+            base = (
+                f"{_file_identity_from_path(payload.get('file_path'))}"
+                f"|{payload.get('file_name') or ''}"
+            )
+        else:
+            base = (
+                f"{payload.get('file_base64') or ''}|{payload.get('file_name') or ''}"
+            )
     else:
         # Fallback: bounded JSON dump
         base = json.dumps(payload, sort_keys=True)[:2048]
@@ -181,6 +217,8 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 cached["cached"] = True
                 log.info("idempotent_cache_hit", extra={"fingerprint": fp})
+                if payload.get("cleanup_file_after_read") and payload.get("file_path"):
+                    _cleanup_ingress_file(payload.get("file_path"))
                 return cached
 
         try:
@@ -258,9 +296,16 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                     )
 
         elif input_type == "file":
-            b64: Optional[str] = payload.get("file_base64")
             file_name: Optional[str] = payload.get("file_name")
-            raw = base64.b64decode(b64) if b64 else b""
+            file_path: Optional[str] = payload.get("file_path")
+            cleanup_file_after_read = bool(
+                payload.get("cleanup_file_after_read", False)
+            )
+
+            raw = b""
+            if not file_path:
+                b64: Optional[str] = payload.get("file_base64")
+                raw = base64.b64decode(b64) if b64 else b""
 
             _emit_progress(
                 self,
@@ -269,23 +314,32 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                 "Running file extraction pipeline",
                 input_type=input_type,
                 file_name=file_name,
+                file_path=file_path,
             )
 
             if use_pipeline:
-                out = _call_with_supported(
-                    _extract_and_tag_sync,
-                    file_bytes=raw,
-                    file_name=file_name,
-                    topk=topk,
-                    use_llm=use_llm,
-                )
+                kwargs: Dict[str, Any] = {
+                    "file_name": file_name,
+                    "topk": topk,
+                    "use_llm": use_llm,
+                }
+                if file_path:
+                    kwargs["file_path"] = file_path
+                else:
+                    kwargs["file_bytes"] = raw
+
+                out = _call_with_supported(_extract_and_tag_sync, **kwargs)
             else:
                 if extract_text:
-                    text = _call_with_supported(
-                        extract_text,
-                        file_bytes=raw,
-                        file_name=file_name,
-                    )  # type: ignore
+                    kwargs: Dict[str, Any] = {
+                        "file_name": file_name,
+                    }
+                    if file_path:
+                        kwargs["file_path"] = file_path
+                    else:
+                        kwargs["file_bytes"] = raw
+
+                    text = _call_with_supported(extract_text, **kwargs)  # type: ignore
                     out = _fallback_tag(
                         text or "", version=os.getenv("TAGGER_VERSION", "0.1.0")
                     )
@@ -294,8 +348,8 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                         "", version=os.getenv("TAGGER_VERSION", "0.1.0")
                     )
 
-        else:
-            raise ValueError(f"Unsupported input_type: {input_type}")
+            if cleanup_file_after_read and file_path:
+                _cleanup_ingress_file(file_path)
 
         _emit_progress(
             self,

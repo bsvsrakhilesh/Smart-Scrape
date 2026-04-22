@@ -3,6 +3,9 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import pathlib
+import shutil
+import uuid
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Form, Request
@@ -61,6 +64,82 @@ def _normalize_bool(val: Optional[str], default=True) -> bool:
     return str(val).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _safe_file_name(name: Optional[str]) -> str:
+    candidate = pathlib.Path(str(name or "upload.bin")).name.strip()
+    return candidate or "upload.bin"
+
+
+def _shared_file_roots() -> list[pathlib.Path]:
+    raw = os.getenv("TAGGER_SHARED_FILE_ROOTS", "/data,/ingress")
+    roots: list[pathlib.Path] = []
+
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        roots.append(pathlib.Path(part).expanduser())
+
+    return roots
+
+
+def _resolve_allowed_file_path(candidate: str) -> Optional[str]:
+    if not candidate:
+        return None
+
+    try:
+        resolved = pathlib.Path(candidate).expanduser().resolve(strict=True)
+    except Exception:
+        return None
+
+    for root in _shared_file_roots():
+        try:
+            resolved_root = root.expanduser().resolve(strict=False)
+        except Exception:
+            continue
+
+        if resolved == resolved_root or resolved_root in resolved.parents:
+            return str(resolved)
+
+    return None
+
+
+def _ingress_dir() -> pathlib.Path:
+    root = pathlib.Path(os.getenv("TAGGER_INGRESS_DIR", "/ingress")).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def _persist_upload_to_ingress(upload: UploadFile) -> tuple[str, str]:
+    file_name = _safe_file_name(upload.filename)
+    suffix = pathlib.Path(file_name).suffix
+    target = _ingress_dir() / f"{uuid.uuid4().hex}{suffix}"
+
+    upload.file.seek(0)
+    with target.open("wb") as f:
+        shutil.copyfileobj(upload.file, f)
+
+    return str(target), file_name
+
+
+def _persist_base64_to_ingress(
+    file_base64: str, file_name: Optional[str]
+) -> Optional[tuple[str, str]]:
+    try:
+        raw = base64.b64decode(file_base64)
+    except Exception:
+        return None
+
+    if not raw:
+        return None
+
+    safe_name = _safe_file_name(file_name)
+    suffix = pathlib.Path(safe_name).suffix
+    target = _ingress_dir() / f"{uuid.uuid4().hex}{suffix}"
+    target.write_bytes(raw)
+
+    return str(target), safe_name
+
+
 def _celery_worker_stats() -> Dict[str, Any]:
     """
     Returns Celery worker stats if at least one worker is reachable.
@@ -92,6 +171,7 @@ async def create_job(
     text: Optional[str] = Form(None),
     file_base64: Optional[str] = Form(None),
     file_name: Optional[str] = Form(None),
+    file_path: Optional[str] = Form(None),
     # best-effort direct capture when field is exactly "file"
     file: Optional[UploadFile] = File(None),
     # knobs
@@ -99,7 +179,8 @@ async def create_job(
     use_llm: Optional[str] = Form("false"),
 ):
     """
-    Accepts any of: url, text, file_base64, or a file upload (under any field name).
+    Accepts any of: url, text, file_path, file_base64, or a file upload
+    (under any field name). Large files are queued by shared path, not inline base64.
     """
     use_llm_bool = _normalize_bool(use_llm, default=True)
     topk = int(topk) if topk is not None else 20
@@ -138,27 +219,65 @@ async def create_job(
         payload.update({"input_type": "text", "text": text})
     elif url:
         payload.update({"input_type": "url", "url": url})
-    elif file_base64:
+    elif file_path:
+        resolved = _resolve_allowed_file_path(file_path)
+        if not resolved:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "file_path must exist under TAGGER_SHARED_FILE_ROOTS",
+                    "code": "INVALID_FILE_PATH",
+                },
+            )
+
         payload.update(
             {
                 "input_type": "file",
-                "file_base64": file_base64,
-                "file_name": file_name,
+                "file_path": resolved,
+                "file_name": _safe_file_name(file_name or pathlib.Path(resolved).name),
+            }
+        )
+    elif file_base64:
+        persisted = _persist_base64_to_ingress(file_base64, file_name)
+        if not persisted:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "file_base64 is invalid or empty"},
+            )
+
+        persisted_path, persisted_name = persisted
+        payload.update(
+            {
+                "input_type": "file",
+                "file_path": persisted_path,
+                "file_name": persisted_name,
+                "cleanup_file_after_read": True,
             }
         )
     elif upload is not None:
-        raw = await upload.read()
-        if not raw:
+        try:
+            persisted_path, persisted_name = _persist_upload_to_ingress(upload)
+        except Exception as e:
+            log.exception("Failed to persist upload to ingress")
             return JSONResponse(
-                status_code=400, content={"detail": "Uploaded file is empty"}
+                status_code=500,
+                content={"detail": f"Failed to persist uploaded file: {e}"},
             )
-        b64 = base64.b64encode(raw).decode("utf-8")
+
         payload.update(
-            {"input_type": "file", "file_base64": b64, "file_name": upload.filename}
+            {
+                "input_type": "file",
+                "file_path": persisted_path,
+                "file_name": persisted_name,
+                "cleanup_file_after_read": True,
+            }
         )
     else:
         return JSONResponse(
-            status_code=400, content={"detail": "Provide url, text, or file_base64"}
+            status_code=400,
+            content={
+                "detail": "Provide url, text, file_path, file upload, or file_base64"
+            },
         )
 
     # Dispatch Celery job

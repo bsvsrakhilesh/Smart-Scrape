@@ -46,14 +46,12 @@ const SPRING: Transition = {
 /* --------------------------------- STYLES ---------------------------------- */
 // stronger glass + depth on hover; accessible focus ring retained
 const railTap =
-  "group relative size-11 grid place-items-center rounded-xl border border-transparent bg-background/70 " +
-  "shadow-sm hover:shadow-lg hover:-translate-y-[2px] hover:bg-background/90 " +
-  "transition-all duration-200 ease-out hover-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60";
+  "group relative size-12 grid place-items-center rounded-2xl border border-transparent bg-transparent " +
+  "transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/55";
 
 const listTap =
-  "group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-foreground/80 " +
-  "transition-all duration-200 ease-out hover-lift hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary/60";
-
+  "group sidebar-nav-item relative flex w-full min-w-0 items-center gap-2.5 rounded-2xl px-3 py-2.5 text-left text-sm font-medium text-foreground/80 " +
+  "transition-all duration-200 ease-out hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary/55";
 /* --------------------------------- CONTAINER / ITEM VARIANTS ----------------- */
 // Use explicit hidden/visible states so collapsed (icon-only) still shows icons.
 const containerVariants = {
@@ -83,7 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   // Fixed widths; sidebar itself animates width (no overlay)
   const COLLAPSED = 72;
-  const EXPANDED = 250;
+  const EXPANDED = 272;
 
   const nav = NAV; // allow future memoization if NAV becomes dynamic
 
@@ -151,24 +149,23 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Small helper classes for active state + a reusable glass panel token
   const glassPanel =
-    "bg-background/80 backdrop-blur-2xl border border-white/10 dark:border-white/5 shadow-[0_18px_45px_rgba(15,23,42,0.30)] " +
-    "lg:bg-transparent lg:backdrop-blur-0 lg:border-0 lg:shadow-none";
+    "bg-white/95 dark:bg-slate-950/95 border border-border/50 shadow-[0_12px_32px_rgba(15,23,42,0.10)] " +
+    "lg:bg-transparent lg:border-0 lg:shadow-none";
 
   const activeRail =
-    "border-brand-primary/40 bg-gradient-to-br from-brand-primary/20 via-brand-secondary/20 to-brand-primary/10 shadow-[0_14px_38px_rgba(15,23,42,0.35)]";
+    "border-brand-primary/25 bg-brand-primary/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]";
 
   const activeList =
-    "text-foreground border border-brand-primary/35 bg-gradient-to-r from-brand-primary/18 via-brand-secondary/15 to-brand-primary/8 shadow-[0_14px_40px_rgba(15,23,42,0.30)]";
-
+    "text-foreground border border-brand-primary/25 bg-brand-primary/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]";
   return (
     <aside
-      className="h-full z-40 overflow-x-hidden p-[1px] rounded-2xl bg-[linear-gradient(145deg,rgba(148,163,184,0.36),rgba(226,232,240,0.14),rgba(148,163,184,0.30))] lg:p-0 lg:rounded-none lg:bg-transparent"
+      className="h-full z-40 overflow-x-hidden bg-transparent"
       aria-label="Primary sidebar"
     >
       <motion.nav
         role="navigation"
         aria-orientation="vertical"
-        className={`h-full flex flex-col gap-3 px-3 py-3 data-[sidebar-collapsed=true]:items-center rounded-2xl lg:rounded-none ${glassPanel}`}
+        className={`h-full w-full flex flex-col gap-2 px-3 py-3 data-[sidebar-collapsed=true]:items-center rounded-2xl lg:rounded-none ${glassPanel}`}
         initial={false}
         animate={
           useParentWidth ? undefined : { width: isOpen ? EXPANDED : COLLAPSED }
@@ -302,7 +299,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             {isOpen && (
               <motion.ul
                 role="list"
-                className="px-2 py-3 space-y-1"
+                className="px-2 py-2 space-y-1.5"
                 initial="hidden"
                 animate="visible"
                 exit="hidden"
@@ -311,14 +308,18 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {nav.map(({ key, label, Icon }) => {
                   const active = currentPage === key;
                   return (
-                    <motion.li key={key} variants={itemVariants}>
+                    <motion.li
+                      key={key}
+                      variants={itemVariants}
+                      className="w-full"
+                    >
                       <motion.button
                         type="button"
                         ref={setBtnRef(key)}
                         className={[
                           listTap,
                           active ? activeList : "text-foreground/80",
-                          "hover:translate-y-[-2px] relative overflow-hidden",
+                          "relative min-w-0",
                         ].join(" ")}
                         onClick={() => setCurrentPage(key)}
                         onKeyDown={(e) => handleNavKeyDown(e, key)}
@@ -327,8 +328,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                           reduce
                             ? undefined
                             : {
-                                y: -3,
-                                boxShadow: "0 12px 30px rgba(2,6,23,0.06)",
+                                y: -1.5,
+                                boxShadow: "0 8px 18px rgba(15,23,42,0.04)",
                               }
                         }
                         whileTap={reduce ? undefined : { scale: 0.985 }}
@@ -354,7 +355,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                         {/* label uses motion for a smooth fade-in and slide */}
                         <motion.span
-                          className="truncate"
+                          className="min-w-0 flex-1 truncate leading-5"
                           initial={
                             reduce
                               ? { opacity: 1, x: 0 }

@@ -10,10 +10,6 @@ interface HeaderProps {
   isSidebarOpen: boolean;
 }
 
-/**
- * Magnetic wrapper (same behavior as LandingPage MagneticButton)
- * Uses global .magnetic CSS (styles.css) and sets --tx/--ty on mouse move.
- */
 const MagneticButton: React.FC<
   React.ButtonHTMLAttributes<HTMLButtonElement>
 > = ({ className = "", children, ...rest }) => {
@@ -57,10 +53,10 @@ const Header: React.FC<HeaderProps> = ({
   const navigate = useNavigate();
 
   return (
-    <div className="app-header w-full z-[100] bg-background/80 backdrop-blur-xl border-b border-border/60 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+    <div className="app-header relative w-full">
       <div className="app-header__inner h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full transition-[height] duration-200">
         {/* Left: hamburger + brand */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-left gap-1">
           <HamburgerButton
             open={isSidebarOpen}
             onClick={onToggleSidebar}
@@ -136,9 +132,6 @@ const Header: React.FC<HeaderProps> = ({
           </motion.button>
         </div>
       </div>
-
-      {/* Thin brand accent */}
-      <div className="h-[2px] bg-gradient-to-r from-brand-primary/80 via-brand-secondary/80 to-brand-primary/40" />
     </div>
   );
 };

@@ -15,7 +15,7 @@ type Props = {
   variant?: ShellVariant;
 };
 
-const SIDEBAR_W_OPEN = "250px"; // 250px
+const SIDEBAR_W_OPEN = "272px"; // 272px
 const SIDEBAR_W_COLLAPSED = "4.5rem"; // 72px
 const SHELL_SPRING: Transition = {
   type: "spring",
@@ -43,14 +43,12 @@ export default function AppShell({
 
   return (
     <div className={shellClass} style={{ ["--sidebar-w" as any]: sidebarVar }}>
-      <header className="fixed inset-x-0 top-0 z-50">
-        <div className="app-shell__offset">
-          <Header
-            onToggleSidebar={onToggleSidebar}
-            onNavigateHome={onNavigateHome}
-            isSidebarOpen={sidebarOpen}
-          />
-        </div>
+      <header className="app-header-shell fixed inset-x-0 top-0 z-50">
+        <Header
+          onToggleSidebar={onToggleSidebar}
+          onNavigateHome={onNavigateHome}
+          isSidebarOpen={sidebarOpen}
+        />
       </header>
 
       {/* DESKTOP SIDEBAR */}

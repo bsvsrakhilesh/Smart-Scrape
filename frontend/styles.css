@@ -311,6 +311,7 @@ body,
   .input-pill {
     @apply w-full rounded-full border bg-white
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40;
+    min-height: 44px;
   }
 
   .chip {
@@ -903,23 +904,6 @@ body,
   min-height: 2.75rem; /* ~44px touch target */
 }
 
-/* ===========================
-   Motion helpers (safe defaults)
-   =========================== */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* ===========================
-   Cursor Spotlight (Hero)
-   - Works on any dark/gradient background
-   - Uses CSS variables --mx / --my in px
-   =========================== */
 .spotlight {
   position: relative;
   isolation: isolate; /* make mask local */
@@ -1902,64 +1886,7 @@ body,
   border-color: hsl(var(--accent) / 0.28);
 }
 
-/* ==========================================
-   Search-First Canvas (B/2): flatten surfaces
-   - Removes the "stacked cards" look by:
-     * killing heavy shadows + blur
-     * keeping ONE primary surface
-     * using dividers instead of nested cards
-   ========================================== */
 
-.fm-searchfirst .ex-grid {
-  gap: 18px;
-}
-
-.fm-searchfirst .ex-sidebar-surface,
-.fm-searchfirst .ex-main-surface {
-  border-radius: 22px;
-  background: color-mix(in oklab, hsl(var(--surface)) 52%, transparent);
-  border: 1px solid hsl(var(--border) / 0.85);
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-/* Make the top command area feel like a single flat bar */
-.fm-searchfirst .ex-sticky-top {
-  border-radius: 18px;
-  background: color-mix(in oklab, hsl(var(--surface)) 78%, transparent);
-  border: 1px solid hsl(var(--border) / 0.85);
-  box-shadow: none;
-}
-
-/* Address bar + command bar become dividers, not extra "cards" */
-.fm-searchfirst .ex-addressbar {
-  padding: 10px 12px;
-}
-
-.fm-searchfirst .ex-commandbar {
-  border-top: 1px solid hsl(var(--border) / 0.65);
-}
-
-/* Status bar: flatter, more "system" */
-.fm-searchfirst .ex-statusbar {
-  border-radius: 16px;
-  background: color-mix(in oklab, hsl(var(--surface)) 70%, transparent);
-  border: 1px solid hsl(var(--border) / 0.75);
-  box-shadow: none;
-}
-
-/* The main file "panel" should not look like another stacked card */
-.fm-searchfirst .fm-panel {
-  border-radius: 22px;
-  background: color-mix(in oklab, hsl(var(--surface)) 56%, transparent);
-  border: 1px solid hsl(var(--border) / 0.8);
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.fm-searchfirst .fm-panel::before {
-  display: none;
-}
 
 .ex-page-size {
   border-radius: 14px;
@@ -3462,85 +3389,7 @@ body,
   background-size: 160px 160px;
 }
 
-.fm-searchfirst {
-  background:
-    radial-gradient(
-      1100px 520px at 0% 0%,
-      rgba(56, 189, 248, 0.18),
-      transparent 58%
-    ),
-    radial-gradient(
-      900px 420px at 100% 0%,
-      rgba(59, 130, 246, 0.12),
-      transparent 52%
-    ),
-    linear-gradient(180deg, #dff6ff 0%, #d7f0ff 32%, #eaf8ff 100%);
-}
 
-.fm-searchfirst .ex-grid {
-  gap: 16px;
-}
-
-.fm-searchfirst .ex-sidebar-surface,
-.fm-searchfirst .ex-main-surface {
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(186, 230, 253, 0.95);
-  box-shadow: 0 14px 32px rgba(56, 189, 248, 0.1);
-  backdrop-filter: blur(8px);
-}
-
-.fm-searchfirst .ex-sticky-top,
-.fm-searchfirst .fm-panel,
-.fm-searchfirst .ex-nav-section,
-.fm-searchfirst .ex-storage {
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(186, 230, 253, 0.95);
-  box-shadow: 0 10px 22px rgba(56, 189, 248, 0.08);
-  backdrop-filter: blur(8px);
-}
-
-.fm-searchfirst .fm-panel::before {
-  display: none;
-}
-
-.fm-searchfirst .ex-addressbar {
-  padding: 8px 10px;
-}
-
-.fm-searchfirst .ex-commandbar {
-  border-top: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-.fm-searchfirst .ex-nav-section {
-  border-radius: 16px;
-}
-
-.fm-searchfirst .ex-nav-section-head {
-  padding: 8px 10px;
-  background: #fbfcfd;
-}
-
-.fm-searchfirst .ex-nav-item {
-  height: 36px;
-  border-radius: 12px;
-}
-
-.fm-searchfirst .ex-nav-ico {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
-}
-
-.fm-searchfirst .ex-nav-label {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.fm-searchfirst .fm-toolbar {
-  padding: 10px 12px;
-}
 
 .fm-toolbar-group > .fm-toolbar-label {
   flex: 0 0 100%;

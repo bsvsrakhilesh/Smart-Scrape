@@ -12,7 +12,7 @@ import { X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import type { FileDetail } from "../../lib/types";
-import { apiUrl } from "../../lib/api";
+import { apiUrl, getFileById } from "../../lib/api";
 import { formatBytes, formatDate } from "../../utils/fileHelpers";
 
 import AITagButton from "../common/AITagButton";
@@ -234,12 +234,14 @@ export default function ExplorerPreviewModal(props: Props) {
   }, [isOpen, autoFocusTags]);
 
   // ---- Tag editor ----
-  const [localTags, setLocalTags] = useState<string[]>(f?.tags || []);
+  const [localTags, setLocalTags] = useState<string[]>(
+    f?.userTags || f?.tags || [],
+  );
   const [newTagInput, setNewTagInput] = useState<string>("");
 
   useEffect(() => {
-    setLocalTags(f?.tags || []);
-  }, [f?.id, f?.tags]);
+    setLocalTags(f?.userTags || f?.tags || []);
+  }, [f?.id, f?.userTags, f?.tags]);
 
   const persistTags = async (next: string[]) => {
     if (!f) return;
@@ -652,12 +654,13 @@ export default function ExplorerPreviewModal(props: Props) {
                   <AITagButton
                     kind="file"
                     id={String(f.id)}
-                    onMerge={(aiTags) => {
-                      const merged = Array.from(
-                        new Set([...(f.tags || []), ...aiTags]),
-                      );
-                      setLocalTags(merged);
-                      persistTags(merged);
+                    onMerge={async () => {
+                      try {
+                        const fresh = await getFileById(String(f.id));
+                        setLocalTags(fresh.userTags ?? fresh.tags ?? []);
+                      } catch (e) {
+                        console.error("Failed to refresh file tags", e);
+                      }
                     }}
                   />
                 )}

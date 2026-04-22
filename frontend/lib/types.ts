@@ -75,6 +75,9 @@ export interface FileItem {
   mimeType: string;
   thumbnailUrl?: string;
   tags: string[];
+  userTags?: string[];
+  aiTags?: string[];
+  effectiveTags?: string[];
   downloads?: number;
   favoritesCount?: number;
   isFavorited?: boolean;
@@ -180,6 +183,9 @@ export interface SavedUrl {
   faviconUrl?: string;
   domain: string;
   tags: string[];
+  userTags?: string[];
+  aiTags?: string[];
+  effectiveTags?: string[];
   tagsMetaRaw?: any;
   taggerVersion?: string | null;
   contentHash?: string | null;

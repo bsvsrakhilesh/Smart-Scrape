@@ -214,14 +214,16 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     truncated: boolean;
   } | null>(null);
 
-  // Local state for tags and new tag input
-  const [localTags, setLocalTags] = useState<string[]>(url.tags);
+  // Local state for user tags and new tag input
+  const [localTags, setLocalTags] = useState<string[]>(
+    url.userTags ?? url.tags,
+  );
   const [newTagInput, setNewTagInput] = useState<string>("");
 
   // Sync localTags when url changes
   useEffect(() => {
-    setLocalTags(url.tags);
-  }, [url.tags]);
+    setLocalTags(url.userTags ?? url.tags);
+  }, [url.userTags, url.tags]);
 
   const { notify } = useToast();
 
@@ -856,12 +858,18 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                       <AITagButton
                         kind="url"
                         id={Number(url.id)}
-                        onMerge={(aiTags) => {
-                          const merged = Array.from(
-                            new Set([...(url.tags || []), ...aiTags]),
-                          );
-                          setLocalTags(merged);
-                          onTagUpdate?.(url.id, merged);
+                        onMerge={async () => {
+                          try {
+                            const fresh = await getUrlById(Number(url.id));
+                            setLocalTags(
+                              (fresh as any).userTags ??
+                                (fresh as any).tags ??
+                                [],
+                            );
+                            await onUrlHydrate?.(fresh);
+                          } catch (e) {
+                            console.error("Failed to refresh URL tags", e);
+                          }
                         }}
                       />
                     </div>

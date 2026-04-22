@@ -18,6 +18,12 @@ import {
   getFileCapability,
   inferCanonicalMime,
 } from "../utils/fileCapabilities";
+import {
+  deriveSeparatedTags,
+  mergeUniqueTags,
+  normalizeTagList,
+  withSeparatedTagsMeta,
+} from "../utils/tagBuckets";
 
 // ===== Upload hardening =====
 const MAX_UPLOAD_BYTES = Number(
@@ -2929,6 +2935,17 @@ r.patch("/files/:id", async (req, res, next) => {
       nextFavoritesCount = Math.max(0, existing.favoritesCount + delta);
     }
 
+    const currentTagState = deriveSeparatedTags(
+      existing.tags,
+      existing.tagsMeta,
+    );
+    const nextUserTags = Array.isArray(tags)
+      ? normalizeTagList(tags)
+      : currentTagState.userTags;
+    const nextEffectiveTags = Array.isArray(tags)
+      ? mergeUniqueTags(nextUserTags, currentTagState.aiTags)
+      : existing.tags;
+
     const updated = await prisma.storedFile.update({
       where: { id },
       data: {
@@ -2937,7 +2954,13 @@ r.patch("/files/:id", async (req, res, next) => {
         mimeType: nextMime,
         description:
           typeof description === "string" ? description : existing.description,
-        tags: Array.isArray(tags) ? tags : existing.tags,
+        tags: nextEffectiveTags,
+        tagsMeta: Array.isArray(tags)
+          ? (withSeparatedTagsMeta(existing.tagsMeta, {
+              userTags: nextUserTags,
+              aiTags: currentTagState.aiTags,
+            }) as any)
+          : existing.tagsMeta,
         visibility:
           typeof visibility === "string" ? visibility : existing.visibility,
         favoritesCount: nextFavoritesCount,
@@ -2951,7 +2974,14 @@ r.patch("/files/:id", async (req, res, next) => {
       },
     });
 
-    res.json(updated);
+    const nextTagState = deriveSeparatedTags(updated.tags, updated.tagsMeta);
+
+    res.json({
+      ...updated,
+      userTags: nextTagState.userTags,
+      aiTags: nextTagState.aiTags,
+      effectiveTags: nextTagState.effectiveTags,
+    });
   } catch (err) {
     next(err);
   }

@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { FileDetail, FileItem, SearchResult } from "./types";
+import { deriveSeparatedTags } from "./tagBuckets";
 import { reportClientError, reportClientEvent } from "./clientTelemetry";
 
 const rawBase = (import.meta as any)?.env?.VITE_API_URL || "";
@@ -444,6 +445,10 @@ function deriveStructuredPublishedAt(tagsMeta: any): string | null {
 export function toFileItem(row: BackendStoredFile): FileItem {
   const tagsMetaRaw = (row as any)?.tagsMeta ?? null;
   const derivedStructuredPublishedAt = deriveStructuredPublishedAt(tagsMetaRaw);
+  const tagState = deriveSeparatedTags(
+    (row.tags as string[] | undefined) || [],
+    tagsMetaRaw,
+  );
 
   return {
     id: row.id,
@@ -457,7 +462,10 @@ export function toFileItem(row: BackendStoredFile): FileItem {
     size: typeof row.size === "number" ? row.size : 0,
     mimeType: row.mimeType,
     thumbnailUrl: "",
-    tags: (row.tags as string[] | undefined) || [],
+    tags: tagState.effectiveTags,
+    userTags: tagState.userTags,
+    aiTags: tagState.aiTags,
+    effectiveTags: tagState.effectiveTags,
     downloads: row.downloads ?? 0,
     favoritesCount: row.favoritesCount ?? 0,
     isFavorited: row.isFavorited ?? false,

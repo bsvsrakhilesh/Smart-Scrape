@@ -56,6 +56,7 @@ import {
   updateFileTags,
   apiUrl,
 } from "../lib/api";
+import { mergeUniqueTags, normalizeTagList } from "../lib/tagBuckets";
 import BulkActionBar from "../components/common/BulkActionBar";
 import ContextMenu, { type MenuItem } from "../components/common/ContextMenu";
 import TextEntryModal from "../components/common/TextEntryModal";
@@ -3460,21 +3461,37 @@ export default function FileManagerPage() {
         return;
       }
 
-      // optimistic update
-      setAllFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, tags: nextTags } : f)),
-      );
-      try {
-        await updateFileTags(fileId, nextTags);
+      const before = allFiles.find((f) => f.id === fileId);
+      if (!before) return;
 
-        // refresh tags list
+      const nextUserTags = normalizeTagList(nextTags);
+      const nextEffectiveTags = mergeUniqueTags(
+        nextUserTags,
+        before.aiTags ?? [],
+      );
+
+      setAllFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId
+            ? {
+                ...f,
+                userTags: nextUserTags,
+                effectiveTags: nextEffectiveTags,
+                tags: nextEffectiveTags,
+              }
+            : f,
+        ),
+      );
+
+      try {
+        await updateFileTags(fileId, nextUserTags);
         setRefreshToken((n) => n + 1);
       } catch (e) {
         notify("Failed to update tags", "error");
         refresh();
       }
     },
-    [notify, refresh],
+    [allFiles, notify, refresh],
   );
 
   const handleRetryAiTag = useCallback(
@@ -3610,12 +3627,19 @@ export default function FileManagerPage() {
             const aiTags = await pollOne(f.id);
 
             // optimistic merge everywhere for instant feedback
-            patchFileEverywhere(f.id, (current) => ({
-              tags: Array.from(new Set([...(current.tags ?? []), ...aiTags])),
-              taggingError: null,
-            }));
+            patchFileEverywhere(f.id, (current) => {
+              const effectiveTags = mergeUniqueTags(
+                current.userTags ?? [],
+                aiTags,
+              );
+              return {
+                aiTags,
+                effectiveTags,
+                tags: effectiveTags,
+                taggingError: null,
+              };
+            });
 
-            // replace optimistic state with full server truth
             try {
               const fresh = await getFileById(f.id);
               applyLatestFileEverywhere(fresh);
@@ -3691,20 +3715,29 @@ export default function FileManagerPage() {
       }
       if (!fileIds.length) return;
 
-      // optimistic tag update
+      // optimistic user-tag update
       setAllFiles((prev) =>
         prev.map((f) => {
           if (!fileIds.includes(f.id)) return f;
-          const next = Array.from(new Set([...(f.tags || []), tag]));
-          return { ...f, tags: next };
+          const nextUserTags = mergeUniqueTags(f.userTags ?? [], [tag]);
+          const nextEffectiveTags = mergeUniqueTags(
+            nextUserTags,
+            f.aiTags ?? [],
+          );
+          return {
+            ...f,
+            userTags: nextUserTags,
+            effectiveTags: nextEffectiveTags,
+            tags: nextEffectiveTags,
+          };
         }),
       );
 
       try {
         await Promise.all(
           fileIds.map(async (id) => {
-            const current = allFiles.find((f) => f.id === id)?.tags ?? [];
-            const next = Array.from(new Set([...current, tag]));
+            const current = allFiles.find((f) => f.id === id)?.userTags ?? [];
+            const next = mergeUniqueTags(current, [tag]);
             await updateFileTags(id, next);
           }),
         );
@@ -5376,7 +5409,17 @@ export default function FileManagerPage() {
                 : (fileId, newTags) => {
                     handleUpdateTags(fileId, newTags);
 
-                    patchFileEverywhere(String(fileId), { tags: newTags });
+                    patchFileEverywhere(String(fileId), (current) => {
+                      const effectiveTags = mergeUniqueTags(
+                        newTags,
+                        current.aiTags ?? [],
+                      );
+                      return {
+                        userTags: newTags,
+                        effectiveTags,
+                        tags: effectiveTags,
+                      };
+                    });
 
                     (async () => {
                       try {

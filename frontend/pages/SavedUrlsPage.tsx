@@ -37,6 +37,11 @@ import {
   updateSavedUrlSearchPreset,
   deleteSavedUrlSearchPreset,
 } from "../lib/api";
+import {
+  deriveSeparatedTags,
+  mergeUniqueTags,
+  normalizeTagList,
+} from "../lib/tagBuckets";
 import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
 import {
   getCollections,
@@ -318,6 +323,8 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
   const collections = Array.isArray(row.collections)
     ? Array.from(new Set(row.collections.map(String).filter(Boolean)))
     : [];
+  const tagsMetaRaw = (row as any).tagsMeta ?? null;
+  const tagState = deriveSeparatedTags(row.tags || [], tagsMetaRaw);
 
   return {
     id: String(row.id),
@@ -328,7 +335,10 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
     authors: Array.isArray((row as any).authors) ? (row as any).authors : [],
     faviconUrl: faviconFor(row.url),
     domain: domain || "",
-    tags: row.tags || [],
+    tags: tagState.effectiveTags,
+    userTags: tagState.userTags,
+    aiTags: tagState.aiTags,
+    effectiveTags: tagState.effectiveTags,
     taggingStatus: row.taggingStatus ?? "NONE",
     taggingError: (row as any).taggingError ?? null,
     notes: row.notes || "",
@@ -340,7 +350,7 @@ function toUISaved(row: BackendUrlRow): UISavedUrl {
     lastVisitedAt: row.lastVisitedAt ?? undefined,
     visitCount: typeof row.visitCount === "number" ? row.visitCount : 0,
     latestSnapshot: (row as any).latestSnapshot ?? null,
-    tagsMetaRaw: (row as any).tagsMeta ?? null,
+    tagsMetaRaw,
     taggerVersion: (row as any).taggerVersion ?? null,
     contentHash: (row as any).contentHash ?? null,
   };
@@ -1770,14 +1780,44 @@ const SavedUrlsPage: React.FC = () => {
 
   const updateTags = async (id: string, tags: string[]) => {
     const idNum = Number(id);
-    const before = urls.find((u) => u.id === id)?.tags ?? [];
-    setUrls((prev) => prev.map((x) => (x.id === id ? { ...x, tags } : x)));
+    const before = urls.find((u) => u.id === id);
+    if (!before) return;
+
+    const nextUserTags = normalizeTagList(tags);
+    const nextEffectiveTags = mergeUniqueTags(
+      nextUserTags,
+      before.aiTags ?? [],
+    );
+
+    setUrls((prev) =>
+      prev.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              userTags: nextUserTags,
+              effectiveTags: nextEffectiveTags,
+              tags: nextEffectiveTags,
+            }
+          : x,
+      ),
+    );
+
     try {
-      await patchUrl(idNum, { tags });
+      await patchUrl(idNum, { tags: nextUserTags });
       await refreshRowsAndFacetsAndQueue();
     } catch {
       setUrls((prev) =>
-        prev.map((x) => (x.id === id ? { ...x, tags: before } : x)),
+        prev.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                userTags: before.userTags ?? [],
+                aiTags: before.aiTags ?? [],
+                effectiveTags: before.effectiveTags ?? before.tags ?? [],
+                tags: before.tags ?? [],
+              }
+            : x,
+        ),
       );
       notify({ text: "Failed to update tags.", kind: "error" });
     }
@@ -1915,13 +1955,19 @@ const SavedUrlsPage: React.FC = () => {
             const data = await getUrlTagJob(jobId, idNum);
 
             if (data?.state === "SUCCESS") {
-              const ai = Array.from(
-                new Set<string>((data.tags ?? []).map(String)),
-              );
-              const merged = Array.from(new Set([...(u.tags ?? []), ...ai]));
+              const ai = normalizeTagList(data.tags ?? []);
 
               setUrls((prev) =>
-                prev.map((x) => (x.id === u.id ? { ...x, tags: merged } : x)),
+                prev.map((x) => {
+                  if (x.id !== u.id) return x;
+                  const effectiveTags = mergeUniqueTags(x.userTags ?? [], ai);
+                  return {
+                    ...x,
+                    aiTags: ai,
+                    effectiveTags,
+                    tags: effectiveTags,
+                  };
+                }),
               );
 
               success = true;
@@ -2046,18 +2092,28 @@ const SavedUrlsPage: React.FC = () => {
       targetRows.map((row) => [row.id, row.tags ?? []] as const),
     );
 
+    const beforeUserTagsById = new Map(
+      targetRows.map((row) => [row.id, row.userTags ?? []] as const),
+    );
+
     setUrls((prev) =>
-      prev.map((u) =>
-        ids.includes(u.id)
-          ? { ...u, tags: Array.from(new Set([...(u.tags || []), tag])) }
-          : u,
-      ),
+      prev.map((u) => {
+        if (!ids.includes(u.id)) return u;
+        const nextUserTags = mergeUniqueTags(u.userTags ?? [], [tag]);
+        const nextEffectiveTags = mergeUniqueTags(nextUserTags, u.aiTags ?? []);
+        return {
+          ...u,
+          userTags: nextUserTags,
+          effectiveTags: nextEffectiveTags,
+          tags: nextEffectiveTags,
+        };
+      }),
     );
 
     const results = await Promise.allSettled(
       ids.map((id) => {
-        const current = beforeTagsById.get(id) ?? [];
-        const next = Array.from(new Set([...current, tag]));
+        const current = beforeUserTagsById.get(id) ?? [];
+        const next = mergeUniqueTags(current, [tag]);
         return patchUrl(Number(id), { tags: next });
       }),
     );

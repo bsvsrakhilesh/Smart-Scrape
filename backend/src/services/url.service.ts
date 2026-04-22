@@ -6,6 +6,12 @@ import {
   canonicalizeUrl,
   normalizedDomainFromUrl,
 } from "../utils/urlCanonical";
+import {
+  deriveSeparatedTags,
+  mergeUniqueTags,
+  normalizeTagList,
+  withSeparatedTagsMeta,
+} from "../utils/tagBuckets";
 
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -679,37 +685,67 @@ export async function urlsExist(urls: string[]) {
   return { exists };
 }
 
-/** Update title/snippet/tags of a URL (does NOT re-run tagger) */
+/** Update title/snippet/user tags of a URL (does NOT re-run tagger) */
 export async function updateUrlById(id: number, data: UpdateUrlInput) {
+  const existing = await prisma.url.findUnique({ where: { id } });
+
+  if (!existing) {
+    const err = Object.assign(new Error(`URL with id ${id} not found`), {
+      status: 404,
+    });
+    throw err;
+  }
+
   const patch: Prisma.UrlUpdateInput = {};
+
   if (typeof data.title === "string") patch.title = data.title.trim();
-  if (typeof data.snippet === "string" || data.snippet === null)
+  if (typeof data.snippet === "string" || data.snippet === null) {
     patch.snippet = data.snippet ?? null;
-  if (Array.isArray(data.tags))
-    patch.tags = data.tags.map((t) => t.trim()).filter(Boolean);
-  if (typeof data.isFavorited === "boolean")
+  }
+
+  if (Array.isArray(data.tags)) {
+    const currentTagState = deriveSeparatedTags(
+      existing.tags,
+      existing.tagsMeta,
+    );
+    const nextUserTags = normalizeTagList(data.tags);
+    const nextEffectiveTags = mergeUniqueTags(
+      nextUserTags,
+      currentTagState.aiTags,
+    );
+
+    patch.tags = nextEffectiveTags;
+    patch.tagsMeta = withSeparatedTagsMeta(existing.tagsMeta, {
+      userTags: nextUserTags,
+      aiTags: currentTagState.aiTags,
+    }) as any;
+  }
+
+  if (typeof data.isFavorited === "boolean") {
     patch.isFavorited = data.isFavorited;
+  }
+
   if (data.visibility === "public" || data.visibility === "private") {
     patch.visibility = data.visibility;
   }
-  if (typeof data.notes === "string" || data.notes === null)
-    patch.notes = data.notes ?? null;
 
-  try {
-    const updated = await prisma.url.update({
-      where: { id },
-      data: patch,
-    });
-    return updated;
-  } catch (error: any) {
-    if (error?.code === "P2025") {
-      const err = Object.assign(new Error(`URL with id ${id} not found`), {
-        status: 404,
-      });
-      throw err;
-    }
-    throw error;
+  if (typeof data.notes === "string" || data.notes === null) {
+    patch.notes = data.notes ?? null;
   }
+
+  const updated = await prisma.url.update({
+    where: { id },
+    data: patch,
+  });
+
+  const nextTagState = deriveSeparatedTags(updated.tags, updated.tagsMeta);
+
+  return {
+    ...updated,
+    userTags: nextTagState.userTags,
+    aiTags: nextTagState.aiTags,
+    effectiveTags: nextTagState.effectiveTags,
+  };
 }
 
 /** Delete a URL by id */

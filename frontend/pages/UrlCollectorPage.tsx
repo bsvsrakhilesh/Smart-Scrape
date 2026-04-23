@@ -405,8 +405,7 @@ const UrlCollectorPage: React.FC = () => {
     async (
       query: string,
       rows: SearchResult[],
-      site: string,
-      sc: CollectorScope,
+      opts?: SearchWebOptions,
       signal?: AbortSignal,
     ) => {
       if (!rows.length) {
@@ -426,7 +425,7 @@ const UrlCollectorPage: React.FC = () => {
           {
             q: query,
             results: rows,
-            opts: buildRerankOpts(site, sc),
+            opts,
           },
           signal,
         );
@@ -592,8 +591,7 @@ const UrlCollectorPage: React.FC = () => {
           const reranked = await applyMergedRerank(
             q,
             merged,
-            site,
-            scope,
+            searchOpts,
             controller.signal,
           );
 
@@ -701,8 +699,7 @@ const UrlCollectorPage: React.FC = () => {
       const reranked = await applyMergedRerank(
         lastQuery,
         merged,
-        website,
-        scope,
+        lastSearchOpts ?? undefined,
       );
 
       setSearchResults(reranked);
@@ -735,8 +732,6 @@ const UrlCollectorPage: React.FC = () => {
     lastQuery,
     lastSearchOpts,
     searchResults,
-    website,
-    scope,
     applyMergedRerank,
   ]);
 

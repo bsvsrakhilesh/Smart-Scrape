@@ -458,9 +458,7 @@ body,
   padding: 16px;
 }
 
-.md3-divider {
-  border-top: 1px solid var(--md3-outline);
-}
+.md3-divider,
 .md3-divider-top {
   border-top: 1px solid var(--md3-outline);
 }
@@ -678,9 +676,6 @@ body,
   border-color: color-mix(in srgb, var(--md3-color-primary) 22%, transparent);
 }
 
-.input-pill {
-  min-height: 44px;
-} /* touch-friendly */
 
 .loading-bar {
   position: relative;
@@ -2491,10 +2486,6 @@ body,
   background: hsl(0 84% 96%);
 }
 
-/* ------------------------------------------------------------
-   Explorer-grade List surface + checkbox behavior (scoped)
-------------------------------------------------------------- */
-
 .fm-list-surface {
   border: 1px solid hsl(var(--border));
   border-radius: 18px;
@@ -2585,6 +2576,145 @@ body,
   width: 22px;
   height: 22px;
   border-radius: 7px;
+}
+
+/* URL Collector: page-specific panel system
+   Keep .fm-panel for File Manager only. */
+
+.uc-page {
+  --uc-panel-radius: 24px;
+  --uc-panel-border: hsl(var(--border) / 0.82);
+  --uc-panel-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.06), 0 2px 10px rgba(15, 23, 42, 0.04);
+  --uc-panel-shadow-hover:
+    0 22px 48px rgba(15, 23, 42, 0.08), 0 8px 22px rgba(15, 23, 42, 0.05);
+  --uc-panel-head-bg: color-mix(in oklab, hsl(var(--surface)) 86%, transparent);
+}
+
+.uc-panel {
+  position: relative;
+  border-radius: var(--uc-panel-radius);
+  border: 1px solid var(--uc-panel-border);
+  background:
+    radial-gradient(
+      120% 160% at 0% 0%,
+      rgba(16, 185, 129, 0.05),
+      transparent 46%
+    ),
+    radial-gradient(
+      120% 160% at 100% 0%,
+      rgba(59, 130, 246, 0.05),
+      transparent 52%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.94) 0%,
+      rgba(255, 255, 255, 0.98) 100%
+    ),
+    hsl(var(--surface));
+  box-shadow: var(--uc-panel-shadow);
+  backdrop-filter: blur(12px);
+  transition:
+    border-color 180ms ease,
+    box-shadow 220ms ease,
+    transform 220ms ease;
+}
+
+.uc-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.uc-panel:hover {
+  border-color: hsl(var(--accent) / 0.18);
+  box-shadow: var(--uc-panel-shadow-hover);
+}
+
+.uc-panel--search {
+  overflow: visible;
+}
+
+.uc-panel--results {
+  min-height: clamp(520px, 70vh, 820px);
+}
+
+.uc-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+  background: var(--uc-panel-head-bg);
+  backdrop-filter: blur(14px) saturate(140%);
+}
+
+.uc-panel-head h2 {
+  letter-spacing: -0.02em;
+}
+
+.uc-panel-scroll {
+  padding: 10px 10px 14px;
+}
+
+.dark .uc-panel {
+  border-color: hsl(var(--border) / 0.75);
+  background:
+    radial-gradient(
+      120% 160% at 0% 0%,
+      rgba(16, 185, 129, 0.07),
+      transparent 46%
+    ),
+    radial-gradient(
+      120% 160% at 100% 0%,
+      rgba(59, 130, 246, 0.08),
+      transparent 52%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(15, 23, 42, 0.9) 0%,
+      rgba(15, 23, 42, 0.96) 100%
+    ),
+    hsl(var(--surface));
+  box-shadow:
+    0 18px 40px rgba(2, 6, 23, 0.28),
+    0 2px 12px rgba(2, 6, 23, 0.2);
+}
+
+.dark .uc-panel::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dark .uc-panel:hover {
+  border-color: hsl(var(--accent) / 0.28);
+}
+
+.dark .uc-page {
+  --uc-panel-head-bg: color-mix(in oklab, hsl(var(--surface)) 78%, transparent);
+}
+
+@media (max-width: 768px) {
+  .uc-page {
+    --uc-panel-radius: 20px;
+  }
+
+  .uc-panel--results {
+    min-height: auto;
+  }
+
+  .uc-panel-head {
+    padding: 12px 14px;
+  }
+
+  .uc-panel-scroll {
+    padding: 8px;
+  }
 }
 
 /* Header — consistent height, padding & crisp separators */

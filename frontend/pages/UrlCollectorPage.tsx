@@ -382,7 +382,12 @@ const UrlCollectorPage: React.FC = () => {
       yearTo: yTo ? Number(yTo) : undefined,
       jurisdiction: sc.jurisdiction.trim() || undefined,
       region: sc.region.trim() || undefined,
-      fileType: sc.format === "pdfOnly" ? "pdf" : undefined,
+      fileType:
+        sc.format === "pdfOnly"
+          ? "pdf"
+          : sc.format === "excludePdf"
+            ? "html"
+            : undefined,
     };
   }
 
@@ -488,10 +493,11 @@ const UrlCollectorPage: React.FC = () => {
 
       try {
         const q = buildQuery(site, kws, scope);
+        const searchOpts = buildRerankOpts(site, scope);
 
         // Helper to fetch a specific page from the backend
         const fetchPage = async (page: number) => {
-          return await searchWeb(q, page, controller.signal);
+          return await searchWeb(q, page, controller.signal, searchOpts);
         };
 
         setLastQuery(q);

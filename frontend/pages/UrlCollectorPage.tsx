@@ -180,6 +180,13 @@ const UrlCollectorPage: React.FC = () => {
     format: urlFormat,
   });
 
+  const hasActiveScopeFilters =
+    !!scope.yearFrom ||
+    !!scope.yearTo ||
+    !!scope.jurisdiction.trim() ||
+    !!scope.region.trim() ||
+    scope.format !== "any";
+
   const [isLoading, setIsLoading] = useState(false);
   const [aiAssistLoading, setAiAssistLoading] = useState(false);
   const [aiAssistRationale, setAiAssistRationale] = useState("");
@@ -851,113 +858,21 @@ const UrlCollectorPage: React.FC = () => {
           />
 
           {/* Scope filters */}
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-2">
-              <label
-                htmlFor="uc-year-from"
-                className="block text-xs text-gray-600 dark:text-gray-300 mb-1"
-              >
-                Year from
-              </label>
-              <input
-                id="uc-year-from"
-                type="number"
-                inputMode="numeric"
-                placeholder="e.g. 2015"
-                className="input w-full"
-                value={scope.yearFrom}
-                onChange={(e) =>
-                  setScope((p) => ({ ...p, yearFrom: e.target.value }))
-                }
-              />
-            </div>
+          <div className="uc-filters">
+            <div className="uc-filters-head">
+              <div className="uc-filters-copy">
+                <p className="uc-filters-kicker">Search scope</p>
+                <h3 className="uc-filters-title">
+                  Refine by time, geography, and format
+                </h3>
+                <p className="uc-filters-subtitle">
+                  Focus the result set without rewriting your search query.
+                </p>
+              </div>
 
-            <div className="md:col-span-2">
-              <label
-                htmlFor="uc-year-to"
-                className="block text-xs text-gray-600 dark:text-gray-300 mb-1"
-              >
-                Year to
-              </label>
-              <input
-                id="uc-year-to"
-                type="number"
-                inputMode="numeric"
-                placeholder="e.g. 2024"
-                className="input w-full"
-                value={scope.yearTo}
-                onChange={(e) =>
-                  setScope((p) => ({ ...p, yearTo: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="md:col-span-4">
-              <label
-                htmlFor="uc-jurisdiction"
-                className="block text-xs text-gray-600 dark:text-gray-300 mb-1"
-              >
-                Jurisdiction
-              </label>
-              <input
-                id="uc-jurisdiction"
-                type="text"
-                placeholder="e.g. IN / India / California"
-                className="input w-full"
-                value={scope.jurisdiction}
-                onChange={(e) =>
-                  setScope((p) => ({ ...p, jurisdiction: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="md:col-span-4">
-              <label
-                htmlFor="uc-region"
-                className="block text-xs text-gray-600 dark:text-gray-300 mb-1"
-              >
-                Area / region
-              </label>
-              <input
-                id="uc-region"
-                type="text"
-                placeholder="e.g. Delhi / EU / South Asia"
-                className="input w-full"
-                value={scope.region}
-                onChange={(e) =>
-                  setScope((p) => ({ ...p, region: e.target.value }))
-                }
-              />
-            </div>
-
-            <div className="md:col-span-3">
-              <label
-                htmlFor="uc-format"
-                className="block text-xs text-gray-600 dark:text-gray-300 mb-1"
-              >
-                Document format
-              </label>
-              <select
-                id="uc-format"
-                className="input w-full"
-                value={scope.format}
-                onChange={(e) =>
-                  setScope((p) => ({
-                    ...p,
-                    format: e.target.value as CollectorScope["format"],
-                  }))
-                }
-              >
-                <option value="any">Any</option>
-                <option value="pdfOnly">PDF only</option>
-                <option value="excludePdf">Exclude PDFs</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-9 flex items-end gap-2">
               <button
                 type="button"
-                className="btn-secondary rounded-full px-4 py-2"
+                className={`uc-filters-reset ${hasActiveScopeFilters ? "is-active" : ""}`}
                 onClick={() =>
                   setScope({
                     yearFrom: "",
@@ -967,17 +882,110 @@ const UrlCollectorPage: React.FC = () => {
                     format: "any",
                   })
                 }
-                title="Clear scope filters"
+                disabled={!hasActiveScopeFilters}
+                title="Clear all scope filters"
               >
-                Clear filters
+                Clear all
               </button>
+            </div>
 
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                These filters narrow search by adding operators like{" "}
-                <span className="font-mono">after:</span>,{" "}
-                <span className="font-mono">before:</span>,{" "}
-                <span className="font-mono">filetype:</span>.
+            <div className="uc-filters-grid">
+              <div className="uc-filter-item uc-filter-item--sm">
+                <label htmlFor="uc-year-from" className="uc-filter-label">
+                  Year from
+                </label>
+                <input
+                  id="uc-year-from"
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="e.g. 2015"
+                  className="input uc-filter-control w-full"
+                  value={scope.yearFrom}
+                  onChange={(e) =>
+                    setScope((p) => ({ ...p, yearFrom: e.target.value }))
+                  }
+                />
               </div>
+
+              <div className="uc-filter-item uc-filter-item--sm">
+                <label htmlFor="uc-year-to" className="uc-filter-label">
+                  Year to
+                </label>
+                <input
+                  id="uc-year-to"
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="e.g. 2024"
+                  className="input uc-filter-control w-full"
+                  value={scope.yearTo}
+                  onChange={(e) =>
+                    setScope((p) => ({ ...p, yearTo: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="uc-filter-item uc-filter-item--lg">
+                <label htmlFor="uc-jurisdiction" className="uc-filter-label">
+                  Jurisdiction
+                </label>
+                <input
+                  id="uc-jurisdiction"
+                  type="text"
+                  placeholder="e.g. IN / India / California"
+                  className="input uc-filter-control w-full"
+                  value={scope.jurisdiction}
+                  onChange={(e) =>
+                    setScope((p) => ({ ...p, jurisdiction: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="uc-filter-item uc-filter-item--lg">
+                <label htmlFor="uc-region" className="uc-filter-label">
+                  Area / region
+                </label>
+                <input
+                  id="uc-region"
+                  type="text"
+                  placeholder="e.g. Delhi / EU / South Asia"
+                  className="input uc-filter-control w-full"
+                  value={scope.region}
+                  onChange={(e) =>
+                    setScope((p) => ({ ...p, region: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="uc-filter-item uc-filter-item--md">
+                <label htmlFor="uc-format" className="uc-filter-label">
+                  Document format
+                </label>
+                <select
+                  id="uc-format"
+                  className="input uc-filter-control w-full"
+                  value={scope.format}
+                  onChange={(e) =>
+                    setScope((p) => ({
+                      ...p,
+                      format: e.target.value as CollectorScope["format"],
+                    }))
+                  }
+                >
+                  <option value="any">Any</option>
+                  <option value="pdfOnly">PDF only</option>
+                  <option value="excludePdf">Exclude PDFs</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="uc-filters-footnote" role="note">
+              <span className="uc-filters-footnote-dot" aria-hidden="true" />
+              <span>
+                These filters sharpen retrieval with structured operators such
+                as <span className="font-mono">after:</span>,{" "}
+                <span className="font-mono">before:</span>, and{" "}
+                <span className="font-mono">filetype:</span>.
+              </span>
             </div>
           </div>
 

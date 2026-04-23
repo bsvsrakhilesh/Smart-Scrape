@@ -676,7 +676,6 @@ body,
   border-color: color-mix(in srgb, var(--md3-color-primary) 22%, transparent);
 }
 
-
 .loading-bar {
   position: relative;
   height: 4px;
@@ -1831,7 +1830,6 @@ body,
   border-top: 1px solid hsl(var(--border) / 0.75);
 }
 
-/* Remove CommandBar’s own “toolbar strip” background ONLY inside our sticky shell */
 .ex-sticky-top .fm-toolbar {
   background: transparent !important;
   border-top: none !important;
@@ -2714,6 +2712,249 @@ body,
 
   .uc-panel-scroll {
     padding: 8px;
+  }
+}
+
+/* URL Collector: scope filter module */
+
+.uc-filters {
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid hsl(var(--border) / 0.72);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, hsl(var(--surface)) 96%, white 4%) 0%,
+    color-mix(in oklab, hsl(var(--surface)) 99%, transparent) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 20px rgba(15, 23, 42, 0.03);
+}
+
+.uc-filters-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.uc-filters-copy {
+  min-width: 0;
+}
+
+.uc-filters-kicker {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: hsl(var(--accent));
+}
+
+.uc-filters-title {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: hsl(var(--text));
+}
+
+.uc-filters-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.uc-filters-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease,
+    opacity 160ms ease;
+}
+
+.uc-filters-reset.is-active {
+  border-color: hsl(var(--accent) / 0.26);
+  color: hsl(var(--text));
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.uc-filters-reset.is-active:hover {
+  transform: translateY(-1px);
+  border-color: hsl(var(--accent) / 0.4);
+  background: color-mix(in oklab, hsl(var(--surface)) 88%, white 12%);
+}
+
+.uc-filters-reset:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.uc-filters-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.uc-filter-item {
+  min-width: 0;
+}
+
+.uc-filter-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground));
+}
+
+.uc-filter-control {
+  min-height: 46px;
+  border-radius: 16px;
+  border-color: hsl(var(--border));
+  background: color-mix(in oklab, hsl(var(--surface)) 96%, white 4%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition:
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.uc-filter-control:hover {
+  border-color: hsl(var(--accent) / 0.22);
+}
+
+.uc-filter-control:focus {
+  border-color: hsl(var(--accent) / 0.42);
+  box-shadow:
+    0 0 0 3px hsl(var(--accent) / 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.uc-filters-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed hsl(var(--border) / 0.9);
+  font-size: 12px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.uc-filters-footnote-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, hsl(var(--accent)), #10b981);
+  flex: 0 0 auto;
+}
+
+.dark .uc-filters {
+  border-color: hsl(var(--border) / 0.72);
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.78) 0%,
+    rgba(15, 23, 42, 0.92) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 30px rgba(2, 6, 23, 0.22);
+}
+
+.dark .uc-filters-title {
+  color: hsl(var(--foreground));
+}
+
+.dark .uc-filter-label {
+  color: hsl(var(--foreground));
+}
+
+.dark .uc-filter-control {
+  background: rgba(15, 23, 42, 0.72);
+  border-color: hsl(var(--border) / 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.dark .uc-filter-control:hover {
+  border-color: hsl(var(--accent) / 0.34);
+}
+
+.dark .uc-filter-control:focus {
+  border-color: hsl(var(--accent) / 0.48);
+  box-shadow:
+    0 0 0 3px hsl(var(--accent) / 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.dark .uc-filters-reset {
+  background: rgba(15, 23, 42, 0.68);
+  border-color: hsl(var(--border) / 0.86);
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .uc-filters-reset.is-active {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--accent) / 0.34);
+}
+
+.dark .uc-filters-reset.is-active:hover {
+  background: rgba(30, 41, 59, 0.86);
+}
+
+@media (min-width: 768px) {
+  .uc-filters-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .uc-filter-item--sm {
+    grid-column: span 2 / span 2;
+  }
+
+  .uc-filter-item--md {
+    grid-column: span 4 / span 4;
+  }
+
+  .uc-filter-item--lg {
+    grid-column: span 4 / span 4;
+  }
+}
+
+@media (max-width: 767px) {
+  .uc-filters {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .uc-filters-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .uc-filters-reset {
+    width: 100%;
   }
 }
 

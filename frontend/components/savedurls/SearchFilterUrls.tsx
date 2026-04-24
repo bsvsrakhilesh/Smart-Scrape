@@ -400,11 +400,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                 }
                 className="input w-full rounded-lg px-3 py-2"
               >
-                <option value="all">All</option>
-                <option value="missing">Missing</option>
-                <option value="stale">Stale</option>
-                <option value="fresh">Has snapshot</option>
+                <option value="all">All snapshots</option>
+                <option value="missing">Missing snapshot</option>
+                <option value="stale">Stale snapshot (&gt;30d)</option>
+                <option value="fresh">Fresh snapshot (≤30d)</option>
               </select>
+
+              <p className="mt-1 text-[11px] leading-4 text-neutral-500 dark:text-neutral-400">
+                Fresh means a URL snapshot captured within the last 30 days.
+              </p>
             </div>
 
             <div>

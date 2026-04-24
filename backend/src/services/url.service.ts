@@ -889,11 +889,5 @@ export async function retryFailedUrlTagging(
 
 /** Keep exported: canonical URL normalizer (if other code imports it) */
 export function canonicalUrl(raw: string): string {
-  try {
-    const u = new URL(String(raw).trim());
-    u.hash = "";
-    return u.toString();
-  } catch {
-    return String(raw).trim();
-  }
+  return canonicalizeUrl(raw);
 }

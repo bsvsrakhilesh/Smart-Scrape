@@ -1,17 +1,41 @@
 import { SearchResult } from '../lib/types';
+import { canonicalizeUrl } from './urlCanonical';
 
 export const SAVED_KEY = 'savedUrls';
 
 export function canonicalize(raw: string): string {
-  try {
-    const u = new URL(raw);
-    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','gclid','fbclid']
-      .forEach(p => u.searchParams.delete(p));
-    u.hash = '';
-    return u.toString();
-  } catch {
-    return raw;
+  return canonicalizeUrl(raw);
+}
+
+function normalizeSavedRows(rows: unknown[]): SearchResult[] {
+  const seen = new Set<string>();
+  const normalized: SearchResult[] = [];
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+
+    const rawUrl =
+      typeof (row as { url?: unknown }).url === 'string'
+        ? (row as { url: string }).url
+        : '';
+    const canonicalUrl = canonicalize(rawUrl);
+    if (!canonicalUrl || seen.has(canonicalUrl)) continue;
+
+    seen.add(canonicalUrl);
+    normalized.push({
+      title:
+        typeof (row as { title?: unknown }).title === 'string'
+          ? (row as { title: string }).title
+          : '',
+      url: canonicalUrl,
+      snippet:
+        typeof (row as { snippet?: unknown }).snippet === 'string'
+          ? (row as { snippet: string }).snippet
+          : '',
+    });
   }
+
+  return normalized;
 }
 
 export function getSaved(): SearchResult[] {
@@ -20,13 +44,7 @@ export function getSaved(): SearchResult[] {
   try {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((x: any) => x && typeof x.url === 'string')
-      .map((x: any) => ({
-        title: typeof x.title === 'string' ? x.title : '',
-        url: x.url,
-        snippet: typeof x.snippet === 'string' ? x.snippet : ''
-      }));
+    return normalizeSavedRows(arr);
   } catch {
     console.error('[saved] parse error');
     return [];
@@ -34,18 +52,22 @@ export function getSaved(): SearchResult[] {
 }
 
 export function setSaved(list: SearchResult[]) {
-  localStorage.setItem(SAVED_KEY, JSON.stringify(list));
+  localStorage.setItem(SAVED_KEY, JSON.stringify(normalizeSavedRows(list)));
 }
 
 export function addMany(rows: SearchResult[]): { added: number; skipped: number } {
   const existing = getSaved();
-  const seen = new Set(existing.map(r => canonicalize(r.url)));
+  const seen = new Set(existing.map((r) => canonicalize(r.url)));
   const merged = [...existing];
-  let added = 0, skipped = 0;
+  let added = 0;
+  let skipped = 0;
 
   for (const r of rows) {
     const c = canonicalize(r.url);
-    if (seen.has(c)) { skipped++; continue; }
+    if (seen.has(c)) {
+      skipped++;
+      continue;
+    }
     seen.add(c);
     merged.push({ ...r, url: c });
     added++;

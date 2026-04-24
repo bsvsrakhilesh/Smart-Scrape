@@ -101,56 +101,6 @@ function sortDirectionLabel(sortKey: SortKey, dir: SortDir): string {
   return dir === "asc" ? "A→Z" : "Z→A";
 }
 
-// Dedupe canonicalization (strip common tracking params)
-const TRACKING_PARAMS = new Set([
-  "utm_source",
-  "utm_medium",
-  "utm_campaign",
-  "utm_term",
-  "utm_content",
-  "utm_id",
-  "utm_name",
-  "utm_reader",
-  "utm_referrer",
-  "gclid",
-  "fbclid",
-  "igshid",
-  "msclkid",
-  "mc_cid",
-  "mc_eid",
-  "mkt_tok",
-]);
-
-const canonicalUrl = (raw: string) => {
-  try {
-    const u = new URL(raw);
-
-    u.hash = "";
-    TRACKING_PARAMS.forEach((p) => u.searchParams.delete(p));
-
-    u.hostname = u.hostname.toLowerCase();
-    if (
-      (u.protocol === "http:" && u.port === "80") ||
-      (u.protocol === "https:" && u.port === "443")
-    ) {
-      u.port = "";
-    }
-
-    if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
-      u.pathname = u.pathname.slice(0, -1);
-    }
-
-    const params = Array.from(u.searchParams.entries());
-    params.sort(([a], [b]) => a.localeCompare(b));
-    u.search = "";
-    params.forEach(([k, v]) => u.searchParams.append(k, v));
-
-    return u.toString();
-  } catch {
-    return raw;
-  }
-};
-
 function exportToCsv(rows: SearchResult[], filename = "results") {
   const headers = ["title", "url", "snippet"];
   const esc = (v: any) => {
@@ -471,7 +421,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     const out: SearchResult[] = [];
 
     for (const r of sorted) {
-      const canon = canonicalUrl(r.url);
+      const canon = canonicalizeSaved(r.url);
       const first = seen.get(canon);
 
       if (!first) {

@@ -61,7 +61,28 @@ function writeCollections(cols: Collection[]) {
 }
 
 function readUrlCollectionsMap(): Record<string, string[]> {
-  return readJSON<Record<string, string[]>>(URL_COLLECTIONS_KEY, {});
+  const rawMap = readJSON<Record<string, string[]>>(URL_COLLECTIONS_KEY, {});
+  const normalizedMap: Record<string, string[]> = {};
+
+  for (const [rawUrl, value] of Object.entries(rawMap)) {
+    const canonicalUrl = canonicalize(rawUrl);
+    if (!canonicalUrl || !Array.isArray(value)) continue;
+
+    const nextIds = Array.from(new Set(value.filter(Boolean))).sort();
+    if (!nextIds.length) continue;
+
+    const merged = new Set([
+      ...(normalizedMap[canonicalUrl] || []),
+      ...nextIds,
+    ]);
+    normalizedMap[canonicalUrl] = Array.from(merged).sort();
+  }
+
+  if (JSON.stringify(rawMap) !== JSON.stringify(normalizedMap)) {
+    writeUrlCollectionsMap(normalizedMap);
+  }
+
+  return normalizedMap;
 }
 
 function writeUrlCollectionsMap(map: Record<string, string[]>) {

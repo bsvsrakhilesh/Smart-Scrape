@@ -1,3 +1,14 @@
+// Keep this logic aligned with backend/src/utils/urlCanonical.ts.
+const DROP_EXACT_QUERY_KEYS = new Set([
+  "fbclid",
+  "gclid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "mkt_tok",
+  "msclkid",
+]);
+
 export function canonicalizeUrl(input: string): string {
   let s = String(input || "").trim();
   if (!s) return "";
@@ -23,18 +34,9 @@ export function canonicalizeUrl(input: string): string {
   u.pathname = u.pathname.replace(/\/{2,}/g, "/");
   if (u.pathname.length > 1) u.pathname = u.pathname.replace(/\/+$/, "");
 
-  const dropExactKeys = new Set([
-    "fbclid",
-    "gclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "mkt_tok",
-    "msclkid",
-  ]);
   for (const key of Array.from(u.searchParams.keys())) {
-    const k = key.toLowerCase();
-    if (k.startsWith("utm_") || dropExactKeys.has(k)) {
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.startsWith("utm_") || DROP_EXACT_QUERY_KEYS.has(lowerKey)) {
       u.searchParams.delete(key);
     }
   }
@@ -48,21 +50,4 @@ export function canonicalizeUrl(input: string): string {
   u.hash = "";
 
   return u.toString();
-}
-
-export function normalizedDomainFromUrl(input: string): string | null {
-  const canonical = canonicalizeUrl(input);
-  if (!canonical) return null;
-
-  let s = canonical;
-  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
-
-  try {
-    const u = new URL(s);
-    let hostname = (u.hostname || "").trim().toLowerCase().replace(/\.+$/, "");
-    if (hostname.startsWith("www.")) hostname = hostname.slice(4);
-    return hostname || null;
-  } catch {
-    return null;
-  }
 }

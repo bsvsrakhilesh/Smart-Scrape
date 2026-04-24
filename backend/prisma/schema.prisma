@@ -505,7 +505,7 @@ model Document {
 
   // Canonical pointers (exactly one should be set depending on kind)
   urlId Int? @unique
-  url   Url? @relation(fields: [urlId], references: [id], onDelete: Cascade)
+  url   Url? @relation(fields: [urlId], references: [id], onDelete: SetNull)
 
   primaryFileId String?     @unique
   primaryFile   StoredFile? @relation(fields: [primaryFileId], references: [id], onDelete: Cascade)

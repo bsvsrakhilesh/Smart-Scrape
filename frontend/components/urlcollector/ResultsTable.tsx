@@ -29,6 +29,7 @@ import {
   removeSaved,
   SAVED_KEY,
 } from "../../utils/saved";
+import { useConfirm } from "../providers/Confirm";
 
 interface ResultsTableProps {
   results: SearchResult[];
@@ -304,6 +305,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     message: string;
   } | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const { confirm } = useConfirm();
 
   const pushNotice = (type: "success" | "error" | "info", message: string) => {
     setNotice({ type, message });
@@ -350,7 +352,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         return next;
       });
     } catch (e) {
-      // Backend unreachable → fallback to local categories only
+      // Backend unreachable -> fall back to local collections only
       setRowSaved((prev) => {
         const next = { ...prev };
         for (const rr of rowsForRecalc) {
@@ -703,9 +705,37 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     }
   };
 
-  // Remove Saved (backend + local categories)
-  const unsaveUrl = async (rawUrl: string) => {
+  function describeDeleteTarget(result: SearchResult, collectionCount: number) {
+    const label =
+      result.title && result.title.trim() && result.title.trim() !== result.url
+        ? `"${result.title.trim()}"`
+        : result.url;
+
+    const collectionClause =
+      collectionCount > 0
+        ? ` It will also be removed from ${collectionCount} collection${
+            collectionCount === 1 ? "" : "s"
+          }. Use "Remove from collection" instead if you only want to unassign it.`
+        : "";
+
+    return `${label} will be removed from the Saved URLs library.${collectionClause} Captured files and evidence snapshots already stored in File Manager will remain available, but this URL's saved-library entry, tags, notes, and favorites will be removed.`;
+  }
+
+  // Delete a saved URL record from the library (backend + local cache).
+  const deleteFromLibrary = async (result: SearchResult) => {
+    const rawUrl = result.url;
     const canon = canonicalizeSaved(rawUrl);
+    const collectionCount = getUrlCollections(rawUrl).length;
+
+    const confirmed = await confirm({
+      title: "Delete from Saved URLs library?",
+      description: describeDeleteTarget(result, collectionCount),
+      confirmText: "Delete from library",
+      cancelText: "Keep saved",
+      danger: true,
+    });
+
+    if (!confirmed) return;
 
     setRowSaving(rawUrl);
 
@@ -723,12 +753,12 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       // 2) Remove from local “saved” list if present
       removeSaved(rawUrl);
 
-      // 3) Remove from all local categories
+      // 3) Remove from all local collections
       reconcileUrlCollections(rawUrl);
 
       // 4) UI update
       setRowSaved((prev) => ({ ...prev, [rawUrl]: false }));
-      pushNotice("success", "Removed from Saved.");
+      pushNotice("success", "Deleted from the Saved URLs library.");
 
       // 5) Refresh backend set/map (in case multiple rows share same canonical)
       await refreshBackendSavedIndex(results);
@@ -739,7 +769,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     }
   };
 
-  // Remove from a single category
+  // Remove from a single collection
   const openRemoveFromCategory = async (url: string) => {
     await hydrateCollectionsFromBackend();
     setCollections(getCollections());
@@ -767,13 +797,13 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         [removeTargetUrl]: stillBackendSaved || stillInAnyCategory,
       }));
 
-      pushNotice("info", "Removed from category.");
+      pushNotice("info", "Removed from collection. The URL remains saved.");
       setRemovePickerOpen(false);
       setRemoveTargetUrl(null);
     } catch (e: any) {
       pushNotice(
         "error",
-        `Could not remove from category: ${e?.message ?? "Unknown error"}`,
+        `Could not remove from collection: ${e?.message ?? "Unknown error"}`,
       );
     }
   };
@@ -1250,7 +1280,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           const isChecked = selected.has(r.url);
           const isSaved = !!rowSaved[r.url];
           const dupN = dupCountByUrl[r.url] ?? 0;
-          const categoryCount = getUrlCollections(r.url).length;
+          const collectionCount = getUrlCollections(r.url).length;
           const detectedYear = getResultYear(r);
 
           const preferredCapture = inferPreferredCapture(r);
@@ -1389,13 +1419,13 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                       </span>
                     )}
 
-                    {categoryCount > 0 && (
+                    {collectionCount > 0 && (
                       <span
                         className="ml-1 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700"
-                        title="This URL is assigned to local categories"
+                        title="This URL is assigned to collections"
                       >
-                        {categoryCount} categor
-                        {categoryCount === 1 ? "y" : "ies"}
+                        {collectionCount} collection
+                        {collectionCount === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>
@@ -1437,35 +1467,37 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                         <span className="hidden sm:inline">Saved</span>
                       </span>
 
-                      {categoryCount > 0 && (
+                      {collectionCount > 0 && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             openRemoveFromCategory(r.url);
                           }}
                           className="btn-ghost px-3 py-1.5"
-                          title="Remove from a category"
+                          title="Remove from a collection while keeping the URL saved"
                         >
                           <TagOffIcon className="h-4 w-4" />
-                          <span className="hidden sm:inline">Un-tag</span>
+                          <span className="hidden sm:inline">
+                            Remove from collection
+                          </span>
                         </button>
                       )}
 
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          unsaveUrl(r.url);
+                          void deleteFromLibrary(r);
                         }}
                         disabled={rowSaving === r.url}
-                        className="btn-ghost px-3 py-1.5"
-                        title="Remove from Saved"
+                        className="btn-ghost px-3 py-1.5 text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                        title="Delete this URL from the Saved URLs library"
                       >
                         {rowSaving === r.url ? (
                           <SpinnerMini />
                         ) : (
                           <TrashIcon className="h-4 w-4" />
                         )}
-                        <span className="hidden sm:inline">Unsave</span>
+                        <span className="hidden sm:inline">Delete</span>
                       </button>
                     </div>
                   )}
@@ -1562,15 +1594,15 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         )}
       </StaggerList>
 
-      {/* Save-to-category modal */}
+      {/* Save-to-collection modal */}
       <CollectionPickerModal
         isOpen={collectionPickerOpen}
-        title="Save to category"
+        title="Save to collection"
         collections={collections}
         onCancel={onPickCancel}
         onConfirm={onPickConfirm}
         onRequestCreate={async () => {
-          const name = window.prompt("Create category", "")?.trim();
+          const name = window.prompt("Create collection", "")?.trim();
           if (!name) return;
 
           try {
@@ -1580,16 +1612,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           } catch (e: any) {
             pushNotice(
               "error",
-              `Could not create category: ${e?.message ?? "Unknown error"}`,
+              `Could not create collection: ${e?.message ?? "Unknown error"}`,
             );
           }
         }}
       />
 
-      {/* Remove-from-category modal */}
+      {/* Remove-from-collection modal */}
       <CollectionPickerModal
         isOpen={removePickerOpen}
-        title="Remove from category"
+        title="Remove from collection"
         collections={removeCollectionsForTarget}
         onCancel={onRemoveCancel}
         onConfirm={onRemoveConfirm}

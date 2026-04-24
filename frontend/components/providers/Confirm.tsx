@@ -1,5 +1,14 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogA11y } from '../common/useDialogA11y';
 
 type ConfirmOpts = {
   title: string;
@@ -29,6 +38,10 @@ export const useConfirm = () => {
 };
 
 export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   const [state, setState] = useState<ConfirmState>({
     open: false,
     title: '',
@@ -67,6 +80,13 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const value = useMemo(() => ({ confirm, setBusy }), [confirm, setBusy]);
 
+  useDialogA11y({
+    isOpen: state.open,
+    onClose: () => !state.busy && onClose(false),
+    dialogRef,
+    initialFocusRef: cancelButtonRef,
+  });
+
   return (
     <ConfirmContext.Provider value={value}>
       {children}
@@ -74,12 +94,15 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
         createPortal(
           <div className="fixed inset-0 z-[9998] flex items-center justify-center">
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/40" onClick={() => !state.busy && onClose(false)} />
+            <div className="absolute inset-0 bg-black/40" />
             {/* Dialog */}
             <div
+              ref={dialogRef}
               role="dialog"
               aria-modal="true"
-              className="relative z-[9999] w-full max-w-md rounded-2xl bg-white dark:bg-gray-900 shadow-2xl border border-gray-200 dark:border-gray-800 p-4"
+              aria-labelledby={titleId}
+              aria-describedby={state.description ? descriptionId : undefined}
+              className="relative z-[9999] w-full max-w-md rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-gray-800 dark:bg-gray-900"
             >
               <div className="flex items-start gap-3">
                 {/* Icon */}
@@ -99,15 +122,23 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-semibold">{state.title}</h3>
+                  <h3 id={titleId} className="text-base font-semibold">
+                    {state.title}
+                  </h3>
                   {state.description && (
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{state.description}</p>
+                    <p
+                      id={descriptionId}
+                      className="mt-1 text-sm text-gray-600 dark:text-gray-300"
+                    >
+                      {state.description}
+                    </p>
                   )}
                 </div>
               </div>
 
               <div className="mt-5 flex items-center justify-end gap-2">
                 <button
+                  ref={cancelButtonRef}
                   className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                   onClick={() => onClose(false)}
                   disabled={state.busy}

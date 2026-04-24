@@ -2265,8 +2265,46 @@ const SavedUrlsPage: React.FC = () => {
 
   const onDelete = async (ids: string[]) => {
     const idsNum = ids.map(Number);
-    const backup = urls;
     const targetRows = urls.filter((u) => ids.includes(u.id));
+    const affectedCollectionCount = targetRows.filter(
+      (u) => (u.collections?.length ?? 0) > 0,
+    ).length;
+    const preview = targetRows
+      .slice(0, 2)
+      .map((u) => u.title || u.url)
+      .join(", ");
+
+    const confirmed = await confirm({
+      title:
+        ids.length === 1
+          ? "Delete saved URL from library?"
+          : `Delete ${ids.length} saved URLs from library?`,
+      description:
+        ids.length === 1
+          ? `${preview || "This saved URL"} will be removed from the Saved URLs library.${
+              affectedCollectionCount > 0
+                ? " Its collection memberships will also be removed."
+                : ""
+            } Captured files and evidence snapshots already stored in File Manager will remain available, but the URL's saved-library entry, tags, notes, and favorites will be removed.`
+          : `This will remove ${ids.length} saved URLs from the Saved URLs library.${
+              affectedCollectionCount > 0
+                ? ` ${affectedCollectionCount} of them ${
+                    affectedCollectionCount === 1 ? "is" : "are"
+                  } currently assigned to collections, and those memberships will also be removed.`
+                : ""
+            } Captured files and evidence snapshots already stored in File Manager will remain available.${
+              preview
+                ? ` Examples: ${preview}${targetRows.length > 2 ? "..." : ""}`
+                : ""
+            }`,
+      confirmText: "Delete from library",
+      cancelText: "Keep saved",
+      danger: true,
+    });
+
+    if (!confirmed) return;
+
+    const backup = urls;
 
     setUrls((prev) => prev.filter((u) => !ids.includes(u.id)));
     setSelection(new Set());
@@ -2290,8 +2328,8 @@ const SavedUrlsPage: React.FC = () => {
         notify({
           text:
             result.deleted.length === 1
-              ? "Deleted 1 selected URL from this page."
-              : `Deleted ${result.deleted.length} selected URLs from this page.`,
+              ? "Deleted 1 saved URL from the library."
+              : `Deleted ${result.deleted.length} saved URLs from the library.`,
           kind: "success",
         });
         return;
@@ -2315,8 +2353,8 @@ const SavedUrlsPage: React.FC = () => {
       notify({
         text:
           deletedCount > 0
-            ? `Deleted ${deletedCount} saved URL${deletedCount === 1 ? "" : "s"}, but ${failureCount} could not be deleted.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`
-            : `No saved URLs were deleted. ${failureCount} delete operation${failureCount === 1 ? "" : "s"} failed.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`,
+            ? `Deleted ${deletedCount} saved URL${deletedCount === 1 ? "" : "s"} from the library, but ${failureCount} could not be deleted.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`
+            : `No saved URLs were deleted from the library. ${failureCount} delete operation${failureCount === 1 ? "" : "s"} failed.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`,
         kind: deletedCount > 0 ? "warning" : "error",
       });
     } catch (e: any) {
@@ -3406,8 +3444,8 @@ const SavedUrlsPage: React.FC = () => {
                   onPaste={handlePaste}
                   canPaste={canPaste}
                   onMoveTo={handleMoveTo}
-                  deleteLabel="Delete selected"
-                  deleteTitle="Delete the selected rows on this page"
+                  deleteLabel="Delete from library"
+                  deleteTitle="Delete the selected saved URLs from the library"
                   exportLabel="Export page selection"
                   exportTitle="Export the selected rows on this page as CSV"
                   moveToLabel="Assign page selection…"

@@ -1642,20 +1642,12 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         collections={collections}
         onCancel={onPickCancel}
         onConfirm={onPickConfirm}
-        onRequestCreate={async () => {
-          const name = window.prompt("Create collection", "")?.trim();
-          if (!name) return;
-
-          try {
-            await createCollection(name);
-            await hydrateCollectionsFromBackend();
-            setCollections(getCollections());
-          } catch (e: any) {
-            pushNotice(
-              "error",
-              `Could not create collection: ${e?.message ?? "Unknown error"}`,
-            );
-          }
+        onCreateCollection={async (name) => {
+          const created = await createCollection(name);
+          await hydrateCollectionsFromBackend();
+          setCollections(getCollections());
+          pushNotice("success", `Created collection "${created.name}".`);
+          return { id: created.id, name: created.name };
         }}
       />
 

@@ -1,10 +1,12 @@
 import React, {
   useEffect,
+  useId,
   useMemo,
   useState,
   useCallback,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   listFolders,
   createFolder,
@@ -18,6 +20,7 @@ import {
 } from "../../lib/api";
 import CloseIcon from "../icons/CloseIcon";
 import { PlusButton } from "../ui/PlusButton";
+import { useDialogA11y } from "../common/useDialogA11y";
 
 type Folder = { id: string; name: string; parentId?: string | null };
 type Mode = "text" | "pdf";
@@ -47,6 +50,13 @@ const FolderPickerModal: React.FC<Props> = ({
   onCancel,
   onConfirm,
 }) => {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fileNameInputRef = useRef<HTMLInputElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const createErrorId = useId();
+
   const [current, setCurrent] = useState<string | null>(null); // null = root
   const [stack, setStack] = useState<Folder[]>([]);
   const [children, setChildren] = useState<Folder[]>([]);
@@ -74,6 +84,7 @@ const FolderPickerModal: React.FC<Props> = ({
 
   const [creating, setCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const [currentInfo, setCurrentInfo] = useState<Folder | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
@@ -97,18 +108,16 @@ const FolderPickerModal: React.FC<Props> = ({
     setCurrent(null);
     setStack([]);
     setSelectedFolderId(null);
+    setCreateError(null);
     lastClickRef.current = null;
   }, [open, suggestedName, defaultAccessMode]);
 
-  // Close on Escape (expected modal behavior)
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
+  useDialogA11y({
+    isOpen: open,
+    onClose: onCancel,
+    dialogRef,
+    initialFocusRef: fileNameInputRef,
+  });
 
   const load = useCallback(async (parentId: string | null) => {
     setLoading(true);
@@ -327,15 +336,23 @@ const FolderPickerModal: React.FC<Props> = ({
 
   const handleCreate = async () => {
     const name = newFolderName.trim();
-    if (!name) return;
+    if (!name) {
+      setCreateError("Enter a folder name.");
+      return;
+    }
 
     setCreating(true);
+    setCreateError(null);
     try {
       const f = await createFolder(name, current ?? undefined);
       // Enter the new folder
       setStack((s) => [...s, f]);
       setCurrent(f.id);
       setNewFolderName("");
+      setSelectedFolderId(null);
+      lastClickRef.current = null;
+    } catch (e: any) {
+      setCreateError(e?.message || "Could not create the folder.");
     } finally {
       setCreating(false);
     }
@@ -343,18 +360,20 @@ const FolderPickerModal: React.FC<Props> = ({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-[2px]"
-        onClick={onCancel}
-      />
+      <div className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-[2px]" />
 
       {/* Panel */}
       <div className="relative w-full max-w-3xl">
         <div className="bg-landing-gradient rounded-3xl p-[1px] shadow-2xl">
           <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={descriptionId}
             className="md3-surface overflow-hidden rounded-3xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -409,15 +428,19 @@ const FolderPickerModal: React.FC<Props> = ({
                   </span>
                 </div>
 
-                <h3 className="mt-2 text-xl font-semibold leading-snug">
+                <h3
+                  id={titleId}
+                  className="mt-2 text-xl font-semibold leading-snug"
+                >
                   Choose a destination
                 </h3>
-                <p className="mt-1 text-sm text-muted">
+                <p id={descriptionId} className="mt-1 text-sm text-muted">
                   Click a folder to select it. Double-click to open it.
                 </p>
               </div>
 
               <PlusButton
+                ref={closeButtonRef}
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -503,6 +526,9 @@ const FolderPickerModal: React.FC<Props> = ({
                             return (
                               <li key={f.id}>
                                 <div
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-pressed={active}
                                   className={[
                                     "flex items-center justify-between gap-3 rounded-2xl px-3 py-2 transition cursor-pointer",
                                     active
@@ -510,6 +536,12 @@ const FolderPickerModal: React.FC<Props> = ({
                                       : "hover:bg-[color-mix(in_oklab,var(--color-foreground),transparent_96%)]",
                                   ].join(" ")}
                                   onClick={() => handleChildClick(f)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      handleChildClick(f);
+                                    }
+                                  }}
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
                                     <svg
@@ -576,28 +608,48 @@ const FolderPickerModal: React.FC<Props> = ({
                       .
                     </p>
 
-                    <div className="mt-3 flex gap-2">
+                    <form
+                      className="mt-3 flex gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void handleCreate();
+                      }}
+                    >
                       <div className="bg-landing-gradient rounded-2xl p-[1px] flex-1">
                         <input
                           name="folder-create-name"
                           className="md3-input w-full rounded-2xl"
                           placeholder="New folder name"
                           value={newFolderName}
-                          onChange={(e) => setNewFolderName(e.target.value)}
+                          onChange={(e) => {
+                            setNewFolderName(e.target.value);
+                            if (createError) setCreateError(null);
+                          }}
+                          aria-invalid={createError ? "true" : "false"}
+                          aria-describedby={createError ? createErrorId : undefined}
                         />
                       </div>
 
                       <PlusButton
-                        type="button"
+                        type="submit"
                         variant="outline"
                         size="sm"
                         loading={creating}
                         disabled={creating || !newFolderName.trim()}
-                        onClick={handleCreate}
                       >
                         Create
                       </PlusButton>
-                    </div>
+                    </form>
+
+                    {createError && (
+                      <p
+                        id={createErrorId}
+                        role="alert"
+                        className="mt-2 text-xs text-red-700 dark:text-red-300"
+                      >
+                        {createError}
+                      </p>
+                    )}
                   </div>
 
                   <div className="rounded-2xl border border-border bg-white/60 dark:bg-neutral-900/40 p-4">
@@ -610,6 +662,7 @@ const FolderPickerModal: React.FC<Props> = ({
 
                     <div className="mt-3 bg-landing-gradient rounded-2xl p-[1px]">
                       <input
+                        ref={fileNameInputRef}
                         name="capture-file-name"
                         className="md3-input w-full rounded-2xl"
                         value={fileName}
@@ -894,7 +947,8 @@ const FolderPickerModal: React.FC<Props> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 

@@ -11,6 +11,11 @@ import {
 } from "../lib/api";
 import { useLocation, useNavigate } from "react-router-dom";
 import SmartCard from "../components/ui/SmartCard";
+import {
+  buildCollectorSearchQuery,
+  formatAppliedCollectorSearchPlan,
+  normalizeCollectorKeywords,
+} from "../utils/urlCollector";
 
 const LS_KEY = "uc:v1";
 
@@ -71,55 +76,6 @@ function toYYYY(s: string): string {
   return m ? m[1] : "";
 }
 
-function formatPlanValue(s: string): string {
-  const t = (s || "").trim();
-  if (!t) return "";
-  const alreadyQuoted =
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"));
-  if (alreadyQuoted) return t;
-  return t.includes(" ") ? `"${t}"` : t;
-}
-
-function buildSearchQuery(kws: string): string {
-  return (kws || "").trim();
-}
-
-function formatAppliedSearchPlan(
-  query: string,
-  opts?: SearchWebOptions | null,
-): string {
-  const parts: string[] = [];
-  const q = (query || "").trim();
-
-  if (q) parts.push(q);
-
-  const site = String(opts?.site ?? "").trim();
-  if (site) parts.push(`site=${site}`);
-
-  const yearFrom =
-    typeof opts?.yearFrom === "number" ? String(opts.yearFrom) : "";
-  const yearTo = typeof opts?.yearTo === "number" ? String(opts.yearTo) : "";
-  if (yearFrom || yearTo) {
-    parts.push(`years=${yearFrom || "..."}-${yearTo || "..."}`);
-  }
-
-  const jurisdiction = String(opts?.jurisdiction ?? "").trim();
-  if (jurisdiction) {
-    parts.push(`jurisdiction=${formatPlanValue(jurisdiction)}`);
-  }
-
-  const region = String(opts?.region ?? "").trim();
-  if (region) {
-    parts.push(`region=${formatPlanValue(region)}`);
-  }
-
-  if (opts?.fileType === "pdf") parts.push("format=pdf");
-  if (opts?.fileType === "html") parts.push("format=html");
-
-  return parts.join(" | ");
-}
-
 const UrlCollectorPage: React.FC = () => {
   // ---------- Persistence guardrails (avoid localStorage quota issues) ----------
   const MAX_PERSIST_RESULTS = 100; // cap stored results
@@ -141,45 +97,6 @@ const UrlCollectorPage: React.FC = () => {
     } catch {
       return false;
     }
-  }
-
-  // ---------- Keyword query normalization ----------
-  function normalizeKeywords(raw: string): string {
-    const s = (raw || "").trim();
-    if (!s) return "";
-
-    // Optional: remove literal AND tokens users type
-    const cleaned = s.replace(/\bAND\b/gi, " ").trim();
-
-    // Support OR groups with |
-    // Example: smog tower, delhi | air purifier, delhi
-    const orGroups = cleaned
-      .split("|")
-      .map((g) => g.trim())
-      .filter(Boolean);
-
-    const groupQueries = orGroups.map((group) => {
-      // Comma-separated = MUST include all (AND)
-      const parts = group
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean);
-
-      const terms = parts.map((p) => {
-        const alreadyQuoted =
-          (p.startsWith('"') && p.endsWith('"')) ||
-          (p.startsWith("'") && p.endsWith("'"));
-        if (alreadyQuoted) return p;
-        return p.includes(" ") ? `"${p}"` : p; // quote phrases
-      });
-
-      // AND is default in Google/CSE when space-separated
-      return terms.join(" ");
-    });
-
-    return groupQueries.length > 1
-      ? `(${groupQueries.join(") OR (")})`
-      : groupQueries[0];
   }
 
   const navigate = useNavigate();
@@ -467,7 +384,7 @@ const UrlCollectorPage: React.FC = () => {
   const handleSearch = useCallback(
     async (siteArg?: string, kwArg?: string) => {
       const site = (siteArg ?? website).trim();
-      const kws = normalizeKeywords(kwArg ?? keywords);
+      const kws = normalizeCollectorKeywords(kwArg ?? keywords);
 
       const yFrom = toYYYY(scope.yearFrom);
       const yTo = toYYYY(scope.yearTo);
@@ -510,7 +427,7 @@ const UrlCollectorPage: React.FC = () => {
       syncUrl(site, kws, scope);
 
       try {
-        const q = buildSearchQuery(kws);
+        const q = buildCollectorSearchQuery(kws);
         const searchOpts = buildSearchOpts(site, scope);
         setLastSearchOpts(searchOpts);
 
@@ -879,7 +796,7 @@ const UrlCollectorPage: React.FC = () => {
             onKeywordsChange={setKeywords}
             searchPreview={
               hasSearched
-                ? formatAppliedSearchPlan(lastQuery, lastSearchOpts)
+                ? formatAppliedCollectorSearchPlan(lastQuery, lastSearchOpts)
                 : undefined
             }
             currentScope={scope}

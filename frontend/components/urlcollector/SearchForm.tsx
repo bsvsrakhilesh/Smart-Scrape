@@ -3,6 +3,7 @@ import SearchIcon from "../icons/SearchIcon";
 import { PlusButton } from "../ui/PlusButton";
 import FormField from "../forms/FormField";
 import { Sparkles } from "lucide-react";
+import { normalizeCollectorWebsite } from "../../utils/urlCollector";
 
 interface SearchFormProps {
   onSearch: (website: string, keywords: string) => void;
@@ -56,27 +57,9 @@ const SearchForm: React.FC<SearchFormProps> = ({
   useEffect(() => setWebsite(initialWebsite), [initialWebsite]);
   useEffect(() => setKeywords(initialKeywords), [initialKeywords]);
 
-  // Accept full URL or bare domain; return a clean domain for site: filter
-  const normalizeWebsite = (raw: string) => {
-    const v = raw.trim();
-    if (!v) return "";
-    try {
-      // Add scheme if missing so URL() can parse
-      const maybeUrl = v.match(/^[a-zA-Z][a-zA-Z0-9+\-.]*:\/\//)
-        ? v
-        : `https://${v}`;
-      const u = new URL(maybeUrl);
-      // use hostname only (drop port/path)
-      return u.hostname.replace(/^\s*www\./i, "").trim();
-    } catch {
-      // Fallback: keep a permissive domain-ish token
-      return v.replace(/^\s*www\./i, "").split(/[\/\s?#]/)[0];
-    }
-  };
-
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const site = normalizeWebsite(website);
+    const site = normalizeCollectorWebsite(website);
     onSearch(site, keywords.trim());
   };
 

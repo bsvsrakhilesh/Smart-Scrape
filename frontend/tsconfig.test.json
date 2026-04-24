@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "allowJs": false,
+    "allowImportingTsExtensions": false,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "isolatedModules": false,
+    "types": ["node"],
+    "sourceMap": false
+  },
+  "include": ["tests/**/*.ts", "utils/urlCollector.ts", "lib/types.ts"]
+}

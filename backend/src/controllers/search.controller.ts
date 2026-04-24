@@ -33,11 +33,6 @@ export async function searchHandler(
   const q = String(req.query.q || "").trim();
   const page = Number(req.query.page ?? 1);
 
-  if (!q) {
-    log.warn("search.request.invalid", { reason: "missing q" });
-    return res.status(400).json({ error: "Missing query parameter `q`" });
-  }
-
   const opts = {
     site: strOrUndef(req.query.site),
     yearFrom: numOrUndef(req.query.yearFrom),
@@ -49,6 +44,13 @@ export async function searchHandler(
     cr: strOrUndef(req.query.cr),
     gl: strOrUndef(req.query.gl),
   };
+
+  if (!q && !opts.site) {
+    log.warn("search.request.invalid", { reason: "missing q and site" });
+    return res.status(400).json({
+      error: "Missing query parameter `q` or site filter",
+    });
+  }
 
   const startedAt = Date.now();
   try {
@@ -99,11 +101,6 @@ export async function searchRerankHandler(
 ) {
   const q = String(req.body?.q || "").trim();
 
-  if (!q) {
-    log.warn("search.rerank.invalid", { reason: "missing q" });
-    return res.status(400).json({ error: "Missing body field `q`" });
-  }
-
   const incoming = Array.isArray(req.body?.results) ? req.body.results : [];
   if (!incoming.length) {
     log.warn("search.rerank.invalid", { reason: "missing results" });
@@ -118,6 +115,13 @@ export async function searchRerankHandler(
     region: strOrUndef(req.body?.region),
     fileType: strOrUndef(req.body?.fileType) as "pdf" | "html" | undefined,
   };
+
+  if (!q && !opts.site) {
+    log.warn("search.rerank.invalid", { reason: "missing q and site" });
+    return res
+      .status(400)
+      .json({ error: "Missing body field `q` or site filter" });
+  }
 
   const startedAt = Date.now();
 

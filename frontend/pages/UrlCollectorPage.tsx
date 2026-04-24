@@ -37,12 +37,8 @@ function sleep(ms: number, signal?: AbortSignal) {
 
 type SortKey = "original" | "title" | "domain" | "year";
 
-/**
- * Collector "scope" filters.
- * NOTE: This page applies these filters by adding standard Google query operators
- * into the query string (after:/before:/filetype:). This works without changing lib/api.ts.
- * Later, when you wire backend params (yearFrom/yearTo/etc), you can switch to structured params.
- */
+// Collector "scope" filters. These are sent as structured backend params so
+// the keyword query stays clean and filters have a single source of truth.
 type CollectorScope = {
   yearFrom: string; // YYYY
   yearTo: string; // YYYY
@@ -75,7 +71,7 @@ function toYYYY(s: string): string {
   return m ? m[1] : "";
 }
 
-function quoteIfNeeded(s: string): string {
+function formatPlanValue(s: string): string {
   const t = (s || "").trim();
   if (!t) return "";
   const alreadyQuoted =
@@ -83,6 +79,45 @@ function quoteIfNeeded(s: string): string {
     (t.startsWith("'") && t.endsWith("'"));
   if (alreadyQuoted) return t;
   return t.includes(" ") ? `"${t}"` : t;
+}
+
+function buildSearchQuery(kws: string): string {
+  return (kws || "").trim();
+}
+
+function formatAppliedSearchPlan(
+  query: string,
+  opts?: SearchWebOptions | null,
+): string {
+  const parts: string[] = [];
+  const q = (query || "").trim();
+
+  if (q) parts.push(q);
+
+  const site = String(opts?.site ?? "").trim();
+  if (site) parts.push(`site=${site}`);
+
+  const yearFrom =
+    typeof opts?.yearFrom === "number" ? String(opts.yearFrom) : "";
+  const yearTo = typeof opts?.yearTo === "number" ? String(opts.yearTo) : "";
+  if (yearFrom || yearTo) {
+    parts.push(`years=${yearFrom || "..."}-${yearTo || "..."}`);
+  }
+
+  const jurisdiction = String(opts?.jurisdiction ?? "").trim();
+  if (jurisdiction) {
+    parts.push(`jurisdiction=${formatPlanValue(jurisdiction)}`);
+  }
+
+  const region = String(opts?.region ?? "").trim();
+  if (region) {
+    parts.push(`region=${formatPlanValue(region)}`);
+  }
+
+  if (opts?.fileType === "pdf") parts.push("format=pdf");
+  if (opts?.fileType === "html") parts.push("format=html");
+
+  return parts.join(" | ");
 }
 
 const UrlCollectorPage: React.FC = () => {
@@ -337,32 +372,6 @@ const UrlCollectorPage: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function buildQuery(site: string, kws: string, sc: CollectorScope): string {
-    const parts: string[] = [];
-
-    const sitePart = site ? `site:${site}` : "";
-    if (sitePart) parts.push(sitePart);
-
-    if (kws) parts.push(kws);
-
-    const yFrom = toYYYY(sc.yearFrom);
-    const yTo = toYYYY(sc.yearTo);
-
-    if (yFrom) parts.push(`after:${yFrom}-01-01`);
-    if (yTo) parts.push(`before:${yTo}-12-31`);
-
-    // Honest format filter: PDF only is reliable; "exclude PDFs" approximates HTML-heavy results.
-    if (sc.format === "pdfOnly") parts.push("filetype:pdf");
-    if (sc.format === "excludePdf") parts.push("-filetype:pdf");
-
-    const j = quoteIfNeeded(sc.jurisdiction);
-    const r = quoteIfNeeded(sc.region);
-    if (j) parts.push(j);
-    if (r) parts.push(r);
-
-    return parts.join(" ").trim();
-  }
-
   function syncUrl(site: string, kws: string, sc: CollectorScope) {
     const sp = new URLSearchParams();
     if (site) sp.set("site", site);
@@ -382,7 +391,7 @@ const UrlCollectorPage: React.FC = () => {
     );
   }
 
-  function buildRerankOpts(site: string, sc: CollectorScope): SearchWebOptions {
+  function buildSearchOpts(site: string, sc: CollectorScope): SearchWebOptions {
     const yFrom = toYYYY(sc.yearFrom);
     const yTo = toYYYY(sc.yearTo);
 
@@ -501,8 +510,8 @@ const UrlCollectorPage: React.FC = () => {
       syncUrl(site, kws, scope);
 
       try {
-        const q = buildQuery(site, kws, scope);
-        const searchOpts = buildRerankOpts(site, scope);
+        const q = buildSearchQuery(kws);
+        const searchOpts = buildSearchOpts(site, scope);
         setLastSearchOpts(searchOpts);
 
         // Helper to fetch a specific page from the backend
@@ -531,7 +540,7 @@ const UrlCollectorPage: React.FC = () => {
 
         if (p1.rows.length === 0) {
           setError(
-            "No results found. Try different keywords, widen filters, or remove the site: filter.",
+            "No results found. Try different keywords, widen filters, or remove the site filter.",
           );
           return;
         }
@@ -877,7 +886,11 @@ const UrlCollectorPage: React.FC = () => {
             initialKeywords={keywords}
             onWebsiteChange={setWebsite}
             onKeywordsChange={setKeywords}
-            builtQuery={hasSearched && lastQuery ? lastQuery : undefined}
+            searchPreview={
+              hasSearched
+                ? formatAppliedSearchPlan(lastQuery, lastSearchOpts)
+                : undefined
+            }
             currentScope={scope}
             onAiAssist={handleAiAssist}
             aiAssistLoading={aiAssistLoading}
@@ -1008,10 +1021,9 @@ const UrlCollectorPage: React.FC = () => {
             <div className="uc-filters-footnote" role="note">
               <span className="uc-filters-footnote-dot" aria-hidden="true" />
               <span>
-                These filters sharpen retrieval with structured operators such
-                as <span className="font-mono">after:</span>,{" "}
-                <span className="font-mono">before:</span>, and{" "}
-                <span className="font-mono">filetype:</span>.
+                These filters are applied as structured search parameters, so
+                the keyword query stays clean and the backend owns filter
+                behavior.
               </span>
             </div>
           </div>

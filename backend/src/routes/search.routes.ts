@@ -34,7 +34,7 @@ const planBodySchema = z
 
 const rerankBodySchema = z
   .object({
-    q: z.string().trim().min(2, "q must be at least 2 chars"),
+    q: z.string().trim().max(500).optional(),
 
     results: z
       .array(
@@ -81,6 +81,23 @@ const rerankBodySchema = z
     fileType: z.enum(["pdf", "html"]).optional(),
   })
   .superRefine((v, ctx) => {
+    const q = String(v.q ?? "").trim();
+    const hasSite = !!String(v.site ?? "").trim();
+
+    if (!hasSite && q.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "q must be at least 2 chars when no site filter is provided",
+        path: ["q"],
+      });
+    } else if (q.length > 0 && q.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "q must be at least 2 chars",
+        path: ["q"],
+      });
+    }
+
     if (
       typeof v.yearFrom === "number" &&
       typeof v.yearTo === "number" &&
@@ -96,7 +113,7 @@ const rerankBodySchema = z
 
 const querySchema = z
   .object({
-    q: z.string().min(2, "q must be at least 2 chars"),
+    q: z.string().trim().max(500).optional(),
     page: z.coerce.number().int().min(1).optional(),
 
     // Optional structured filters (URL Collector)
@@ -113,6 +130,23 @@ const querySchema = z
     gl: z.string().trim().max(10).optional(), // e.g. IN
   })
   .superRefine((v, ctx) => {
+    const q = String(v.q ?? "").trim();
+    const hasSite = !!String(v.site ?? "").trim();
+
+    if (!hasSite && q.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "q must be at least 2 chars when no site filter is provided",
+        path: ["q"],
+      });
+    } else if (q.length > 0 && q.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "q must be at least 2 chars",
+        path: ["q"],
+      });
+    }
+
     if (
       typeof v.yearFrom === "number" &&
       typeof v.yearTo === "number" &&

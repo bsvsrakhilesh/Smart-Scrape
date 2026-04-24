@@ -11,7 +11,7 @@ interface SearchFormProps {
   initialKeywords?: string;
   onWebsiteChange?: (v: string) => void;
   onKeywordsChange?: (v: string) => void;
-  builtQuery?: string;
+  searchPreview?: string;
   currentScope?: {
     yearFrom: string;
     yearTo: string;
@@ -41,7 +41,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
   initialKeywords = "",
   onWebsiteChange,
   onKeywordsChange,
-  builtQuery,
+  searchPreview,
   currentScope,
   onAiAssist,
   aiAssistLoading = false,
@@ -194,21 +194,21 @@ const SearchForm: React.FC<SearchFormProps> = ({
       )}
 
       {/* Built query display — shown after first search so researchers can verify what ran */}
-      {builtQuery && (
+      {searchPreview && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-800/50">
           <span className="mt-0.5 shrink-0 font-medium text-gray-500 dark:text-gray-400">
-            Query
+            Search plan
           </span>
           <code className="min-w-0 break-all font-mono text-gray-700 dark:text-gray-300 leading-relaxed">
-            {builtQuery}
+            {searchPreview}
           </code>
           <button
             type="button"
-            title="Copy query to clipboard"
+            title="Copy search plan to clipboard"
             className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200 transition-colors"
             onClick={async () => {
               try {
-                await navigator.clipboard.writeText(builtQuery);
+                await navigator.clipboard.writeText(searchPreview);
               } catch {
                 /* clipboard unavailable */
               }

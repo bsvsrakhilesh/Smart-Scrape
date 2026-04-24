@@ -10,8 +10,16 @@ const filterSchema = z.object({
   domains: z.array(z.string()),
   tags: z.array(z.string()),
   visibility: z.enum(["all", "public", "private"]),
+
+  // Saved URL created-date filters.
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
+
+  // Saved URL published-date filters.
+  // These must be preserved when saving/loading saved searches.
+  publishedFrom: z.string().optional(),
+  publishedTo: z.string().optional(),
+
   favoritesOnly: z.boolean(),
   snapshotStatus: z.enum(["all", "missing", "stale", "fresh"]).optional(),
   taggingStatus: z

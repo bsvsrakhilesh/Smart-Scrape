@@ -355,6 +355,56 @@ function serializeUrlRow(
   };
 }
 
+type LatestUrlSnapshot = Prisma.StoredFileGetPayload<{
+  select: {
+    id: true;
+    urlId: true;
+    fileName: true;
+    captureType: true;
+    createdAt: true;
+    sha256: true;
+  };
+}>;
+
+async function getLatestSnapshotsByUrlId(
+  urlIds: number[],
+): Promise<Map<number, LatestUrlSnapshot>> {
+  const uniqueIds = Array.from(new Set(urlIds)).filter((id) =>
+    Number.isFinite(id),
+  );
+
+  const latestByUrl = new Map<number, LatestUrlSnapshot>();
+
+  if (uniqueIds.length === 0) return latestByUrl;
+
+  const snapshots = await prisma.storedFile.findMany({
+    where: {
+      urlId: { in: uniqueIds },
+      deletedAt: null,
+      captureType: { in: ["URL_TEXT", "URL_PDF"] },
+    },
+    select: {
+      id: true,
+      urlId: true,
+      fileName: true,
+      captureType: true,
+      createdAt: true,
+      sha256: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  for (const snapshot of snapshots) {
+    if (typeof snapshot.urlId !== "number") continue;
+
+    if (!latestByUrl.has(snapshot.urlId)) {
+      latestByUrl.set(snapshot.urlId, snapshot);
+    }
+  }
+
+  return latestByUrl;
+}
+
 /* ------------------------------ queries ------------------------------ */
 
 /** List URLs with optional year + tag filters and sorting */
@@ -373,28 +423,8 @@ export async function getAllUrls(opts: GetAllOpts) {
     },
   });
 
-  // Attach latest snapshot info (if any)
-  const ids = urls.map((u) => u.id);
-  if (ids.length === 0) return urls.map((u) => serializeUrlRow(u)) as any;
-
-  const snaps = await prisma.storedFile.findMany({
-    where: { urlId: { in: ids } },
-    select: {
-      id: true,
-      urlId: true,
-      fileName: true,
-      captureType: true,
-      createdAt: true,
-      sha256: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const latestByUrl = new Map<number, any>();
-  for (const s of snaps) {
-    if (!latestByUrl.has(s.urlId as number))
-      latestByUrl.set(s.urlId as number, s);
-  }
+  // Attach latest active URL snapshot info, if any.
+  const latestByUrl = await getLatestSnapshotsByUrlId(urls.map((u) => u.id));
 
   return urls.map((u) =>
     serializeUrlRow(u, latestByUrl.get(u.id) ?? null),
@@ -439,35 +469,8 @@ export async function getUrlsPaged(opts: GetPagedUrlsOpts) {
     prisma.url.count({ where }),
   ]);
 
-  // Attach latest snapshot info (if any) — only for the returned page
-  const ids = urls.map((u) => u.id);
-  if (ids.length === 0) {
-    return {
-      items: urls.map((u) => serializeUrlRow(u)) as any[],
-      total,
-      page,
-      pageSize,
-    };
-  }
-
-  const snaps = await prisma.storedFile.findMany({
-    where: { urlId: { in: ids } },
-    select: {
-      id: true,
-      urlId: true,
-      fileName: true,
-      captureType: true,
-      createdAt: true,
-      sha256: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const latestByUrl = new Map<number, any>();
-  for (const s of snaps) {
-    if (!latestByUrl.has(s.urlId as number))
-      latestByUrl.set(s.urlId as number, s);
-  }
+  // Attach latest active URL snapshot info, if any — only for the returned page.
+  const latestByUrl = await getLatestSnapshotsByUrlId(urls.map((u) => u.id));
 
   const items = urls.map((u) =>
     serializeUrlRow(u, latestByUrl.get(u.id) ?? null),
@@ -492,7 +495,8 @@ export async function getUrlById(id: number) {
     });
     throw err;
   }
-  return serializeUrlRow(rec);
+  const latestByUrl = await getLatestSnapshotsByUrlId([rec.id]);
+  return serializeUrlRow(rec, latestByUrl.get(rec.id) ?? null);
 }
 
 export async function recordUrlVisit(id: number) {

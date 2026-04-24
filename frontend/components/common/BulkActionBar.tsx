@@ -40,7 +40,6 @@ function BulkActionBar<T extends Selectable>({
   selected,
   onDelete,
   onRestore,
-  onAddTag,
   onRequestAddTag,
   onFavorite,
   onDownload,
@@ -74,21 +73,16 @@ function BulkActionBar<T extends Selectable>({
 
   const selectedIds = selected.map((s) => s.id);
 
-  const addTag = () => {
-    if (onRequestAddTag) {
-      onRequestAddTag(selectedIds);
-      return;
-    }
-    if (!onAddTag) return;
+  const canAddTag = !!onRequestAddTag;
 
-    const tag = prompt("Add tag");
-    if (tag && tag.trim()) onAddTag(selectedIds, tag.trim());
+  const addTag = () => {
+    if (!onRequestAddTag) return;
+    onRequestAddTag(selectedIds);
   };
 
   const hasPrimaryActions =
     !!onFavorite ||
-    !!onAddTag ||
-    !!onRequestAddTag ||
+    canAddTag ||
     !!onMoveTo ||
     !!onCopy ||
     !!onCut ||
@@ -115,7 +109,7 @@ function BulkActionBar<T extends Selectable>({
         </button>
       )}
 
-      {(onAddTag || onRequestAddTag) && (
+      {canAddTag && (
         <button onClick={addTag} className={baseBtn} title={addTagTitle}>
           + Tag
         </button>

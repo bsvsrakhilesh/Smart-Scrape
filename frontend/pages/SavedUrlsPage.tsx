@@ -621,6 +621,10 @@ const SavedUrlsPage: React.FC = () => {
   const [textDialogValue, setTextDialogValue] = useState("");
   const [textDialogBusy, setTextDialogBusy] = useState(false);
 
+  const [bulkTagDialogIds, setBulkTagDialogIds] = useState<string[]>([]);
+  const [bulkTagDialogValue, setBulkTagDialogValue] = useState("");
+  const [bulkTagDialogBusy, setBulkTagDialogBusy] = useState(false);
+
   useEffect(() => {
     setTextDialogValue(textDialog?.value ?? "");
   }, [textDialog]);
@@ -2263,6 +2267,42 @@ const SavedUrlsPage: React.FC = () => {
     });
   };
 
+  const openBulkAddTagDialog = useCallback((ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (!uniqueIds.length) return;
+
+    setBulkTagDialogIds(uniqueIds);
+    setBulkTagDialogValue("");
+  }, []);
+
+  const closeBulkAddTagDialog = useCallback(() => {
+    if (bulkTagDialogBusy) return;
+
+    setBulkTagDialogIds([]);
+    setBulkTagDialogValue("");
+  }, [bulkTagDialogBusy]);
+
+  const submitBulkAddTagDialog = useCallback(async () => {
+    const tag = bulkTagDialogValue.trim();
+    if (!tag || bulkTagDialogIds.length === 0) return;
+
+    setBulkTagDialogBusy(true);
+
+    try {
+      await onAddTag(bulkTagDialogIds, tag);
+
+      setBulkTagDialogIds([]);
+      setBulkTagDialogValue("");
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Unable to add tag right now.",
+        kind: "error",
+      });
+    } finally {
+      setBulkTagDialogBusy(false);
+    }
+  }, [bulkTagDialogIds, bulkTagDialogValue, notify, onAddTag]);
+
   const onDelete = async (ids: string[]) => {
     const idsNum = ids.map(Number);
     const targetRows = urls.filter((u) => ids.includes(u.id));
@@ -3413,6 +3453,7 @@ const SavedUrlsPage: React.FC = () => {
                   selectionSummary={`${selectedItems.length} selected on this page`}
                   onDelete={onDelete}
                   onAddTag={onAddTag}
+                  onRequestAddTag={openBulkAddTagDialog}
                   onFavorite={onFavorite}
                   onExport={() => {
                     const headers = [
@@ -3656,6 +3697,27 @@ const SavedUrlsPage: React.FC = () => {
               busy={textDialogBusy}
               onChange={setTextDialogValue}
               onSubmit={submitTextDialog}
+            />
+
+            <TextEntryModal
+              open={bulkTagDialogIds.length > 0}
+              onClose={closeBulkAddTagDialog}
+              title="Add tag to page selection"
+              description={
+                bulkTagDialogIds.length === 1
+                  ? "Apply one user tag to the selected Saved URL. Existing user tags and AI tags will be preserved."
+                  : `Apply one user tag to ${bulkTagDialogIds.length} selected Saved URLs on this page. Existing user tags and AI tags will be preserved.`
+              }
+              value={bulkTagDialogValue}
+              placeholder="e.g. indoor-air, follow-up, reading-list"
+              submitLabel={
+                bulkTagDialogIds.length === 1
+                  ? "Add tag"
+                  : `Add tag to ${bulkTagDialogIds.length} URLs`
+              }
+              busy={bulkTagDialogBusy}
+              onChange={setBulkTagDialogValue}
+              onSubmit={submitBulkAddTagDialog}
             />
 
             <CollectionPickerModal

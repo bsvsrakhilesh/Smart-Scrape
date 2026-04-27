@@ -83,6 +83,7 @@ services:
       CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
       EXTRACT_URL_TIMEOUT_MS: 30000
       INGESTION_QUEUE_CONCURRENCY: 2
+      AI_TAG_URL_QUEUE_CONCURRENCY: 1
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
@@ -162,7 +163,7 @@ services:
       - ai_tagger_ingress:/ingress
     depends_on:
       - redis
-    command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=2"
+    command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=1"
 
 volumes:
   db_data:

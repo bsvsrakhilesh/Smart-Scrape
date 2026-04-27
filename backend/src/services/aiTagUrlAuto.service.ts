@@ -5,6 +5,7 @@ import { createJobFromFile, createJobFromUrl } from "./pyTaggerClient";
 import { startOrReuseAiTagJobForUrl } from "./aiTagJobStart.service";
 import { finalizeAiTagJobForUrl } from "./aiTagJobFinalize.service";
 import { persistAiTagFailureForUrl } from "./aiTagPersistence.service";
+import { enqueueAiTagUrl } from "../queues/aiTagUrl.queue";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
@@ -101,37 +102,30 @@ export async function runAiTagForUrl(
   }
 }
 
-/** Fire-and-forget wrapper */
+/**
+ * Queue URL auto-tagging instead of running it in-process.
+ * The backend worker consumes this FIFO queue with concurrency=1 by default, so
+ * saving many URLs is safe: rows become PENDING immediately, then one URL is
+ * tagged, persisted, and only then does the next URL start.
+ */
 export function scheduleAiTagForUrl(urlId: number, opts?: { force?: boolean }) {
-  setImmediate(async () => {
+  void enqueueAiTagUrl(urlId, opts).catch(async (e: any) => {
+    const msg = String(e?.message || e || "Unknown queueing error").slice(
+      0,
+      500,
+    );
+
     try {
       await prisma.url.update({
         where: { id: urlId },
         data: {
-          taggingStatus: TaggingStatus.PENDING,
-          taggingError: null,
+          taggingStatus: TaggingStatus.FAILED,
+          taggingJobId: null,
+          taggingError: msg,
         },
       });
+    } catch {}
 
-      await runAiTagForUrl(urlId, {
-        ...(opts || {}),
-        throwOnTerminalFailure: false,
-      });
-    } catch (e: any) {
-      const msg = String(e?.message || e || "Unknown error").slice(0, 500);
-
-      try {
-        await prisma.url.update({
-          where: { id: urlId },
-          data: {
-            taggingStatus: TaggingStatus.FAILED,
-            taggingJobId: null,
-            taggingError: msg,
-          },
-        });
-      } catch {}
-
-      console.error("[aiTagUrlAuto] scheduleAiTagForUrl failed", { urlId }, e);
-    }
+    console.error("[aiTagUrlAuto] enqueue failed", { urlId }, e);
   });
 }

@@ -1279,6 +1279,24 @@ const SavedUrlsPage: React.FC = () => {
     return stop;
   }, [urls]);
 
+  useEffect(() => {
+    const hasQueuedOrRunningRows = urls.some((u) => {
+      const status = String((u as any)?.taggingStatus ?? "NONE").toUpperCase();
+      return status === "PENDING" || status === "RUNNING";
+    });
+
+    if (!hasQueuedOrRunningRows) return;
+
+    const timer = window.setInterval(() => {
+      void refreshRowsAndQueueSummary();
+      void refreshTaggingSummary();
+    }, 3000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [urls, refreshRowsAndQueueSummary, refreshTaggingSummary]);
+
   // Global facet options from the backend query scope.
   // Keep currently-selected values merged in so users can always see/remove them
   // even during transient refreshes.

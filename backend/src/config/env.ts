@@ -20,6 +20,7 @@ const EnvSchema = z.object({
   REDIS_URL: z.string().optional().default("redis://localhost:6379/0"),
   EMBEDDING_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
   INGESTION_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
+  AI_TAG_URL_QUEUE_CONCURRENCY: z.coerce.number().optional().default(1),
 
   // OCR for scanned PDFs
   OCR_ENABLED: BoolFromEnv,

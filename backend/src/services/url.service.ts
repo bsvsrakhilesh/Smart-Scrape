@@ -671,12 +671,11 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
     }
   }
 
-  // Non-blocking tagging via Python ai-tagger
-  // Stagger starts a bit to avoid hammering the tagger when the user saves many URLs at once.
-  const STAGGER_MS = Number(process.env.TAGS_STAGGER_MS || 250);
-
-  created.forEach(({ id }, i) => {
-    setTimeout(() => scheduleAiTagForUrl(id), i * STAGGER_MS);
+  // Non-blocking tagging via the controlled backend FIFO queue.
+  // Rows enter PENDING immediately; the backend worker starts only one URL
+  // tagging job at a time by default, so PDFs/heavy pages cannot overload the tagger.
+  created.forEach(({ id }) => {
+    scheduleAiTagForUrl(id);
   });
 
   // Resolve ids for skipped (already-existing) URLs so callers can always get urlId.
@@ -712,8 +711,7 @@ export async function createManyUrls(rows: CreateUrlInput[]) {
       taggingStatus === "FAILED";
 
     if (needsTagging) {
-      const offset = created.length + i; // continue staggering after "created"
-      setTimeout(() => scheduleAiTagForUrl(id), offset * STAGGER_MS);
+      scheduleAiTagForUrl(id);
     }
   });
 

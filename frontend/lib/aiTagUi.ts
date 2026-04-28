@@ -148,7 +148,7 @@ export function getAiTagUiSummary(item: AiTagLike | null | undefined): {
           cached ? "Cached result" : null,
         ]
           .filter(Boolean)
-          .join(" · ") || "AI extraction in progress",
+          .join(" - ") || "AI extraction in progress",
       progress,
       cached,
       retryAllowed: false,
@@ -166,7 +166,7 @@ export function getAiTagUiSummary(item: AiTagLike | null | undefined): {
           attempt && attempt > 1 ? `Attempt ${attempt}` : null,
         ]
           .filter(Boolean)
-          .join(" · ") || "Waiting for worker pickup",
+          .join(" - ") || "Waiting for worker pickup",
       progress,
       cached,
       retryAllowed: false,

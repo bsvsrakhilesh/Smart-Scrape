@@ -268,7 +268,7 @@ def _classify_structured_safe(
 
 
 def _normalize_ws(s: str) -> str:
-    return " ".join((s or "").replace("…", " ").split()).strip().lower()
+    return " ".join((s or "").replace("\u2026", " ").split()).strip().lower()
 
 
 def _locator_prefix(locator: Optional[Dict[str, Any]]) -> str:
@@ -398,7 +398,7 @@ def _empty_governance() -> Dict[str, Any]:
 
 
 def _clean_text(value: Any, limit: int = 500) -> Optional[str]:
-    s = " ".join(str(value or "").replace("…", " ").split()).strip()
+    s = " ".join(str(value or "").replace("\u2026", " ").split()).strip()
     if not s:
         return None
     return s[:limit]
@@ -755,6 +755,7 @@ def _classify_structured_combined(
     tags: List[str],
     extraction: Optional[Dict[str, Any]],
     grounding_units: Sequence[Dict[str, Any]],
+    allow_llm: bool,
 ):
     rule_structured = _classify_structured_safe(content, file_name, tags) or None
 
@@ -762,7 +763,7 @@ def _classify_structured_combined(
     structured_llm_used = False
     structured_llm_model: Optional[str] = None
 
-    if has_structured_llm() and (content or "").strip():
+    if allow_llm and has_structured_llm() and (content or "").strip():
         try:
             llm_structured = extract_structured_with_llm(
                 content=content,
@@ -788,7 +789,7 @@ def _classify_structured_combined(
     governance_llm_used = False
     governance_llm_model: Optional[str] = None
 
-    if has_structured_llm() and (content or "").strip():
+    if allow_llm and has_structured_llm() and (content or "").strip():
         try:
             governance = extract_governance_with_llm(
                 content=content,
@@ -814,6 +815,256 @@ def _classify_structured_combined(
         governance_llm_used,
         governance_llm_model,
     )
+
+
+def _tag_display(value: Any) -> str:
+    raw = _clean_text(value, 120) or ""
+    display_map = {
+        "construction_demolition": "C&D",
+        "waste_burning": "Waste burning",
+        "biomass_burning": "Biomass burning",
+        "industry_power": "Industry & power",
+        "dg_sets": "DG sets",
+        "office_memorandum": "Office memorandum",
+        "sop_guideline": "SOP / Guideline",
+        "pm25": "PM2.5",
+        "pm10": "PM10",
+        "no2": "NO2",
+        "o3": "O3",
+        "co": "CO",
+        "grap": "GRAP",
+    }
+    return display_map.get(raw, raw.replace("_", " "))
+
+
+def _snippet_for_term(
+    term: str,
+    content: str,
+    units: Sequence[Dict[str, Any]],
+    *,
+    window: int = 90,
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    needle = (term or "").strip().casefold()
+    if not needle:
+        return None, None
+
+    for unit in units or []:
+        text = str(unit.get("text") or "")
+        idx = text.casefold().find(needle)
+        if idx < 0:
+            continue
+        start = max(0, idx - window)
+        end = min(len(text), idx + len(term) + window)
+        snippet = " ".join(text[start:end].split()).strip()
+        if not snippet:
+            continue
+        if start > 0:
+            snippet = "... " + snippet
+        if end < len(text):
+            snippet = snippet + " ..."
+        return _locator_prefix(unit.get("locator") or {}) + snippet, unit.get("locator")
+
+    idx = (content or "").casefold().find(needle)
+    if idx < 0:
+        return None, None
+    start = max(0, idx - window)
+    end = min(len(content), idx + len(term) + window)
+    snippet = " ".join(content[start:end].split()).strip()
+    if start > 0:
+        snippet = "... " + snippet
+    if end < len(content):
+        snippet = snippet + " ..."
+    return "[document] " + snippet, None
+
+
+def _candidate_hints(
+    *,
+    signals: Sequence[str],
+    adv: Sequence[str],
+    phrases: Sequence[str],
+    unigrams: Sequence[str],
+) -> Dict[str, Dict[str, Any]]:
+    hints: Dict[str, Dict[str, Any]] = {}
+
+    def add(items: Sequence[str], source: str, confidence: float) -> None:
+        for item in items or []:
+            mapped = apply_taxonomy([item])
+            value = mapped[0] if mapped else _clean_text(item, 120)
+            if not value:
+                continue
+            key = str(value).casefold()
+            prev = hints.get(key)
+            if prev and float(prev.get("confidence") or 0) >= confidence:
+                continue
+            hints[key] = {"source": source, "confidence": confidence}
+
+    add(signals, "signal", 0.68)
+    add(adv, "semantic_candidate", 0.7)
+    add(phrases, "phrase_candidate", 0.62)
+    add(unigrams, "keyword_candidate", 0.55)
+    return hints
+
+
+def _iter_structured_tag_items(
+    structured: Any,
+) -> Sequence[Tuple[str, str, Dict[str, Any]]]:
+    if not isinstance(structured, dict):
+        return []
+
+    out: List[Tuple[str, str, Dict[str, Any]]] = []
+
+    doc_type = structured.get("docType")
+    if isinstance(doc_type, dict) and doc_type.get("value"):
+        out.append(("document_type", str(doc_type.get("value")), doc_type))
+
+    labels = structured.get("labels")
+    label_type_by_key = {
+        "sectors": "sector",
+        "agencies": "agency",
+        "geography": "geography",
+        "programs": "program",
+        "pollutants": "pollutant",
+    }
+    if isinstance(labels, dict):
+        for key, tag_type in label_type_by_key.items():
+            arr = labels.get(key)
+            if not isinstance(arr, list):
+                continue
+            for item in arr:
+                if isinstance(item, dict) and item.get("value"):
+                    out.append((tag_type, str(item.get("value")), item))
+
+    grap = structured.get("grap")
+    if isinstance(grap, dict) and grap.get("mentioned"):
+        out.append(
+            (
+                "program",
+                "grap",
+                {
+                    "value": "grap",
+                    "score": 0.85 if grap.get("stage") else 0.7,
+                    "evidence": grap.get("evidence") or "",
+                    "locator": grap.get("locator"),
+                },
+            )
+        )
+        if grap.get("stage"):
+            out.append(
+                (
+                    "program_stage",
+                    f"grap stage {grap.get('stage')}",
+                    {
+                        "value": f"grap stage {grap.get('stage')}",
+                        "score": 0.85,
+                        "evidence": grap.get("evidence") or "",
+                        "locator": grap.get("locator"),
+                    },
+                )
+            )
+
+    return out
+
+
+def _build_ai_tag_details(
+    *,
+    tags: Sequence[str],
+    structured: Any,
+    signals: Sequence[str],
+    adv: Sequence[str],
+    phrases: Sequence[str],
+    unigrams: Sequence[str],
+    content: str,
+    grounding_units: Sequence[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    hints = _candidate_hints(
+        signals=signals,
+        adv=adv,
+        phrases=phrases,
+        unigrams=unigrams,
+    )
+
+    structured_lookup: Dict[str, Tuple[str, Dict[str, Any]]] = {}
+    for tag_type, value, item in _iter_structured_tag_items(structured):
+        structured_lookup[str(value).casefold()] = (tag_type, item)
+
+    out: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add(
+        value: Any,
+        *,
+        tag_type: str,
+        source: str,
+        confidence: Optional[float],
+        evidence: Optional[str] = None,
+        locator: Optional[Dict[str, Any]] = None,
+        rank: Optional[int] = None,
+    ) -> None:
+        raw = _clean_text(value, 120)
+        if not raw:
+            return
+        key = (tag_type, raw.casefold())
+        if key in seen:
+            return
+        seen.add(key)
+
+        ev = _clean_text(evidence, 500)
+        loc = locator if isinstance(locator, dict) else None
+        if not ev:
+            ev, loc = _snippet_for_term(raw, content, grounding_units)
+
+        item: Dict[str, Any] = {
+            "value": raw,
+            "display": _tag_display(raw),
+            "type": tag_type,
+            "source": source,
+            "confidence": _clean_confidence(confidence),
+            "evidence": ev,
+            "locator": loc,
+        }
+        if rank is not None:
+            item["rank"] = rank
+        out.append(item)
+
+    for idx, tag in enumerate(tags or [], start=1):
+        value = _clean_text(tag, 120)
+        if not value:
+            continue
+
+        lookup = structured_lookup.get(value.casefold())
+        if lookup:
+            tag_type, structured_item = lookup
+            add(
+                value,
+                tag_type=tag_type,
+                source="structured",
+                confidence=structured_item.get("score"),
+                evidence=structured_item.get("evidence"),
+                locator=structured_item.get("locator"),
+                rank=idx,
+            )
+            continue
+
+        hint = hints.get(value.casefold()) or {}
+        add(
+            value,
+            tag_type="keyword",
+            source=str(hint.get("source") or "ranked_keyword"),
+            confidence=float(hint.get("confidence") or 0.52),
+            rank=idx,
+        )
+
+    for tag_type, value, structured_item in _iter_structured_tag_items(structured):
+        add(
+            value,
+            tag_type=tag_type,
+            source="structured",
+            confidence=structured_item.get("score"),
+            evidence=structured_item.get("evidence"),
+            locator=structured_item.get("locator"),
+        )
+
+    return out[:80]
 
 
 def extract_and_tag_sync(
@@ -861,10 +1112,22 @@ def extract_and_tag_sync(
             tags=[],
             extraction=extraction,
             grounding_units=grounding_units,
+            allow_llm=use_llm,
         )
-        h = hashlib.md5(content.encode("utf-8")).hexdigest()
+        h = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        tag_details = _build_ai_tag_details(
+            tags=[],
+            structured=structured,
+            signals=[],
+            adv=[],
+            phrases=[],
+            unigrams=[],
+            content=content,
+            grounding_units=grounding_units,
+        )
         return {
             "tags": [],
+            "tag_details": tag_details,
             "phrases": [],
             "unigrams": [],
             "length": len(content),
@@ -922,20 +1185,32 @@ def extract_and_tag_sync(
         except Exception as e:
             log.warning("LLM rerank failed: %s", e)
 
-        (
-            structured,
-            structured_llm_used,
-            structured_llm_model,
-            governance,
-            governance_llm_used,
-            governance_llm_model,
-        ) = _classify_structured_combined(
-            content=content,
-            file_name=file_name,
-            tags=list(tags),
-            extraction=extraction,
-            grounding_units=grounding_units,
-        )
+    (
+        structured,
+        structured_llm_used,
+        structured_llm_model,
+        governance,
+        governance_llm_used,
+        governance_llm_model,
+    ) = _classify_structured_combined(
+        content=content,
+        file_name=file_name,
+        tags=list(tags),
+        extraction=extraction,
+        grounding_units=grounding_units,
+        allow_llm=use_llm,
+    )
+
+    tag_details = _build_ai_tag_details(
+        tags=tags,
+        structured=structured,
+        signals=signals,
+        adv=adv,
+        phrases=phrases,
+        unigrams=unigrams,
+        content=content,
+        grounding_units=grounding_units,
+    )
 
     # Canonical semantic hash for normalized extracted text.
     # This must stay distinct from the immutable binary SHA-256
@@ -944,6 +1219,7 @@ def extract_and_tag_sync(
 
     return {
         "tags": tags,
+        "tag_details": tag_details,
         "phrases": phrases[:200],
         "unigrams": unigrams[:200],
         "length": len(content),

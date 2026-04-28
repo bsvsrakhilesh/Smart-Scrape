@@ -137,11 +137,11 @@ categories:
       patterns:
         - "PM\\s*10"
     no2:
-      keywords: ["NO2", "NO₂"]
+      keywords: ["NO2"]
       patterns:
         - "\\bNO2\\b"
     o3:
-      keywords: ["O3", "O₃", "ozone"]
+      keywords: ["O3", "ozone"]
       patterns:
         - "\\bozone\\b"
     co:

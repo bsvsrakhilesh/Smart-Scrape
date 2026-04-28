@@ -443,10 +443,24 @@ def _fallback_tag(text: str, version: str = "0.1.0") -> Dict[str, Any]:
     phrases = [p for (p, _) in bigrams.most_common(100)]
 
     tags = (phrases[:10]) + [u for u in unigrams if u not in phrases][:10]
+    tag_details = [
+        {
+            "value": tag,
+            "display": tag.replace("_", " "),
+            "type": "keyword",
+            "source": "fallback",
+            "confidence": 0.4,
+            "evidence": None,
+            "locator": None,
+            "rank": idx,
+        }
+        for idx, tag in enumerate(tags, start=1)
+    ]
 
     content_hash = hashlib.md5((text or "").encode("utf-8")).hexdigest()
     return {
         "tags": tags,
+        "tag_details": tag_details,
         "hash": content_hash,
         "tagger_version": version,
         "phrases": phrases[:200],

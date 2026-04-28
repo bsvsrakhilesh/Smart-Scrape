@@ -84,9 +84,9 @@ def _snippet(hay: str, start: int, end: int, window: int = 90) -> str:
     s = hay[a:b]
     s = _WS.sub(" ", s).strip()
     if a > 0:
-        s = "… " + s
+        s = "... " + s
     if b < len(hay):
-        s = s + " …"
+        s = s + " ..."
     return s
 
 

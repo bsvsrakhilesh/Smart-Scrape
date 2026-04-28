@@ -46,6 +46,7 @@ type Props = {
   aiCard?: EvidenceSummaryCard | null;
   timelineItems?: EvidenceTimelineItem[];
   structured?: any;
+  tagDetails?: any[] | null;
   intelligenceRows?: EvidenceFactRow[];
   provenanceRows?: EvidenceFactRow[];
 };
@@ -85,11 +86,11 @@ function Row({
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return "—";
+  if (!value) return "-";
   try {
     return new Date(value).toLocaleString();
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -103,6 +104,7 @@ export default function EvidenceOverviewPanel({
   aiCard = null,
   timelineItems = [],
   structured = null,
+  tagDetails = null,
   intelligenceRows = [],
   provenanceRows = [],
 }: Props) {
@@ -157,7 +159,7 @@ export default function EvidenceOverviewPanel({
               <span className="ei-summary-card__label">{card.label}</span>
               <strong className="ei-summary-card__value">{card.value}</strong>
               <small className="ei-summary-card__meta">
-                {card.meta ?? "—"}
+                {card.meta ?? "-"}
               </small>
             </div>
           ))}
@@ -168,7 +170,7 @@ export default function EvidenceOverviewPanel({
         <div className="ei-summary-card">
           <span className="ei-summary-card__label">{aiCard.label}</span>
           <strong className="ei-summary-card__value">{aiCard.value}</strong>
-          <small className="ei-summary-card__meta">{aiCard.meta ?? "—"}</small>
+          <small className="ei-summary-card__meta">{aiCard.meta ?? "-"}</small>
         </div>
       ) : null}
 
@@ -200,7 +202,9 @@ export default function EvidenceOverviewPanel({
         </div>
       ) : null}
 
-      {structured ? <StructuredTags structured={structured} /> : null}
+      {structured || tagDetails?.length ? (
+        <StructuredTags structured={structured} tagDetails={tagDetails} />
+      ) : null}
 
       {intelligenceRows.length > 0 ? (
         <div className="ei-card">

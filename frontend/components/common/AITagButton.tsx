@@ -37,7 +37,7 @@ export default function AITagButton({
           tags.length === 1
             ? "1 label applied"
             : `${tags.length} labels applied`;
-        setMsg(cached ? `${suffix} · cached` : suffix);
+        setMsg(cached ? `${suffix} - cached` : suffix);
         onMerge?.(tags);
       },
       onFailure: (m) => setMsg(m),
@@ -56,7 +56,7 @@ export default function AITagButton({
         cached ? "Cached" : null,
       ]
         .filter(Boolean)
-        .join(" · ")
+        .join(" - ")
     : msg;
 
   return (
@@ -73,8 +73,8 @@ export default function AITagButton({
           }
         >
           {running
-            ? `AI tagging… ${Math.round(progress)}%`
-            : "Suggest tags (AI)"}
+            ? `AI tagging... ${Math.round(progress)}%`
+            : "Run AI tagging"}
         </button>
 
         {cached && !running ? (

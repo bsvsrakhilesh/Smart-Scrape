@@ -7,7 +7,12 @@ from typing import Any, Dict, List, Optional, Sequence
 
 log = logging.getLogger("structured_openai")
 
-STRUCTURED_LLM_ENABLED = os.getenv("STRUCTURED_LLM_ENABLED", "false").lower() == "true"
+STRUCTURED_LLM_ENABLED = os.getenv("STRUCTURED_LLM_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 STRUCTURED_LLM_MODEL = (
     os.getenv("STRUCTURED_LLM_MODEL") or os.getenv("LLM_MODEL") or "gpt-4o-mini"
 )
@@ -463,7 +468,7 @@ def _clip(text: str, n: int) -> str:
     text = (text or "").strip()
     if len(text) <= n:
         return text
-    return text[:n].rstrip() + " …"
+    return text[:n].rstrip() + " ..."
 
 
 def _short_locator(locator: Optional[Dict[str, Any]]) -> str:

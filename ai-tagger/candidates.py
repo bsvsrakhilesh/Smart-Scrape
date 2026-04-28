@@ -88,7 +88,7 @@ def _fallback_stopwords() -> set:
 # ---------------------------
 
 _SPACES = re.compile(r"\s+")
-_PUNCT_EDGES = re.compile(r"^[\s\-\–\—\:;,\.\(\)\[\]\{\}'\"/\\\|]+|[\s\-\–\—\:;,\.\(\)\[\]\{\}'\"/\\\|]+$")
+_PUNCT_EDGES = re.compile(r"^[\s\-\u2013\u2014\:;,\.\(\)\[\]\{\}'\"/\\\|]+|[\s\-\u2013\u2014\:;,\.\(\)\[\]\{\}'\"/\\\|]+$")
 
 
 def _normalize(text: str) -> str:

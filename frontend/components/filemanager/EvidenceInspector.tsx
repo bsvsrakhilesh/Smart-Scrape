@@ -360,6 +360,10 @@ export default function EvidenceInspector({ file }: Props) {
     (file as any)?.tagsMetaRaw?.tagger?.structured ??
     (file as any)?.tagsMetaRaw?.aiTagger?.structured ??
     null;
+  const evidenceTagDetails =
+    (file as any)?.tagsMetaRaw?.tagger?.aiTagObjects ??
+    (file as any)?.tagsMetaRaw?.aiTagger?.tagObjects ??
+    null;
 
   const evidenceIntelligenceRows = file
     ? [
@@ -520,6 +524,7 @@ export default function EvidenceInspector({ file }: Props) {
             aiCard={evidenceAiCard}
             timelineItems={timelineItems}
             structured={evidenceStructured}
+            tagDetails={evidenceTagDetails}
             intelligenceRows={evidenceIntelligenceRows}
             provenanceRows={evidenceProvenanceRows}
           />

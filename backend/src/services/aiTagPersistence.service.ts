@@ -12,7 +12,107 @@ import {
 } from "../utils/tagBuckets";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
-const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
+const USE_LLM = (process.env.TAGS_USE_LLM || "true").toLowerCase() === "true";
+
+type AiTagObject = {
+  value: string;
+  display: string;
+  type: string;
+  source: string;
+  confidence: number | null;
+  evidence: string | null;
+  locator: Record<string, any> | null;
+  rank?: number;
+};
+
+function cleanString(value: unknown, max = 500): string | null {
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return null;
+  return text.slice(0, max);
+}
+
+function cleanConfidence(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(1, num));
+}
+
+function cleanLocator(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+}
+
+function displayFromValue(value: string) {
+  const map: Record<string, string> = {
+    construction_demolition: "C&D",
+    waste_burning: "Waste burning",
+    biomass_burning: "Biomass burning",
+    industry_power: "Industry & power",
+    dg_sets: "DG sets",
+    office_memorandum: "Office memorandum",
+    sop_guideline: "SOP / Guideline",
+    pm25: "PM2.5",
+    pm10: "PM10",
+    no2: "NO2",
+    o3: "O3",
+    co: "CO",
+    grap: "GRAP",
+  };
+  return map[value] ?? value.replace(/_/g, " ");
+}
+
+function normalizeAiTagObjects(data: any, aiTags: string[]): AiTagObject[] {
+  const rawDetails = Array.isArray(data?.tag_details)
+    ? data.tag_details
+    : Array.isArray(data?.tagDetails)
+      ? data.tagDetails
+      : [];
+
+  const out: AiTagObject[] = [];
+  const seen = new Set<string>();
+
+  function add(raw: any, fallbackRank?: number) {
+    const value = cleanString(raw?.value ?? raw?.tag ?? raw, 160);
+    if (!value) return;
+
+    const type = cleanString(raw?.type, 80) ?? "keyword";
+    const key = `${type}:${value.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    const rankRaw = Number(raw?.rank ?? fallbackRank);
+    const rank = Number.isInteger(rankRaw) && rankRaw > 0 ? rankRaw : undefined;
+
+    out.push({
+      value,
+      display: cleanString(raw?.display, 180) ?? displayFromValue(value),
+      type,
+      source: cleanString(raw?.source, 120) ?? "tagger",
+      confidence: cleanConfidence(raw?.confidence ?? raw?.score),
+      evidence: cleanString(raw?.evidence, 1200),
+      locator: cleanLocator(raw?.locator),
+      ...(rank ? { rank } : {}),
+    });
+  }
+
+  rawDetails.forEach((raw: any) => add(raw));
+  aiTags.forEach((tag, idx) =>
+    add(
+      {
+        value: tag,
+        type: "keyword",
+        source: "legacy_tags",
+        confidence: 0.5,
+      },
+      idx + 1,
+    ),
+  );
+
+  return out.slice(0, 100);
+}
 
 function parseStructuredDate(value: unknown): Date | null {
   const raw = String(value || "").trim();
@@ -83,14 +183,17 @@ function buildUnifiedTagsMeta(
   const governance = data?.governance ?? null;
   const extraction = data?.extraction ?? null;
   const hash = data?.hash ?? null;
+  const aiTagObjects = normalizeAiTagObjects(data, args.aiTags);
 
   return {
     ...p,
     tagger: {
       ...prevTagger,
+      schemaVersion: 2,
       phrases,
       unigrams,
       aiTags: args.aiTags,
+      aiTagObjects,
       structured,
       governance,
       extraction,
@@ -107,9 +210,12 @@ function buildUnifiedTagsMeta(
     },
     aiTagger: {
       ...prevAiTagger,
+      schemaVersion: 2,
       tags: args.aiTags,
+      tagObjects: aiTagObjects,
       phrases,
       unigrams,
+      structured,
       governance,
     },
   };

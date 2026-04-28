@@ -8,7 +8,7 @@ import { persistAiTagFailureForUrl } from "./aiTagPersistence.service";
 import { enqueueAiTagUrl } from "../queues/aiTagUrl.queue";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
-const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
+const USE_LLM = (process.env.TAGS_USE_LLM || "true").toLowerCase() === "true";
 
 /**
  * Runs Python ai-tagger for an existing Url row and persists results when done.

@@ -22,7 +22,7 @@ import {
 const r = Router();
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
-const USE_LLM = (process.env.TAGS_USE_LLM || "false").toLowerCase() === "true";
+const USE_LLM = (process.env.TAGS_USE_LLM || "true").toLowerCase() === "true";
 
 /** Quick health proxy (optional) */
 r.get("/tagger/health", async (_req, res, next) => {

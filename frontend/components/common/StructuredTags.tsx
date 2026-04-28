@@ -6,6 +6,17 @@ type LabelItem = {
   value?: string | null;
   score?: number | null;
   evidence?: string | null;
+  locator?: Record<string, any> | null;
+};
+
+type AiTagDetail = {
+  value?: string | null;
+  display?: string | null;
+  type?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+  evidence?: string | null;
+  rank?: number | null;
 };
 
 type Structured = {
@@ -34,6 +45,7 @@ type Structured = {
 
 type Props = {
   structured: Structured | null | undefined;
+  tagDetails?: AiTagDetail[] | null;
   compact?: boolean;
   className?: string;
 };
@@ -48,7 +60,7 @@ async function copyToClipboard(text: string) {
 }
 
 function prettyLabel(v?: string | null) {
-  if (!v) return "—";
+  if (!v) return "-";
   const map: Record<string, string> = {
     construction_demolition: "C&D",
     waste_burning: "Waste burning",
@@ -59,8 +71,8 @@ function prettyLabel(v?: string | null) {
     sop_guideline: "SOP / Guideline",
     pm25: "PM2.5",
     pm10: "PM10",
-    no2: "NO₂",
-    o3: "O₃",
+    no2: "NO2",
+    o3: "O3",
     co: "CO",
     grap: "GRAP",
   };
@@ -72,7 +84,7 @@ function scoreBadge(score?: number | null) {
   if (s >= 0.85) return "High";
   if (s >= 0.6) return "Med";
   if (s >= 0.45) return "Low";
-  return "—";
+  return "-";
 }
 
 function scoreClasses(score?: number | null) {
@@ -82,6 +94,91 @@ function scoreClasses(score?: number | null) {
   if (s >= 0.6) return "border-amber-200 bg-amber-50 text-amber-900";
   if (s >= 0.45) return "border-slate-200 bg-slate-50 text-slate-800";
   return "border-[hsl(var(--border))] bg-white text-slate-700";
+}
+
+function confidencePct(value?: number | null) {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
+}
+
+function cleanTagDetails(input?: AiTagDetail[] | null) {
+  if (!Array.isArray(input)) return [];
+
+  const seen = new Set<string>();
+  const out: AiTagDetail[] = [];
+
+  for (const raw of input) {
+    const value = String(raw?.value ?? "").trim();
+    if (!value) continue;
+
+    const type = String(raw?.type ?? "keyword").trim() || "keyword";
+    const key = `${type}:${value.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      ...raw,
+      value,
+      display: String(raw?.display ?? prettyLabel(value)).trim(),
+      type,
+      source: String(raw?.source ?? "tagger").trim() || "tagger",
+      confidence:
+        typeof raw?.confidence === "number"
+          ? Math.max(0, Math.min(1, raw.confidence))
+          : null,
+      evidence: raw?.evidence ? String(raw.evidence).trim() : null,
+    });
+  }
+
+  return out.slice(0, 30);
+}
+
+function TagDetailRow({
+  tag,
+  showEvidence,
+}: {
+  tag: AiTagDetail;
+  showEvidence: boolean;
+}) {
+  const label = tag.display || prettyLabel(tag.value);
+  const evidence = (tag.evidence || "").trim();
+  const type = (tag.type || "keyword").replaceAll("_", " ");
+  const source = (tag.source || "tagger").replaceAll("_", " ");
+
+  return (
+    <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[12px] font-semibold text-slate-900">
+            {label}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 capitalize text-slate-700">
+              {type}
+            </span>
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 capitalize text-slate-700">
+              {source}
+            </span>
+            {tag.rank ? <span>Rank {tag.rank}</span> : null}
+          </div>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold",
+            scoreClasses(tag.confidence),
+          )}
+          title={`Confidence ${confidencePct(tag.confidence)}`}
+        >
+          {confidencePct(tag.confidence)}
+        </span>
+      </div>
+
+      {showEvidence && evidence ? (
+        <div className="mt-2 line-clamp-3 text-[11px] leading-snug text-[hsl(var(--muted-foreground))]">
+          {evidence}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function Pill({
@@ -124,7 +221,7 @@ function Section({
   title,
   items,
   showEvidence,
-  emptyText = "—",
+  emptyText = "-",
 }: {
   title: string;
   items: LabelItem[];
@@ -159,6 +256,7 @@ function Section({
 
 export default function StructuredTags({
   structured,
+  tagDetails,
   compact = false,
   className,
 }: Props) {
@@ -178,12 +276,16 @@ export default function StructuredTags({
   const grap = structured?.grap ?? null;
 
   const entities = structured?.entities ?? {};
+  const safeTagDetails = useMemo(() => cleanTagDetails(tagDetails), [tagDetails]);
   const entityLines = useMemo(() => {
     const out: { k: string; v: string }[] = [];
     const push = (k: string, arr?: string[]) => {
       const a = Array.isArray(arr) ? arr.filter(Boolean) : [];
       if (!a.length) return;
-      out.push({ k, v: a.slice(0, 6).join(", ") + (a.length > 6 ? " …" : "") });
+      out.push({
+        k,
+        v: a.slice(0, 6).join(", ") + (a.length > 6 ? " ..." : ""),
+      });
     };
     push("Direction no.", entities.directionNumbers);
     push("Order no.", entities.orderNumbers);
@@ -192,7 +294,7 @@ export default function StructuredTags({
     return out;
   }, [entities]);
 
-  const hasAnything =
+  const hasStructuredSignals =
     !!structured &&
     (docType?.value ||
       sectors.length ||
@@ -202,6 +304,7 @@ export default function StructuredTags({
       pollutants.length ||
       grap?.mentioned ||
       entityLines.length);
+  const hasAnything = hasStructuredSignals || safeTagDetails.length > 0;
 
   const headerRight = (
     <div className="flex items-center gap-2">
@@ -209,14 +312,14 @@ export default function StructuredTags({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-2 rounded-xl border border-[hsl(var(--border))]",
+            "inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))]",
             "bg-white px-3 py-2 text-[12px] font-medium shadow-sm hover:bg-slate-50",
           )}
           onClick={async (e) => {
             e.stopPropagation();
-            if (!structured) return;
+            if (!structured && !safeTagDetails.length) return;
             const ok = await copyToClipboard(
-              JSON.stringify(structured, null, 2),
+              JSON.stringify({ structured, tagDetails: safeTagDetails }, null, 2),
             );
             if (ok) {
               setCopied(true);
@@ -233,7 +336,7 @@ export default function StructuredTags({
       <button
         type="button"
         className={cn(
-          "inline-flex items-center gap-2 rounded-xl border border-[hsl(var(--border))]",
+          "inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))]",
           "bg-white px-3 py-2 text-[12px] font-medium shadow-sm hover:bg-slate-50",
         )}
         onClick={(e) => {
@@ -251,7 +354,7 @@ export default function StructuredTags({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-[hsl(var(--border))] bg-white px-3",
+        "rounded-lg border border-[hsl(var(--border))] bg-white px-3",
         className,
       )}
       onPointerDownCapture={(e) => e.stopPropagation()}
@@ -266,7 +369,7 @@ export default function StructuredTags({
           {structured?.profile ? (
             <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
               {structured.profile}
-              {structured.version ? ` · v${structured.version}` : ""}
+              {structured.version ? ` - v${structured.version}` : ""}
             </div>
           ) : null}
         </div>
@@ -289,7 +392,11 @@ export default function StructuredTags({
             </span>
           ) : (
             <span>
-              {sectors.length ? `${sectors.length} sector labels` : "Labels ready"}
+              {safeTagDetails.length
+                ? `${safeTagDetails.length} evidence-backed tags`
+                : sectors.length
+                  ? `${sectors.length} sector labels`
+                  : "Labels ready"}
             </span>
           )}
         </div>
@@ -298,9 +405,9 @@ export default function StructuredTags({
           {!compact ? (
             <div className="flex items-center justify-between py-2">
               <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                Confidence + evidence are explainable (rule-based v1).
+                Confidence, type, source, and evidence are kept with each AI tag.
               </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-white px-3 py-2 text-[12px] shadow-sm hover:bg-slate-50">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2 text-[12px] shadow-sm hover:bg-slate-50">
                 <input
                   type="checkbox"
                   checked={showEvidence}
@@ -311,9 +418,37 @@ export default function StructuredTags({
             </div>
           ) : null}
 
+          {safeTagDetails.length ? (
+            <div className="mt-2 rounded-lg border border-[hsl(var(--border))] bg-slate-50/60 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-900">
+                    Evidence-backed AI tags
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">
+                    Typed tag objects persisted in metadata, not just flat strings.
+                  </div>
+                </div>
+                <div className="rounded-md border border-[hsl(var(--border))] bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
+                  {safeTagDetails.length}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                {safeTagDetails.slice(0, compact ? 8 : 16).map((tag, idx) => (
+                  <TagDetailRow
+                    key={`${tag.type ?? "tag"}-${tag.value ?? idx}-${idx}`}
+                    tag={tag}
+                    showEvidence={showEvidence}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {/* Doc type + GRAP */}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-[hsl(var(--border))] bg-white px-3 py-2">
+            <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
               <div className="text-[11px] font-semibold text-slate-900">
                 Document type
               </div>
@@ -323,12 +458,12 @@ export default function StructuredTags({
                 </div>
               ) : (
                 <div className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
-                  —
+                  -
                 </div>
               )}
             </div>
 
-            <div className="rounded-2xl border border-[hsl(var(--border))] bg-white px-3 py-2">
+            <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
               <div className="text-[11px] font-semibold text-slate-900">
                 GRAP
               </div>
@@ -361,7 +496,7 @@ export default function StructuredTags({
           </div>
 
           {/* Labels */}
-          <div className="mt-3 rounded-2xl border border-[hsl(var(--border))] bg-white px-3">
+          <div className="mt-3 rounded-lg border border-[hsl(var(--border))] bg-white px-3">
             <div className="divide-y divide-[hsl(var(--border))]">
               <Section title="Sectors" items={sectors} showEvidence={showEvidence} />
               <Section title="Agencies" items={agencies} showEvidence={showEvidence} />
@@ -373,7 +508,7 @@ export default function StructuredTags({
 
           {/* Entities */}
           {entityLines.length ? (
-            <div className="mt-3 rounded-2xl border border-[hsl(var(--border))] bg-white px-3">
+            <div className="mt-3 rounded-lg border border-[hsl(var(--border))] bg-white px-3">
               <div className="px-1 pt-3 pb-1 text-[11px] font-semibold text-slate-900">
                 Extracted identifiers
               </div>

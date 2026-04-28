@@ -37,7 +37,7 @@ const TagChip: React.FC<{ text: string; onRemove?: () => void }> = ({
           onRemove();
         }}
       >
-        ×
+        x
       </button>
     )}
   </span>
@@ -130,7 +130,7 @@ const TagEditor: React.FC<Props> = ({
     <div
       ref={ref}
       data-tageditor-root="true"
-      className="w-72 p-3 bg-white dark:bg-gray-900 border rounded-xl shadow-xl"
+      className="w-72 p-3 bg-white dark:bg-gray-900 border rounded-lg shadow-xl"
       // Block capture-phase outside-click handlers above us for *both* pointer and mouse
       onPointerDownCapture={(e) => e.stopPropagation()}
       onMouseDownCapture={(e) => e.stopPropagation()}
@@ -149,7 +149,7 @@ const TagEditor: React.FC<Props> = ({
       <input
         ref={inputRef}
         className="mt-2 w-full input-pill"
-        placeholder="Add tag…"
+        placeholder="Add tag..."
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={onKeyDown}

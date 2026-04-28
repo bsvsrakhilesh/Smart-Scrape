@@ -539,6 +539,7 @@ export default function StructuredTags({
       entityLines.length);
   const hasAnything = hasStructuredSignals || safeTagDetails.length > 0;
   const hasRenderableContent = hasAnything || smartCount > 0;
+  const showLegacyStructured = !safeSmartTags && hasStructuredSignals;
 
   const headerRight = (
     <div className="flex items-center gap-2">
@@ -772,65 +773,69 @@ export default function StructuredTags({
             </div>
           ) : null}
 
-          {/* Doc type + GRAP */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
-              <div className="text-[11px] font-semibold text-slate-900">
-                Document type
-              </div>
-              {docType?.value ? (
-                <div className="mt-2 flex flex-col gap-2">
-                  <Pill item={docType} showEvidence={showEvidence} />
+          {showLegacyStructured ? (
+            <>
+              {/* Doc type + GRAP */}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
+                  <div className="text-[11px] font-semibold text-slate-900">
+                    Document type
+                  </div>
+                  {docType?.value ? (
+                    <div className="mt-2 flex flex-col gap-2">
+                      <Pill item={docType} showEvidence={showEvidence} />
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
+                      -
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
-                  -
-                </div>
-              )}
-            </div>
 
-            <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
-              <div className="text-[11px] font-semibold text-slate-900">
-                GRAP
-              </div>
-              <div className="mt-2">
-                {grap?.mentioned ? (
-                  <div className="flex flex-col gap-2">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-900">
-                        Mentioned
-                      </span>
-                      {grap.stage ? (
-                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-semibold text-emerald-800">
-                          Stage {grap.stage}
+                <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
+                  <div className="text-[11px] font-semibold text-slate-900">
+                    GRAP
+                  </div>
+                  <div className="mt-2">
+                    {grap?.mentioned ? (
+                      <div className="flex flex-col gap-2">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-900">
+                            Mentioned
+                          </span>
+                          {grap.stage ? (
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-semibold text-emerald-800">
+                              Stage {grap.stage}
+                            </span>
+                          ) : null}
                         </span>
-                      ) : null}
-                    </span>
-                    {showEvidence && grap.evidence ? (
-                      <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                        {grap.evidence}
+                        {showEvidence && grap.evidence ? (
+                          <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                            {grap.evidence}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
+                        Not detected
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                    Not detected
-                  </div>
-                )}
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Labels */}
-          <div className="mt-3 rounded-lg border border-[hsl(var(--border))] bg-white px-3">
-            <div className="divide-y divide-[hsl(var(--border))]">
-              <Section title="Sectors" items={sectors} showEvidence={showEvidence} />
-              <Section title="Agencies" items={agencies} showEvidence={showEvidence} />
-              <Section title="Geography" items={geography} showEvidence={showEvidence} />
-              <Section title="Programs" items={programs} showEvidence={showEvidence} />
-              <Section title="Pollutants" items={pollutants} showEvidence={showEvidence} />
-            </div>
-          </div>
+              {/* Labels */}
+              <div className="mt-3 rounded-lg border border-[hsl(var(--border))] bg-white px-3">
+                <div className="divide-y divide-[hsl(var(--border))]">
+                  <Section title="Sectors" items={sectors} showEvidence={showEvidence} />
+                  <Section title="Agencies" items={agencies} showEvidence={showEvidence} />
+                  <Section title="Geography" items={geography} showEvidence={showEvidence} />
+                  <Section title="Programs" items={programs} showEvidence={showEvidence} />
+                  <Section title="Pollutants" items={pollutants} showEvidence={showEvidence} />
+                </div>
+              </div>
+            </>
+          ) : null}
 
           {/* Entities */}
           {entityLines.length ? (

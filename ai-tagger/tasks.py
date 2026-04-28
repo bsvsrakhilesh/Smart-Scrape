@@ -28,7 +28,7 @@ JOB_SOFT_LIMIT = int(os.getenv("JOB_SOFT_LIMIT", "30"))  # seconds
 JOB_HARD_LIMIT = int(os.getenv("JOB_HARD_LIMIT", "60"))  # seconds
 JOB_MAX_RETRIES = int(os.getenv("JOB_MAX_RETRIES", "3"))
 CACHE_TTL = int(os.getenv("TAGGER_CACHE_TTL", "86400"))  # seconds (24h)
-CACHE_NAMESPACE = os.getenv("TAGGER_CACHE_NS", "tagger:v1")
+CACHE_NAMESPACE = os.getenv("TAGGER_CACHE_NS", "tagger:v2-smart-tags")
 
 CELERY = Celery("ai_tagger", broker=BROKER_URL, backend=BACKEND_URL)
 log = logging.getLogger("ai_tagger.tasks")

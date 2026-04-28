@@ -22,6 +22,11 @@ import DiffViewer from "../common/DiffViewer";
 import RevisionHistoryPanel from "../common/RevisionHistoryPanel";
 import EvidenceOverviewPanel from "../common/EvidenceOverviewPanel";
 import { useDialogA11y } from "../common/useDialogA11y";
+import {
+  deriveSeparatedTags,
+  mergeUniqueTags,
+  normalizeTagList,
+} from "../../lib/tagBuckets";
 
 interface SavedUrlDetailModalProps {
   url: SavedUrl;
@@ -71,6 +76,39 @@ function getUrlSourceHost(saved: SavedUrl) {
   } catch {
     return "Unknown source";
   }
+}
+
+function tagKey(tag: string) {
+  return tag.trim().toLowerCase();
+}
+
+function getSavedUrlTagState(saved: SavedUrl): {
+  userTags: string[];
+  aiTags: string[];
+  effectiveTags: string[];
+} {
+  const rawTags = Array.isArray(saved.tags) ? saved.tags : [];
+  const derived = deriveSeparatedTags(
+    rawTags,
+    (saved as any)?.tagsMetaRaw ?? (saved as any)?.tagsMeta ?? null,
+  );
+  const userTags = Array.isArray(saved.userTags)
+    ? normalizeTagList(saved.userTags)
+    : derived.userTags;
+  const aiTags = Array.isArray(saved.aiTags)
+    ? normalizeTagList(saved.aiTags)
+    : derived.aiTags;
+
+  return {
+    userTags,
+    aiTags,
+    effectiveTags: mergeUniqueTags(
+      rawTags,
+      saved.effectiveTags ?? [],
+      userTags,
+      aiTags,
+    ),
+  };
 }
 
 function getUrlTaggingSummary(saved: SavedUrl): {
@@ -202,9 +240,15 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     truncated: boolean;
   } | null>(null);
 
-  // Local state for user tags and new tag input
-  const [localTags, setLocalTags] = useState<string[]>(
-    url.userTags ?? url.tags,
+  // Local user tags are editable; display tags mirror the card's effective tags.
+  const [localUserTags, setLocalUserTags] = useState<string[]>(
+    () => getSavedUrlTagState(url).userTags,
+  );
+  const [localAiTags, setLocalAiTags] = useState<string[]>(
+    () => getSavedUrlTagState(url).aiTags,
+  );
+  const [localDisplayTags, setLocalDisplayTags] = useState<string[]>(
+    () => getSavedUrlTagState(url).effectiveTags,
   );
   const [newTagInput, setNewTagInput] = useState<string>("");
 
@@ -213,10 +257,13 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
     "idle" | "dirty" | "saving" | "saved" | "error"
   >("idle");
 
-  // Sync localTags when url changes
+  // Sync local tag state when url changes
   useEffect(() => {
-    setLocalTags(url.userTags ?? url.tags);
-  }, [url.userTags, url.tags]);
+    const next = getSavedUrlTagState(url);
+    setLocalUserTags(next.userTags);
+    setLocalAiTags(next.aiTags);
+    setLocalDisplayTags(next.effectiveTags);
+  }, [url]);
 
   useEffect(() => {
     setNotesDraft(url.notes ?? "");
@@ -470,21 +517,43 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
   };
 
   // Handlers for adding/removing tags
+  const getEditableLocalTags = () => {
+    const aiKeys = new Set(localAiTags.map(tagKey));
+    const editableDisplayTags = localDisplayTags.filter(
+      (t) => !aiKeys.has(tagKey(t)),
+    );
+    return mergeUniqueTags(localUserTags, editableDisplayTags);
+  };
+
   const addTag = () => {
     const trimmed = newTagInput.trim();
-    if (trimmed && !localTags.includes(trimmed)) {
-      const updated = [...localTags, trimmed];
-      setLocalTags(updated);
-      onTagUpdate?.(url.id, updated);
+    const existingTagKeys = new Set(localDisplayTags.map(tagKey));
+
+    if (trimmed && !existingTagKeys.has(tagKey(trimmed))) {
+      const updatedUserTags = mergeUniqueTags(getEditableLocalTags(), [
+        trimmed,
+      ]);
+      const updatedDisplayTags = mergeUniqueTags(updatedUserTags, localAiTags);
+      setLocalUserTags(updatedUserTags);
+      setLocalDisplayTags(updatedDisplayTags);
+      onTagUpdate?.(url.id, updatedUserTags);
     }
     setNewTagInput("");
   };
 
   const removeTag = (tag: string) => {
-    const updated = localTags.filter((t) => t !== tag);
-    setLocalTags(updated);
-    onTagUpdate?.(url.id, updated);
+    const removeKey = tagKey(tag);
+    const updatedUserTags = getEditableLocalTags().filter(
+      (t) => tagKey(t) !== removeKey,
+    );
+    const updatedDisplayTags = mergeUniqueTags(updatedUserTags, localAiTags);
+    setLocalUserTags(updatedUserTags);
+    setLocalDisplayTags(updatedDisplayTags);
+    onTagUpdate?.(url.id, updatedUserTags);
   };
+
+  const localUserTagKeys = new Set(localUserTags.map(tagKey));
+  const localAiTagKeys = new Set(localAiTags.map(tagKey));
 
   const sourceHost = getUrlSourceHost(url);
   const readableCollections = (url.collections || [])
@@ -914,9 +983,9 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                         Tags
                       </div>
                       <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                        {localTags.length === 0
+                        {localDisplayTags.length === 0
                           ? "No tags yet."
-                          : `${localTags.length} tag${localTags.length === 1 ? "" : "s"} attached to this source.`}
+                          : `${localDisplayTags.length} tag${localDisplayTags.length === 1 ? "" : "s"} attached to this source.`}
                       </div>
                     </div>
 
@@ -943,10 +1012,17 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                         onMerge={async () => {
                           try {
                             const fresh = await getUrlById(Number(url.id));
-                            setLocalTags(
-                              (fresh as any).userTags ??
-                                (fresh as any).tags ??
-                                [],
+                            const freshTags = (fresh as any)?.tags ?? [];
+                            const next = deriveSeparatedTags(
+                              freshTags,
+                              (fresh as any)?.tagsMeta ??
+                                (fresh as any)?.tagsMetaRaw ??
+                                null,
+                            );
+                            setLocalUserTags(next.userTags);
+                            setLocalAiTags(next.aiTags);
+                            setLocalDisplayTags(
+                              mergeUniqueTags(freshTags, next.effectiveTags),
                             );
                             await onUrlHydrate?.(fresh);
                           } catch (e) {
@@ -958,22 +1034,30 @@ const SavedUrlDetailModal: React.FC<SavedUrlDetailModalProps> = ({
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {localTags.map((t) => (
-                      <div
-                        key={t}
-                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-300"
-                      >
-                        <span className="break-all">{t}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeTag(t)}
-                          aria-label={`Remove tag ${t}`}
-                          className="rounded-full px-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                    {localDisplayTags.map((t) => {
+                      const key = tagKey(t);
+                      const isUserEditable =
+                        localUserTagKeys.has(key) || !localAiTagKeys.has(key);
+
+                      return (
+                        <div
+                          key={t}
+                          className="inline-flex max-w-full items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/40 dark:text-violet-300"
                         >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                          <span className="break-all">{t}</span>
+                          {isUserEditable ? (
+                            <button
+                              type="button"
+                              onClick={() => removeTag(t)}
+                              aria-label={`Remove tag ${t}`}
+                              className="rounded-full px-1 text-[11px] font-semibold hover:bg-black/5 dark:hover:bg-white/10"
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">

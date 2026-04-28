@@ -2,6 +2,7 @@ import { Queue, type ConnectionOptions } from "bullmq";
 import prisma from "../config/database";
 import { env } from "../config/env";
 import { TaggingStatus } from "../generated/prisma/client";
+import { buildAiTagUrlQueueJobId } from "./queueJobId.util";
 
 export type AiTagUrlQueueJobData = {
   urlId: number;
@@ -29,10 +30,6 @@ export const aiTagUrlQueue = new Queue<AiTagUrlQueueJobData>("ai-tag-url", {
     removeOnFail: 5000,
   },
 });
-
-export function buildAiTagUrlQueueJobId(urlId: number) {
-  return `ai-tag-url:${urlId}`;
-}
 
 export async function enqueueAiTagUrl(
   urlId: number,

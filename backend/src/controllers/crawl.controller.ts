@@ -6,6 +6,7 @@ import crypto from "crypto";
 import prisma from "../config/database";
 import { ensureDocumentRevisionForStoredFile } from "../services/document.service";
 import { recordCaptureEvent } from "../services/provenance.service";
+import { copyUrlTagsToFile } from "../services/tag-transfer.service";
 import { createDom } from "../utils/dom";
 import { Readability } from "@mozilla/readability";
 import puppeteer, { Browser, LaunchOptions, Page } from "puppeteer-core";
@@ -846,46 +847,25 @@ async function navigateWithRetries(
   throw new Error("Failed to navigate after retries");
 }
 
-// ===================== Tag merge helper =====================
-function mergeTags(a?: string[] | null, b?: string[] | null): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const arr of [a ?? [], b ?? []]) {
-    for (const raw of arr) {
-      const t = (raw ?? "").toString().trim();
-      if (!t) continue;
-      const key = t.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push(t);
-      }
-    }
-  }
-  return out;
-}
-
+// ===================== Capture finalize helper =====================
 async function finalizeCapturedFile(
   fileRec: any,
   urlId: number | string | null | undefined,
   req: Request,
   res: Response,
 ) {
+  let shouldRunFileTagger = true;
+
   if (urlId !== undefined && urlId !== null) {
     const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
     if (!Number.isNaN(idNum)) {
       try {
-        const src = await prisma.url.findUnique({
-          where: { id: idNum as number },
-          select: { tags: true },
-        });
-
-        if (src?.tags?.length) {
-          const merged = mergeTags(fileRec.tags, src.tags);
-          await prisma.storedFile.update({
-            where: { id: fileRec.id },
-            data: { tags: merged },
-          });
-        }
+        const transfer = await copyUrlTagsToFile(
+          prisma,
+          idNum as number,
+          String(fileRec.id),
+        );
+        shouldRunFileTagger = !transfer.copiedAiTags;
       } catch (e) {
         log.error("finalizeCapturedFile_copy_tags_failed", {
           ...requestMeta(req),
@@ -897,7 +877,9 @@ async function finalizeCapturedFile(
     }
   }
 
-  scheduleAiTagForFile(String(fileRec.id));
+  if (shouldRunFileTagger) {
+    scheduleAiTagForFile(String(fileRec.id));
+  }
 
   const latest = await prisma.storedFile.findUnique({
     where: { id: fileRec.id },
@@ -913,8 +895,8 @@ async function finalizeCapturedFile(
  * POST /api/crawl/text
  * Body: { url, folderId?, fileName?, urlId? }
  * - Creates a .txt StoredFile from the URL's readable article text
- * - Copies tags from the source URL (if urlId provided)
- * - Schedules background auto-tagging (scheduleFileAutoTag)
+ * - Copies source URL tag metadata (if urlId provided)
+ * - Schedules file auto-tagging only when no URL AI tag metadata was copied
  */
 export async function crawlTextHandler(
   req: Request,
@@ -1144,41 +1126,8 @@ export async function crawlTextHandler(
       },
     );
 
-    // 4) Copy tags from the source URL if provided
-    if (urlId !== undefined && urlId !== null) {
-      const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
-      if (!Number.isNaN(idNum)) {
-        try {
-          const src = await prisma.url.findUnique({
-            where: { id: idNum as number },
-            select: { tags: true },
-          });
-          if (src?.tags?.length) {
-            const merged = mergeTags(fileRec.tags, src.tags);
-            await prisma.storedFile.update({
-              where: { id: fileRec.id },
-              data: { tags: merged },
-            });
-          }
-        } catch (e) {
-          log.error("crawl_text_fetch_failed", {
-            ...requestMeta(req),
-            url,
-            error: String(e),
-          });
-        }
-      }
-    }
-
-    // 5) Background auto-tagging (Python ai-tagger)
-    scheduleAiTagForFile(String(fileRec.id));
-
-    // 6) Return latest (after any tag copy)
-    const latest = await prisma.storedFile.findUnique({
-      where: { id: fileRec.id },
-    });
     log.info("crawl_text_done", { ...requestMeta(req), fileId: fileRec.id });
-    return res.status(201).json(latest ?? fileRec);
+    return finalizeCapturedFile(fileRec, urlId, req, res);
   } catch (err) {
     // logging must never throw, and we must log the actual request url (not global URL).
     try {
@@ -1200,8 +1149,8 @@ export async function crawlTextHandler(
  * POST /api/crawl/pdf
  * Body: { url, folderId?, fileName?, fullPage?, urlId? }
  * - Creates a PDF snapshot of the page
- * - Copies tags from the source URL (if urlId provided)
- * - Schedules background auto-tagging (scheduleFileAutoTag)
+ * - Copies source URL tag metadata (if urlId provided)
+ * - Schedules file auto-tagging only when no URL AI tag metadata was copied
  */
 export async function crawlPdfHandler(
   req: Request,
@@ -1310,42 +1259,9 @@ export async function crawlPdfHandler(
       });
     }
 
-    // Common post-processing (copy URL tags + schedule ai-tag + respond)
+    // Common post-processing (copy URL tags + maybe schedule ai-tag + respond)
     const postProcessAndRespond = async (fileRec: any) => {
-      // Copy tags from the source URL if provided
-      if (urlId !== undefined && urlId !== null) {
-        const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
-        if (!Number.isNaN(idNum)) {
-          try {
-            const src = await prisma.url.findUnique({
-              where: { id: idNum as number },
-              select: { tags: true },
-            });
-            if (src?.tags?.length) {
-              const merged = mergeTags(fileRec.tags, src.tags);
-              await prisma.storedFile.update({
-                where: { id: fileRec.id },
-                data: { tags: merged },
-              });
-            }
-          } catch (e) {
-            console.error("[crawlPdf] copy URL tags failed", {
-              urlId,
-              fileId: fileRec.id,
-              e,
-            });
-          }
-        }
-      }
-
-      // Background auto-tagging
-      scheduleAiTagForFile(String(fileRec.id));
-
-      const latest = await prisma.storedFile.findUnique({
-        where: { id: fileRec.id },
-      });
-      if (res.headersSent || (req as any).timedout) return;
-      return res.status(201).json(latest ?? fileRec);
+      return finalizeCapturedFile(fileRec, urlId, req, res);
     };
 
     // ===== Fast-path: try DIRECT PDF bytes (handles SCI wrapper URLs via filename=...) =====
@@ -1928,42 +1844,8 @@ export async function crawlPdfHandler(
       },
     );
 
-    //Copy tags from the source URL if provided
-    if (urlId !== undefined && urlId !== null) {
-      const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
-      if (!Number.isNaN(idNum)) {
-        try {
-          const src = await prisma.url.findUnique({
-            where: { id: idNum as number },
-            select: { tags: true },
-          });
-          if (src?.tags?.length) {
-            const merged = mergeTags(fileRec.tags, src.tags);
-            await prisma.storedFile.update({
-              where: { id: fileRec.id },
-              data: { tags: merged },
-            });
-          }
-        } catch (e) {
-          console.error("[crawlPdf] copy URL tags failed", {
-            urlId,
-            fileId: fileRec.id,
-            e,
-          });
-        }
-      }
-    }
-
-    //Background auto-tagging (Python ai-tagger)
-    scheduleAiTagForFile(String(fileRec.id));
-
-    //Return latest
-    const latest = await prisma.storedFile.findUnique({
-      where: { id: fileRec.id },
-    });
     log.info("crawl_pdf_done", { ...requestMeta(req), fileId: fileRec.id });
-    if (res.headersSent || (req as any).timedout) return;
-    return res.status(201).json(latest ?? fileRec);
+    return finalizeCapturedFile(fileRec, urlId, req, res);
   } catch (err) {
     // Hardened: logging must never throw, and we must log the actual request url (not global URL).
     try {

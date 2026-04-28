@@ -3620,8 +3620,9 @@ const SavedUrlsPage: React.FC = () => {
 
             {/* Bulk action bar */}
             {selectedItems.length > 0 && (
-              <div className="sticky top-20 lg:top-[76px] z-20">
+              <div className="relative z-10">
                 <BulkActionBar
+                  className="saved-urls-bulk-action-bar"
                   selected={selectedItems}
                   selectionSummary={`${selectedItems.length} selected on this page`}
                   onDelete={onDelete}
@@ -3669,7 +3670,7 @@ const SavedUrlsPage: React.FC = () => {
                   exportLabel="Export page selection"
                   exportTitle="Export the selected rows on this page as CSV"
                   moveToLabel="Assign page selection…"
-                  moveToTitle="Choose whether to add the selected rows on this page to another collection or move them into it"
+                  moveToTitle="Assign selected rows to a collection"
                   copyLabel="Copy page selection"
                   copyTitle="Copy the selected rows on this page so you can add them to another collection"
                   cutLabel="Cut page selection"
@@ -3681,7 +3682,7 @@ const SavedUrlsPage: React.FC = () => {
                   }
                   pasteTitle={
                     selectedCollection
-                      ? `Paste the copied page selection into "${selectedCollection.name}"`
+                      ? `Paste into "${selectedCollection.name}"`
                       : "Select a collection in the sidebar, then paste into it"
                   }
                 />

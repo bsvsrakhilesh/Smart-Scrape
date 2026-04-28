@@ -6387,6 +6387,33 @@ body,
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 }
 
+.saved-urls-page .saved-urls-bulk-action-bar {
+  align-items: flex-start;
+  gap: 0.5rem;
+  row-gap: 0.65rem;
+  padding: 0.75rem;
+}
+
+.saved-urls-page .saved-urls-bulk-action-bar > .text-sm {
+  flex: 1 1 13rem;
+  min-width: 0;
+  padding-top: 0.35rem;
+  white-space: normal;
+}
+
+.saved-urls-page .saved-urls-bulk-action-bar button {
+  flex: 0 1 auto;
+  min-height: 2rem;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .saved-urls-page .saved-urls-bulk-action-bar button {
+    flex: 1 1 12rem;
+  }
+}
+
 .saved-urls-page .saved-urls-panel:hover {
   box-shadow: var(--su-shadow-hover);
 }

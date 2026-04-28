@@ -34,6 +34,7 @@ interface BulkActionBarProps<T extends Selectable = Selectable> {
   cutTitle?: string;
   pasteTitle?: string;
   moveToTitle?: string;
+  className?: string;
 }
 
 function BulkActionBar<T extends Selectable>({
@@ -68,6 +69,7 @@ function BulkActionBar<T extends Selectable>({
   cutTitle = "Cut (Ctrl/Cmd+X)",
   pasteTitle = "Paste (Ctrl/Cmd+V)",
   moveToTitle = "Move selected to category…",
+  className = "",
 }: BulkActionBarProps<T>) {
   if (!selected.length) return null;
 
@@ -94,7 +96,14 @@ function BulkActionBar<T extends Selectable>({
     "text-xs px-3 py-1 border rounded hover:bg-gray-100 transition-transform transition-colors transform active:scale-95 active:translate-y-1 active:opacity-90 focus:outline-none";
 
   return (
-    <div className="card p-2 flex flex-wrap items-center gap-2">
+    <div
+      className={[
+        "card p-2 flex flex-wrap items-center gap-2",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="text-sm">
         {selectionSummary ?? `${selected.length} selected`}
       </div>

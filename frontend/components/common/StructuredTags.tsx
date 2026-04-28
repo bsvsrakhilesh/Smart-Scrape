@@ -141,6 +141,10 @@ function confidencePct(value?: number | null) {
   return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
 }
 
+function smartEvidenceCount(items: SmartTag[]) {
+  return items.reduce((sum, item) => sum + cleanSmartEvidence(item.evidence).length, 0);
+}
+
 function cleanTagDetails(input?: AiTagDetail[] | null) {
   if (!Array.isArray(input)) return [];
 
@@ -340,28 +344,33 @@ function SmartTagRow({
   const first = evidence[0];
   const type = (tag.type || "tag").replaceAll("_", " ");
   const source = (tag.source || "tagger").replaceAll("_", " ");
+  const highConfidence =
+    tag.confidenceBand === "high" ||
+    (typeof tag.confidence === "number" && tag.confidence >= 0.85);
 
   return (
-    <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-[12px] font-semibold text-slate-900">
+    <div className="min-w-0 rounded-xl border border-slate-200/80 bg-white px-3 py-2 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-[12px] font-semibold leading-snug text-slate-950">
             {tag.value}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[hsl(var(--muted-foreground))]">
-            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 capitalize text-slate-700">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 capitalize text-slate-700 ring-1 ring-slate-200/70">
               {type}
             </span>
-            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 capitalize text-slate-700">
+            <span className="rounded-md bg-slate-50 px-1.5 py-0.5 capitalize text-slate-600 ring-1 ring-slate-200/70">
               {source}
             </span>
-            {tag.status ? <span className="capitalize">{tag.status}</span> : null}
+            {evidence.length ? <span>{evidence.length} evidence</span> : null}
           </div>
         </div>
         <span
           className={cn(
-            "shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold capitalize",
-            scoreClasses(tag.confidence),
+            "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize",
+            highConfidence
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : scoreClasses(tag.confidence),
           )}
           title={`Confidence ${confidencePct(tag.confidence)}`}
         >
@@ -370,9 +379,13 @@ function SmartTagRow({
       </div>
 
       {showEvidence && first?.quote ? (
-        <div className="mt-2 line-clamp-3 text-[11px] leading-snug text-[hsl(var(--muted-foreground))]">
-          {first.page ? `Page ${first.page}: ` : ""}
-          {first.quote}
+        <div className="mt-2 rounded-lg border border-slate-200/70 bg-slate-50 px-2.5 py-2 text-[11px] leading-snug text-slate-600">
+          {first.page ? (
+            <span className="mr-1 font-semibold text-slate-800">
+              Page {first.page}
+            </span>
+          ) : null}
+          <span className="line-clamp-4">{first.quote}</span>
         </div>
       ) : null}
     </div>
@@ -389,16 +402,24 @@ function SmartTagSection({
   showEvidence: boolean;
 }) {
   if (!items.length) return null;
+  const evidenceCount = smartEvidenceCount(items);
 
   return (
-    <div className="py-2">
+    <div className="rounded-2xl border border-slate-200/80 bg-white/80 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] font-semibold text-slate-900">{title}</div>
-        <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
+        <div>
+          <div className="text-[12px] font-semibold text-slate-950">{title}</div>
+          {evidenceCount ? (
+            <div className="mt-0.5 text-[10px] text-slate-500">
+              {evidenceCount} evidence anchor{evidenceCount === 1 ? "" : "s"}
+            </div>
+          ) : null}
+        </div>
+        <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
           {items.length}
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-2">
         {items.slice(0, 12).map((tag, idx) => (
           <SmartTagRow
             key={`${title}-${tag.value ?? idx}-${idx}`}
@@ -451,35 +472,29 @@ function Section({
   title,
   items,
   showEvidence,
-  emptyText = "-",
 }: {
   title: string;
   items: LabelItem[];
   showEvidence: boolean;
-  emptyText?: string;
 }) {
+  if (!items.length) return null;
+
   return (
     <div className="py-2">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-semibold text-slate-900">{title}</div>
         <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
-          {items.length ? `${items.length}` : ""}
+          {items.length}
         </div>
       </div>
 
-      {items.length ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {items.map((it, idx) => (
-            <div key={`${it.value ?? "x"}-${idx}`} className="flex flex-col">
-              <Pill item={it} showEvidence={showEvidence} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
-          {emptyText}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.map((it, idx) => (
+          <div key={`${it.value ?? "x"}-${idx}`} className="flex flex-col">
+            <Pill item={it} showEvidence={showEvidence} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -540,6 +555,29 @@ export default function StructuredTags({
   const hasAnything = hasStructuredSignals || safeTagDetails.length > 0;
   const hasRenderableContent = hasAnything || smartCount > 0;
   const showLegacyStructured = !safeSmartTags && hasStructuredSignals;
+  const primarySmartTags = safeSmartTags
+    ? [
+        ...(safeSmartTags.taxonomyTags ?? []),
+        ...(safeSmartTags.aiDiscoveredTags ?? []),
+        ...(safeSmartTags.topics ?? []),
+        ...(safeSmartTags.documentType ?? []),
+        ...(safeSmartTags.actionsDecisions ?? []),
+      ]
+    : [];
+  const entitySmartTags = safeSmartTags
+    ? [
+        ...(safeSmartTags.entities?.agencies ?? []),
+        ...(safeSmartTags.entities?.organizations ?? []),
+        ...(safeSmartTags.entities?.locations ?? []),
+        ...(safeSmartTags.entities?.people ?? []),
+        ...(safeSmartTags.entities?.legalReferences ?? []),
+        ...(safeSmartTags.entities?.schemesPrograms ?? []),
+        ...(safeSmartTags.entities?.datesDeadlines ?? []),
+      ]
+    : [];
+  const evidenceAnchorCount = safeSmartTags
+    ? smartEvidenceCount(safeSmartTags.items ?? [])
+    : safeTagDetails.filter((tag) => tag.evidence).length;
 
   const headerRight = (
     <div className="flex items-center gap-2">
@@ -593,24 +631,44 @@ export default function StructuredTags({
   return (
     <div
       className={cn(
-        "rounded-lg border border-[hsl(var(--border))] bg-white px-3",
+        "rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm",
         className,
       )}
       onPointerDownCapture={(e) => e.stopPropagation()}
       onMouseDownCapture={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between gap-3 px-1 pt-3 pb-2">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
-          <div className="text-[11px] font-semibold text-slate-900">
-            Smart tags
-          </div>
-          {structured?.profile ? (
-            <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
-              {structured.profile}
-              {structured.version ? ` - v${structured.version}` : ""}
+      <div className="flex items-start justify-between gap-3 rounded-xl bg-slate-50/80 px-3 py-3 ring-1 ring-slate-200/70">
+        <div className="flex min-w-0 gap-3">
+          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[12px] font-semibold text-slate-950">
+              Document intelligence
             </div>
-          ) : null}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
+              <span>{smartCount || safeTagDetails.length} tags</span>
+              <span>-</span>
+              <span>{evidenceAnchorCount} evidence anchors</span>
+              {safeSmartTags?.profile ? (
+                <>
+                  <span>-</span>
+                  <span>
+                    {safeSmartTags.profile}
+                    {safeSmartTags.version ? ` v${safeSmartTags.version}` : ""}
+                  </span>
+                </>
+              ) : structured?.profile ? (
+                <>
+                  <span>-</span>
+                  <span>
+                    {structured.profile}
+                    {structured.version ? ` v${structured.version}` : ""}
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
         </div>
         {headerRight}
       </div>
@@ -621,34 +679,23 @@ export default function StructuredTags({
           labels like doc type, sector, GRAP stage, agencies, and geography.
         </div>
       ) : !expanded ? (
-        <div className="px-1 pb-3 text-[12px] text-[hsl(var(--muted-foreground))]">
-          {docType?.value ? (
-            <span>
-              Doc type:{" "}
-              <span className="font-medium text-slate-900">
-                {prettyLabel(docType.value)}
-              </span>
-            </span>
-          ) : (
-            <span>
-              {smartCount
-                ? `${smartCount} structured smart tags`
-                : safeTagDetails.length
-                ? `${safeTagDetails.length} evidence-backed tags`
-                : sectors.length
-                  ? `${sectors.length} sector labels`
-                  : "Labels ready"}
-            </span>
-          )}
+        <div className="px-1 py-3 text-[12px] text-slate-500">
+          {smartCount
+            ? `${primarySmartTags.length} review tags and ${entitySmartTags.length} entities`
+            : safeTagDetails.length
+            ? `${safeTagDetails.length} evidence-backed tags`
+            : docType?.value
+              ? `Doc type: ${prettyLabel(docType.value)}`
+              : "Labels ready"}
         </div>
       ) : (
-        <div className="px-1 pb-3">
+        <div className="px-1 pt-3">
           {!compact ? (
-            <div className="flex items-center justify-between py-2">
-              <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                Confidence, type, source, and evidence are kept with each AI tag.
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[12px] leading-5 text-slate-500">
+                Reviewable tags are grouped by purpose and backed by evidence when available.
               </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2 text-[12px] shadow-sm hover:bg-slate-50">
+              <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] shadow-sm hover:bg-slate-50">
                 <input
                   type="checkbox"
                   checked={showEvidence}
@@ -660,22 +707,35 @@ export default function StructuredTags({
           ) : null}
 
           {safeSmartTags ? (
-            <div className="mt-2 rounded-lg border border-[hsl(var(--border))] bg-slate-50/60 px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold text-slate-900">
-                    Smart tag intelligence
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Review tags
                   </div>
-                  <div className="mt-0.5 text-[11px] text-[hsl(var(--muted-foreground))]">
-                    Taxonomy matches, AI discoveries, entities, and actions.
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {primarySmartTags.length}
                   </div>
                 </div>
-                <div className="rounded-md border border-[hsl(var(--border))] bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {smartCount}
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Entities
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {entitySmartTags.length}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Evidence
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {evidenceAnchorCount}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-3 divide-y divide-[hsl(var(--border))]">
+              <div className="space-y-2">
                 <SmartTagSection
                   title="Taxonomy Tags"
                   items={safeSmartTags.taxonomyTags ?? []}
@@ -745,8 +805,8 @@ export default function StructuredTags({
             </div>
           ) : null}
 
-          {safeTagDetails.length ? (
-            <div className="mt-2 rounded-lg border border-[hsl(var(--border))] bg-slate-50/60 px-3 py-3">
+          {!safeSmartTags && safeTagDetails.length ? (
+            <div className="mt-2 rounded-2xl border border-slate-200/80 bg-slate-50/60 px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] font-semibold text-slate-900">
@@ -776,55 +836,54 @@ export default function StructuredTags({
           {showLegacyStructured ? (
             <>
               {/* Doc type + GRAP */}
+              {docType?.value || grap?.mentioned ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {docType?.value ? (
                 <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
                   <div className="text-[11px] font-semibold text-slate-900">
                     Document type
                   </div>
-                  {docType?.value ? (
-                    <div className="mt-2 flex flex-col gap-2">
-                      <Pill item={docType} showEvidence={showEvidence} />
-                    </div>
-                  ) : (
-                    <div className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
-                      -
-                    </div>
-                  )}
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Pill item={docType} showEvidence={showEvidence} />
+                  </div>
                 </div>
+                ) : null}
 
+                {grap?.mentioned ? (
                 <div className="rounded-lg border border-[hsl(var(--border))] bg-white px-3 py-2">
                   <div className="text-[11px] font-semibold text-slate-900">
                     GRAP
                   </div>
                   <div className="mt-2">
-                    {grap?.mentioned ? (
-                      <div className="flex flex-col gap-2">
-                        <span className="inline-flex items-center gap-2">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-900">
-                            Mentioned
-                          </span>
-                          {grap.stage ? (
-                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-semibold text-emerald-800">
-                              Stage {grap.stage}
-                            </span>
-                          ) : null}
+                    <div className="flex flex-col gap-2">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-slate-900">
+                          Mentioned
                         </span>
-                        {showEvidence && grap.evidence ? (
-                          <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
-                            {grap.evidence}
-                          </div>
+                        {grap.stage ? (
+                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px] font-semibold text-emerald-800">
+                            Stage {grap.stage}
+                          </span>
                         ) : null}
-                      </div>
-                    ) : (
-                      <div className="text-[12px] text-[hsl(var(--muted-foreground))]">
-                        Not detected
-                      </div>
-                    )}
+                      </span>
+                      {showEvidence && grap.evidence ? (
+                        <div className="text-[11px] text-[hsl(var(--muted-foreground))]">
+                          {grap.evidence}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
+                ) : null}
               </div>
+              ) : null}
 
               {/* Labels */}
+              {sectors.length ||
+              agencies.length ||
+              geography.length ||
+              programs.length ||
+              pollutants.length ? (
               <div className="mt-3 rounded-lg border border-[hsl(var(--border))] bg-white px-3">
                 <div className="divide-y divide-[hsl(var(--border))]">
                   <Section title="Sectors" items={sectors} showEvidence={showEvidence} />
@@ -834,6 +893,7 @@ export default function StructuredTags({
                   <Section title="Pollutants" items={pollutants} showEvidence={showEvidence} />
                 </div>
               </div>
+              ) : null}
             </>
           ) : null}
 

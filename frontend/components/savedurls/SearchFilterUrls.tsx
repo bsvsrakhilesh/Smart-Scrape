@@ -67,6 +67,24 @@ const countActiveFilters = (state: UrlFilterState) => {
   return count;
 };
 
+const countAdvancedFilters = (state: UrlFilterState) => {
+  let count = 0;
+
+  if (state.domains.length) count += 1;
+  if (state.tags.length) count += 1;
+  if (state.visibility !== "all") count += 1;
+  if (state.dateFrom) count += 1;
+  if (state.dateTo) count += 1;
+  if (state.publishedFrom) count += 1;
+  if (state.publishedTo) count += 1;
+  if (state.favoritesOnly) count += 1;
+  if ((state.snapshotStatus ?? "all") !== "all") count += 1;
+  if ((state.taggingStatus ?? "all") !== "all") count += 1;
+  if ((state.metadataState ?? "all") !== "all") count += 1;
+
+  return count;
+};
+
 const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   availableDomains,
   availableTags,
@@ -79,8 +97,15 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   );
 
   const debouncedState = useDebounce(state, 250);
+  const [advancedOpen, setAdvancedOpen] = useState(() =>
+    countAdvancedFilters(buildFilterState(initial)) > 0,
+  );
 
   const activeFilterCount = useMemo(() => countActiveFilters(state), [state]);
+  const advancedFilterCount = useMemo(
+    () => countAdvancedFilters(state),
+    [state],
+  );
 
   const applyFiltersNow = useCallback(
     (next: UrlFilterState) => {
@@ -100,6 +125,7 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
     setState((prev) =>
       filterStateSignature(prev) === filterStateSignature(next) ? prev : next,
     );
+    if (countAdvancedFilters(next) > 0) setAdvancedOpen(true);
   }, [initial]);
 
   useEffect(() => {
@@ -131,11 +157,11 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   const chipSelected = "ring-2 ring-brand-primary/40";
 
   return (
-    <div className="saved-urls-filter space-y-5 min-w-0" data-search-filter>
+    <div className="saved-urls-filter space-y-4 min-w-0" data-search-filter>
       {/* Search row */}
-      <div className="space-y-2">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex-1 min-w-0 xl:min-w-[520px]">
+      <div className="saved-urls-search-workbench">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+          <div className="min-w-0">
             <label className="sr-only" htmlFor="saved-urls-query">
               Search saved URLs
             </label>
@@ -156,14 +182,12 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                   applyFiltersNow(state);
                 }
               }}
-              className="input w-full min-w-0 rounded-2xl px-4 py-3 text-sm md:text-base shadow-sm focus:ring-2 focus:ring-brand-primary/40"
+              className="saved-urls-search-input input w-full min-w-0 rounded-2xl px-4 py-3 text-sm md:text-base shadow-sm focus:ring-2 focus:ring-brand-primary/40"
             />
 
             <p className="mt-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-              Search matches title, URL, normalized domain, description, notes,
-              and exact user tags. Use Saved date for library ingestion time and
-              Published date for source metadata. Filters update automatically.
-              Press Enter to apply immediately.
+              Searches title, URL, domain, description, notes, and exact user
+              tags. Filters update automatically; press Enter to apply now.
             </p>
           </div>
 
@@ -173,6 +197,23 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
                 ? "No active filters"
                 : `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`}
             </span>
+
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((open) => !open)}
+              className={[
+                "rounded-xl border px-4 py-3 text-sm font-medium transition hover:bg-neutral-50 dark:hover:bg-neutral-800 whitespace-nowrap",
+                advancedOpen || advancedFilterCount > 0
+                  ? "border-brand-primary/40 bg-brand-primary/10 text-brand-primary"
+                  : "border-black/10 dark:border-white/10",
+              ].join(" ")}
+              aria-expanded={advancedOpen}
+              aria-controls="saved-urls-advanced-filters"
+              title="Show or hide advanced filters"
+            >
+              {advancedOpen ? "Hide filters" : "Advanced filters"}
+              {advancedFilterCount > 0 ? ` (${advancedFilterCount})` : ""}
+            </button>
 
             <button
               type="button"
@@ -200,7 +241,11 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
       </div>
 
       {/* Filters grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,0.95fr)] gap-4 text-sm min-w-0">
+      <div
+        id="saved-urls-advanced-filters"
+        hidden={!advancedOpen}
+        className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,0.95fr)] gap-4 text-sm min-w-0"
+      >
         {/* Domains */}
         <div className="saved-urls-section-card min-h-[14rem] p-4">
           <div className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">

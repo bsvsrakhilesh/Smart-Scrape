@@ -368,6 +368,36 @@ function queueHealthLabel(
   return "Idle";
 }
 
+function reviewQueueToneClass(id: SavedUrlQueueId, active: boolean): string {
+  if (active) {
+    switch (id) {
+      case "ai-failed":
+        return "border-red-300 bg-red-50 text-red-800 shadow-sm dark:border-red-700/60 dark:bg-red-950/30 dark:text-red-200";
+      case "never-captured":
+      case "stale-capture":
+      case "metadata-missing":
+        return "border-amber-300 bg-amber-50 text-amber-800 shadow-sm dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-200";
+      case "updated-since-review":
+        return "border-sky-300 bg-sky-50 text-sky-800 shadow-sm dark:border-sky-700/60 dark:bg-sky-950/30 dark:text-sky-200";
+      default:
+        return "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm";
+    }
+  }
+
+  switch (id) {
+    case "ai-failed":
+      return "border-red-200/80 text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/20";
+    case "never-captured":
+    case "stale-capture":
+    case "metadata-missing":
+      return "border-amber-200/80 text-amber-800 hover:bg-amber-50 dark:border-amber-900/50 dark:text-amber-200 dark:hover:bg-amber-950/20";
+    case "updated-since-review":
+      return "border-sky-200/80 text-sky-800 hover:bg-sky-50 dark:border-sky-900/50 dark:text-sky-200 dark:hover:bg-sky-950/20";
+    default:
+      return "border-black/10 text-neutral-700 hover:bg-neutral-50 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-neutral-900/60";
+  }
+}
+
 function faviconFor(u: string): string {
   const d = getDomain(u) || "example.com";
   return `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(d)}`;
@@ -2818,6 +2848,11 @@ const SavedUrlsPage: React.FC = () => {
     clearSelection,
   ]);
 
+  const activeReviewQueue =
+    activeQueueId === localReviewQueue.id
+      ? localReviewQueue
+      : reviewQueues.find((queue) => queue.id === activeQueueId);
+
   return (
     <main className="saved-urls-page space-y-6 px-4 md:px-6 lg:px-8 pt-6 md:pt-8 min-w-0">
       <header className="page-header">
@@ -2852,267 +2887,217 @@ const SavedUrlsPage: React.FC = () => {
         </div>
       </header>
 
-      {tagSummary && (tagSummary.inProgress > 0 || tagSummary.failed > 0) && (
-        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 flex flex-col gap-3 border border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-900/10">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-            <div className="text-sm text-amber-950 dark:text-amber-100">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="font-semibold">AI Tagging</span>
+      {(tagSummary && (tagSummary.inProgress > 0 || tagSummary.failed > 0)) ||
+      snapshotHealth.missingCount > 0 ||
+      snapshotHealth.staleCount > 0 ? (
+        <div className="saved-urls-status-stack">
+          {tagSummary &&
+            (tagSummary.inProgress > 0 || tagSummary.failed > 0) && (
+              <section className="saved-urls-status-strip saved-urls-status-strip--warning">
+                <div className="saved-urls-status-main">
+                  <span className="saved-urls-status-label">AI Tagging</span>
+                  <span className="saved-urls-status-badge">
+                    {tagSummary.queueMode === "sequential"
+                      ? "Sequential queue"
+                      : "Queue"}
+                  </span>
+                  <span>{queueHealthLabel(tagSummary.queueHealth)}</span>
+                  <span>
+                    Pending{" "}
+                    <strong>{tagSummary.byStatus?.PENDING ?? 0}</strong>
+                  </span>
+                  <span>
+                    Running{" "}
+                    <strong>{tagSummary.byStatus?.RUNNING ?? 0}</strong>
+                  </span>
+                  <span>
+                    Failed <strong>{tagSummary.failed}</strong>
+                  </span>
+                  {tagSummary.oldestPendingAt && (
+                    <span>
+                      Oldest pending{" "}
+                      <strong>
+                        {relativeQueueAge(tagSummary.oldestPendingAt)}
+                      </strong>
+                    </span>
+                  )}
+                  {tagSummary.currentRunning && (
+                    <span className="truncate">
+                      Now: {shortQueueTitle(tagSummary.currentRunning, 64)}
+                      {queueDomain(tagSummary.currentRunning)
+                        ? ` - ${queueDomain(tagSummary.currentRunning)}`
+                        : ""}
+                    </span>
+                  )}
+                  {(tagSummary.nextPending?.length ?? 0) > 0 && (
+                    <span>Next {tagSummary.nextPending?.length}</span>
+                  )}
+                  {tagSummaryError && (
+                    <span className="opacity-70">{tagSummaryError}</span>
+                  )}
+                </div>
 
-                <span className="rounded-full border border-amber-300/70 bg-white/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-                  {tagSummary.queueMode === "sequential"
-                    ? "Sequential queue"
-                    : "Queue"}
+                {tagSummary.failed > 0 && (
+                  <button
+                    className="saved-urls-strip-action"
+                    onClick={handleRetryFailedTagging}
+                    disabled={tagSummaryLoading}
+                    title="Re-run auto-tagging for failed URLs"
+                  >
+                    {tagSummaryLoading ? "Retrying..." : "Retry failed"}
+                  </button>
+                )}
+              </section>
+            )}
+
+          {(snapshotHealth.missingCount > 0 ||
+            snapshotHealth.staleCount > 0) && (
+            <section className="saved-urls-status-strip saved-urls-status-strip--info">
+              <div className="saved-urls-status-main">
+                <span className="saved-urls-status-label">
+                  Snapshots on this page
                 </span>
-
-                <span className="text-xs opacity-80">
-                  {queueHealthLabel(tagSummary.queueHealth)}
+                <span>
+                  Missing <strong>{snapshotHealth.missingCount}</strong>
+                </span>
+                <span>
+                  Stale (&gt;{SNAPSHOT_STALE_DAYS}d){" "}
+                  <strong>{snapshotHealth.staleCount}</strong>
+                </span>
+                {bulkRunning && (
+                  <span>
+                    Running{" "}
+                    <strong>
+                      {bulkDone}/{bulkTotal}
+                    </strong>
+                    , Failed <strong>{bulkFailed}</strong>
+                  </span>
+                )}
+                <span className="opacity-75">
+                  Actions apply to the currently loaded page.
                 </span>
               </div>
 
-              <div className="mt-1 text-xs sm:text-sm">
-                Pending{" "}
-                <span className="font-semibold">
-                  {tagSummary.byStatus?.PENDING ?? 0}
-                </span>
-                {" · "}
-                Running{" "}
-                <span className="font-semibold">
-                  {tagSummary.byStatus?.RUNNING ?? 0}
-                </span>
-                {" · "}
-                Failed{" "}
-                <span className="font-semibold">{tagSummary.failed}</span>
-                {tagSummary.oldestPendingAt && (
+              <div className="saved-urls-strip-actions">
+                <button
+                  className="saved-urls-strip-action"
+                  onClick={() =>
+                    setFilter((f: any) => ({
+                      ...f,
+                      snapshotStatus: "missing",
+                    }))
+                  }
+                  disabled={bulkRunning}
+                  title="Filter the full result set to URLs with no active snapshots"
+                >
+                  Show missing
+                </button>
+
+                <button
+                  className="saved-urls-strip-action"
+                  onClick={() =>
+                    setFilter((f: any) => ({
+                      ...f,
+                      snapshotStatus: "stale",
+                    }))
+                  }
+                  disabled={bulkRunning}
+                  title={`Filter the full result set to URLs with snapshots older than ${SNAPSHOT_STALE_DAYS} days`}
+                >
+                  Show stale
+                </button>
+
+                {snapshotHealth.missingCount > 0 && (
                   <>
-                    {" · "}
-                    Oldest pending{" "}
-                    <span className="font-semibold">
-                      {relativeQueueAge(tagSummary.oldestPendingAt)}
-                    </span>
+                    <button
+                      className="saved-urls-strip-action saved-urls-strip-action--primary"
+                      onClick={() => {
+                        setBulkTargets(snapshotHealth.missing);
+                        setBulkPickerMode("text");
+                        setBulkPickerOpen(true);
+                      }}
+                      disabled={bulkRunning}
+                      title="Capture TEXT snapshots for missing URLs currently loaded on this page"
+                    >
+                      Snapshot missing (Text)
+                    </button>
+
+                    <button
+                      className="saved-urls-strip-action saved-urls-strip-action--primary"
+                      onClick={() => {
+                        setBulkTargets(snapshotHealth.missing);
+                        setBulkPickerMode("pdf");
+                        setBulkPickerOpen(true);
+                      }}
+                      disabled={bulkRunning}
+                      title="Capture PDF snapshots for missing URLs currently loaded on this page"
+                    >
+                      Snapshot missing (PDF)
+                    </button>
                   </>
                 )}
-              </div>
 
-              {tagSummaryError && (
-                <div className="mt-1 text-xs opacity-70">{tagSummaryError}</div>
-              )}
-            </div>
+                {snapshotHealth.staleCount > 0 && (
+                  <>
+                    <button
+                      className="saved-urls-strip-action saved-urls-strip-action--primary"
+                      onClick={() => {
+                        setBulkTargets(snapshotHealth.stale);
+                        setBulkPickerMode("text");
+                        setBulkPickerOpen(true);
+                      }}
+                      disabled={bulkRunning}
+                      title="Refresh TEXT snapshots for stale URLs currently loaded on this page"
+                    >
+                      Refresh stale (Text)
+                    </button>
 
-            {tagSummary.failed > 0 && (
-              <button
-                className="btn-primary px-4 py-2 rounded-lg disabled:opacity-60"
-                onClick={handleRetryFailedTagging}
-                disabled={tagSummaryLoading}
-                title="Re-run auto-tagging for failed URLs"
-              >
-                {tagSummaryLoading ? "Retrying…" : "Retry failed"}
-              </button>
-            )}
-          </div>
+                    <button
+                      className="saved-urls-strip-action saved-urls-strip-action--primary"
+                      onClick={() => {
+                        setBulkTargets(snapshotHealth.stale);
+                        setBulkPickerMode("pdf");
+                        setBulkPickerOpen(true);
+                      }}
+                      disabled={bulkRunning}
+                      title="Refresh PDF snapshots for stale URLs currently loaded on this page"
+                    >
+                      Refresh stale (PDF)
+                    </button>
+                  </>
+                )}
 
-          {(tagSummary.currentRunning ||
-            (tagSummary.nextPending?.length ?? 0) > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 text-xs text-amber-950 dark:text-amber-100">
-              <div className="rounded-xl border border-amber-200/80 bg-white/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
-                <div className="font-semibold uppercase tracking-wide text-[11px] opacity-70">
-                  Now tagging
-                </div>
-
-                {tagSummary.currentRunning ? (
-                  <div className="mt-1">
-                    <div className="font-semibold leading-snug">
-                      {shortQueueTitle(tagSummary.currentRunning)}
-                    </div>
-                    <div className="mt-1 opacity-75">
-                      {queueDomain(tagSummary.currentRunning)}
-                      {tagSummary.currentRunning.updatedAt && (
-                        <>
-                          {" · "}
-                          started{" "}
-                          {relativeQueueAge(
-                            tagSummary.currentRunning.updatedAt,
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-1 opacity-75">
-                    No URL is running right now. Waiting for the worker to pick
-                    the next queued item.
-                  </div>
+                {bulkRunning && (
+                  <button
+                    className="saved-urls-strip-action"
+                    onClick={() => {
+                      bulkAbortRef.current = true;
+                    }}
+                    title="Stop after current in-flight captures finish"
+                  >
+                    Stop
+                  </button>
                 )}
               </div>
-
-              <div className="rounded-xl border border-amber-200/80 bg-white/60 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
-                <div className="font-semibold uppercase tracking-wide text-[11px] opacity-70">
-                  Next in queue
-                </div>
-
-                {(tagSummary.nextPending?.length ?? 0) > 0 ? (
-                  <ol className="mt-1 space-y-1">
-                    {tagSummary.nextPending?.map((item, idx) => (
-                      <li key={item.id} className="flex gap-2">
-                        <span className="opacity-60">{idx + 1}.</span>
-                        <span className="min-w-0">
-                          <span className="font-medium">
-                            {shortQueueTitle(item, 72)}
-                          </span>
-                          <span className="ml-1 opacity-70">
-                            {queueDomain(item)}
-                          </span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="mt-1 opacity-75">No waiting URLs.</div>
-                )}
-              </div>
-            </div>
+            </section>
           )}
         </div>
-      )}
+      ) : null}
 
-      {(snapshotHealth.missingCount > 0 || snapshotHealth.staleCount > 0) && (
-        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-sky-200 bg-sky-50/60 dark:border-sky-900/40 dark:bg-sky-900/10">
-          <div className="text-sm text-sky-950 dark:text-sky-100">
-            <span className="font-semibold">Snapshots on this page</span>
-            <span className="ml-2">
-              Missing{" "}
-              <span className="font-semibold">
-                {snapshotHealth.missingCount}
-              </span>
-              {" • "}
-              Stale (&gt;{SNAPSHOT_STALE_DAYS}d){" "}
-              <span className="font-semibold">{snapshotHealth.staleCount}</span>
-            </span>
-
-            {bulkRunning && (
-              <span className="ml-2 opacity-80">
-                (Running: {bulkDone}/{bulkTotal}, Failed: {bulkFailed})
-              </span>
-            )}
-            <p className="mt-1 text-xs text-sky-800/80 dark:text-sky-200/75">
-              Counts and capture actions apply only to the URLs currently loaded
-              on this page.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2 items-center">
-            <button
-              className="btn-secondary px-3 py-2 rounded-lg disabled:opacity-60"
-              onClick={() =>
-                setFilter((f: any) => ({ ...f, snapshotStatus: "missing" }))
-              }
-              disabled={bulkRunning}
-              title="Filter the full result set to URLs with no active snapshots"
-            >
-              Show missing
-            </button>
-
-            <button
-              className="btn-secondary px-3 py-2 rounded-lg disabled:opacity-60"
-              onClick={() =>
-                setFilter((f: any) => ({ ...f, snapshotStatus: "stale" }))
-              }
-              disabled={bulkRunning}
-              title={`Filter the full result set to URLs with snapshots older than ${SNAPSHOT_STALE_DAYS} days`}
-            >
-              Show stale
-            </button>
-
-            {snapshotHealth.missingCount > 0 && (
-              <>
-                <button
-                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
-                  onClick={() => {
-                    setBulkTargets(snapshotHealth.missing);
-                    setBulkPickerMode("text");
-                    setBulkPickerOpen(true);
-                  }}
-                  disabled={bulkRunning}
-                  title="Capture TEXT snapshots for missing URLs currently loaded on this page"
-                >
-                  Snapshot missing (Text)
-                </button>
-
-                <button
-                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
-                  onClick={() => {
-                    setBulkTargets(snapshotHealth.missing);
-                    setBulkPickerMode("pdf");
-                    setBulkPickerOpen(true);
-                  }}
-                  disabled={bulkRunning}
-                  title="Capture PDF snapshots for missing URLs currently loaded on this page"
-                >
-                  Snapshot missing (PDF)
-                </button>
-              </>
-            )}
-
-            {snapshotHealth.staleCount > 0 && (
-              <>
-                <button
-                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
-                  onClick={() => {
-                    setBulkTargets(snapshotHealth.stale);
-                    setBulkPickerMode("text");
-                    setBulkPickerOpen(true);
-                  }}
-                  disabled={bulkRunning}
-                  title="Refresh TEXT snapshots for stale URLs currently loaded on this page"
-                >
-                  Refresh stale (Text)
-                </button>
-
-                <button
-                  className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
-                  onClick={() => {
-                    setBulkTargets(snapshotHealth.stale);
-                    setBulkPickerMode("pdf");
-                    setBulkPickerOpen(true);
-                  }}
-                  disabled={bulkRunning}
-                  title="Refresh PDF snapshots for stale URLs currently loaded on this page"
-                >
-                  Refresh stale (PDF)
-                </button>
-              </>
-            )}
-
-            {bulkRunning && (
-              <button
-                className="btn-secondary px-3 py-2 rounded-lg"
-                onClick={() => {
-                  bulkAbortRef.current = true;
-                }}
-                title="Stop after current in-flight captures finish"
-              >
-                Stop
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="saved-urls-panel p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
-          <div>
+      <div className="saved-urls-panel saved-urls-command-center p-4 sm:p-5">
+        <div className="saved-urls-command-head">
+          <div className="min-w-0">
             <p className="page-header-kicker">Review operations</p>
             <h2 className="text-lg font-semibold text-neutral-950 dark:text-neutral-100">
-              Review queues & saved searches
+              Review command center
             </h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-300 mt-1">
-              Jump straight into stale captures, failed AI jobs, and metadata
-              gaps. Local review checks stay separate and only apply to the rows
-              loaded on the current page.
+              Pick the work queue, save repeatable review slices, and keep the
+              current page state under control.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 justify-end ">
+          <div className="saved-urls-command-actions">
             <span className="page-header-pill">
               <span className="page-header-pill-label">State</span>
               <span className="page-header-pill-value">
@@ -3122,7 +3107,7 @@ const SavedUrlsPage: React.FC = () => {
 
             <button
               type="button"
-              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+              className="saved-urls-command-button"
               onClick={markVisibleReviewed}
               disabled={sorted.length === 0}
               title="Mark every visible row on this page as reviewed right now"
@@ -3132,7 +3117,7 @@ const SavedUrlsPage: React.FC = () => {
 
             <button
               type="button"
-              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60 "
+              className="saved-urls-command-button"
               onClick={resetReviewView}
               disabled={!hasActiveReviewView}
               title="Reset filters, selected collection, queue, saved-search context, year, and sort"
@@ -3142,7 +3127,7 @@ const SavedUrlsPage: React.FC = () => {
 
             <button
               type="button"
-              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-60"
+              className="saved-urls-command-button saved-urls-command-button--primary"
               onClick={saveCurrentSearch}
               title="Save the current filter, sort, collection, and queue state"
             >
@@ -3152,7 +3137,7 @@ const SavedUrlsPage: React.FC = () => {
             {displayedSavedSearch && (
               <button
                 type="button"
-                className="btn-ghost px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/10 disabled:opacity-60"
+                className="saved-urls-command-button saved-urls-command-button--danger"
                 onClick={deleteActiveSavedSearch}
                 title="Delete the active saved search"
               >
@@ -3162,74 +3147,47 @@ const SavedUrlsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-2 items-start xl:items-center">
-            {reviewQueues.map((queue) => {
-              const active = activeQueueId === queue.id;
-              return (
-                <button
-                  key={queue.id}
-                  type="button"
-                  onClick={() => setActiveQueueId(queue.id)}
-                  title={queue.help}
-                  className={[
-                    "rounded-xl border px-3 py-2 text-left transition min-w-[180px]",
-                    active
-                      ? "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm"
-                      : "border-black/10 dark:border-white/10 hover:bg-neutral-50 dark:hover:bg-neutral-900/60",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-medium">{queue.label}</span>
-                    <span className="chip chip-slate">{queue.count}</span>
-                  </div>
-                  <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                    {queue.help}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="rounded-2xl border border-dashed border-black/10 bg-neutral-50/70 p-3 dark:border-white/10 dark:bg-neutral-900/40">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
-              Local review queue
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setActiveQueueId(localReviewQueue.id)}
-              title={localReviewQueue.help}
-              className={[
-                "w-full rounded-xl border px-3 py-2 text-left transition",
-                activeQueueId === localReviewQueue.id
-                  ? "border-brand-primary bg-brand-primary/10 text-brand-primary shadow-sm"
-                  : "border-black/10 dark:border-white/10 hover:bg-white dark:hover:bg-neutral-900/60",
-              ].join(" ")}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium">
-                  {localReviewQueue.label}
+        <div
+          className="saved-urls-queue-row"
+          role="group"
+          aria-label="Saved URL review queues"
+        >
+          {[...reviewQueues, localReviewQueue].map((queue) => {
+            const active = activeQueueId === queue.id;
+            return (
+              <button
+                key={queue.id}
+                type="button"
+                onClick={() => setActiveQueueId(queue.id)}
+                title={queue.help}
+                aria-pressed={active}
+                className={[
+                  "saved-urls-queue-chip",
+                  reviewQueueToneClass(queue.id, active),
+                ].join(" ")}
+              >
+                <span className="saved-urls-queue-label">
+                  {queue.label}
+                  {queue.id === "updated-since-review" && (
+                    <span className="saved-urls-queue-local">Local</span>
+                  )}
                 </span>
-                <span className="chip chip-slate">
-                  {localReviewQueue.count}
-                </span>
-              </div>
-              <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                {localReviewQueue.help}
-              </div>
-            </button>
-
-            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-              This queue uses browser-local review stamps and only evaluates the
-              rows already loaded on the current page.
-            </p>
-          </div>
+                <span className="saved-urls-queue-count">{queue.count}</span>
+              </button>
+            );
+          })}
         </div>
 
+        {activeReviewQueue && (
+          <div className="saved-urls-active-queue-note">
+            <span className="font-medium">{activeReviewQueue.label}:</span>{" "}
+            {activeReviewQueue.help}
+          </div>
+        )}
+
         {savedSearches.length > 0 && (
-          <div className="space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-neutral-500 dark:text-neutral-400">
+          <div className="saved-urls-saved-searches">
+            <div className="saved-urls-saved-searches-label">
               Saved searches
             </div>
 
@@ -3254,7 +3212,7 @@ const SavedUrlsPage: React.FC = () => {
                           : `Apply saved search: ${preset.name}`
                     }
                     className={[
-                      "rounded-full px-3 py-2 text-sm border transition",
+                      "saved-urls-saved-search",
                       active
                         ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
                         : editedFromThisPreset

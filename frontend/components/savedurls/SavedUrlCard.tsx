@@ -215,6 +215,7 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
   return (
     <SmartCard
       as="article"
+      tabIndex={-1}
       className={[
         "saved-url-card relative h-full p-5 sm:p-6",
         selected ? "ring-2 ring-[var(--color-accent)]" : "ring-0",
@@ -226,7 +227,7 @@ const SavedUrlCard: React.FC<SavedUrlCardProps> = ({
           type="checkbox"
           checked={selected}
           onChange={() => onSelect(url.id)}
-          aria-label="Select saved URL"
+          aria-label={`Select saved URL: ${url.title || url.url}`}
           className="absolute top-3 left-3 h-4 w-4"
         />
       )}

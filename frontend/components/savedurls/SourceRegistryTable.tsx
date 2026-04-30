@@ -332,6 +332,17 @@ const SourceRegistryTable: React.FC<Props> = ({
                     onClick={stopPropagation}
                   >
                     <div className="ml-auto grid w-[220px] grid-cols-2 gap-2">
+                      <a
+                        href={url.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => trackSavedUrlVisit(url.id)}
+                        className="rounded-lg bg-brand-primary px-3 py-2 text-center text-xs font-medium text-white transition hover:opacity-95"
+                        title="Open in new tab"
+                      >
+                        Open
+                      </a>
+
                       <button
                         type="button"
                         onClick={() => onCapture?.(url, "text")}
@@ -339,7 +350,7 @@ const SourceRegistryTable: React.FC<Props> = ({
                         title={
                           isPdf
                             ? "Text capture is disabled for PDF links"
-                            : "Capture as text"
+                            : "Capture as clean .txt"
                         }
                         className={[
                           "rounded-lg px-3 py-2 text-xs font-medium transition",
@@ -376,21 +387,10 @@ const SourceRegistryTable: React.FC<Props> = ({
                         type="button"
                         className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 dark:bg-slate-900/30 dark:text-slate-200 dark:hover:bg-slate-800/40"
                         onClick={() => onOpenDetail(url)}
-                        title="Open source details"
+                        title="Show details"
                       >
-                        Inspect
+                        Details
                       </button>
-
-                      <a
-                        href={url.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => trackSavedUrlVisit(url.id)}
-                        className="rounded-lg bg-brand-primary px-3 py-2 text-center text-xs font-medium text-white transition hover:opacity-95"
-                        title="Open source in a new tab"
-                      >
-                        Open
-                      </a>
                     </div>
                   </td>
                 </tr>

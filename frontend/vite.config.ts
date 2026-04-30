@@ -7,7 +7,8 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig(({ mode }) => {
   const devPort = Number(process.env.VITE_PORT || 3000);
 
-  const apiTarget = process.env.API_PROXY_TARGET || "http://backend:4000";
+  const apiTarget = process.env.API_PROXY_TARGET || "http://127.0.0.1:4000";
+
 
   return {
     appType: "spa",

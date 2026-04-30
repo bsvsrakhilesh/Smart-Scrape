@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { X } from "lucide-react";
 import { useDebounce } from "../../hooks/useDebounce";
 
 export interface UrlFilterState {
@@ -85,6 +86,51 @@ const countAdvancedFilters = (state: UrlFilterState) => {
   return count;
 };
 
+type ActiveFilterChip = {
+  id: string;
+  label: string;
+  value: string;
+  title: string;
+  onRemove: () => void;
+};
+
+const visibilityLabels: Record<UrlFilterState["visibility"], string> = {
+  all: "All access levels",
+  public: "Public",
+  private: "Private",
+};
+
+const snapshotStatusLabels: Record<
+  NonNullable<UrlFilterState["snapshotStatus"]>,
+  string
+> = {
+  all: "All snapshots",
+  missing: "Missing",
+  stale: "Stale (>30d)",
+  fresh: "Fresh",
+};
+
+const taggingStatusLabels: Record<
+  NonNullable<UrlFilterState["taggingStatus"]>,
+  string
+> = {
+  all: "All statuses",
+  NONE: "Not started",
+  PENDING: "Queued",
+  RUNNING: "Running",
+  SUCCESS: "Succeeded",
+  FAILED: "Failed",
+};
+
+const metadataStateLabels: Record<
+  NonNullable<UrlFilterState["metadataState"]>,
+  string
+> = {
+  all: "All metadata",
+  missing: "Missing key metadata",
+  complete: "Metadata complete",
+};
+
 const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
   availableDomains,
   availableTags,
@@ -106,6 +152,144 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
     () => countAdvancedFilters(state),
     [state],
   );
+
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    const trimmedQuery = state.query.trim();
+
+    if (trimmedQuery) {
+      chips.push({
+        id: "query",
+        label: "Query",
+        value: trimmedQuery,
+        title: `Remove query filter: ${trimmedQuery}`,
+        onRemove: () => setState((s) => ({ ...s, query: "" })),
+      });
+    }
+
+    state.domains.forEach((domain) => {
+      chips.push({
+        id: `domain:${domain}`,
+        label: "Domain",
+        value: domain,
+        title: `Remove domain filter: ${domain}`,
+        onRemove: () =>
+          setState((s) => ({
+            ...s,
+            domains: s.domains.filter((d) => d !== domain),
+          })),
+      });
+    });
+
+    state.tags.forEach((tag) => {
+      chips.push({
+        id: `tag:${tag}`,
+        label: "Tag",
+        value: tag,
+        title: `Remove tag filter: ${tag}`,
+        onRemove: () =>
+          setState((s) => ({
+            ...s,
+            tags: s.tags.filter((t) => t !== tag),
+          })),
+      });
+    });
+
+    if (state.visibility !== "all") {
+      chips.push({
+        id: "visibility",
+        label: "Access",
+        value: visibilityLabels[state.visibility],
+        title: "Reset access filter",
+        onRemove: () => setState((s) => ({ ...s, visibility: "all" })),
+      });
+    }
+
+    if (state.dateFrom) {
+      chips.push({
+        id: "dateFrom",
+        label: "Saved from",
+        value: state.dateFrom,
+        title: "Remove saved-from date filter",
+        onRemove: () => setState((s) => ({ ...s, dateFrom: "" })),
+      });
+    }
+
+    if (state.dateTo) {
+      chips.push({
+        id: "dateTo",
+        label: "Saved to",
+        value: state.dateTo,
+        title: "Remove saved-to date filter",
+        onRemove: () => setState((s) => ({ ...s, dateTo: "" })),
+      });
+    }
+
+    if (state.publishedFrom) {
+      chips.push({
+        id: "publishedFrom",
+        label: "Published from",
+        value: state.publishedFrom,
+        title: "Remove published-from date filter",
+        onRemove: () => setState((s) => ({ ...s, publishedFrom: "" })),
+      });
+    }
+
+    if (state.publishedTo) {
+      chips.push({
+        id: "publishedTo",
+        label: "Published to",
+        value: state.publishedTo,
+        title: "Remove published-to date filter",
+        onRemove: () => setState((s) => ({ ...s, publishedTo: "" })),
+      });
+    }
+
+    if (state.favoritesOnly) {
+      chips.push({
+        id: "favoritesOnly",
+        label: "Favorites",
+        value: "Only",
+        title: "Remove favorites-only filter",
+        onRemove: () => setState((s) => ({ ...s, favoritesOnly: false })),
+      });
+    }
+
+    const snapshotStatus = state.snapshotStatus ?? "all";
+    if (snapshotStatus !== "all") {
+      chips.push({
+        id: "snapshotStatus",
+        label: "Snapshots",
+        value: snapshotStatusLabels[snapshotStatus],
+        title: "Reset snapshot filter",
+        onRemove: () => setState((s) => ({ ...s, snapshotStatus: "all" })),
+      });
+    }
+
+    const taggingStatus = state.taggingStatus ?? "all";
+    if (taggingStatus !== "all") {
+      chips.push({
+        id: "taggingStatus",
+        label: "AI",
+        value: taggingStatusLabels[taggingStatus],
+        title: "Reset AI tagging filter",
+        onRemove: () => setState((s) => ({ ...s, taggingStatus: "all" })),
+      });
+    }
+
+    const metadataState = state.metadataState ?? "all";
+    if (metadataState !== "all") {
+      chips.push({
+        id: "metadataState",
+        label: "Metadata",
+        value: metadataStateLabels[metadataState],
+        title: "Reset metadata filter",
+        onRemove: () => setState((s) => ({ ...s, metadataState: "all" })),
+      });
+    }
+
+    return chips;
+  }, [state]);
 
   const applyFiltersNow = useCallback(
     (next: UrlFilterState) => {
@@ -239,6 +423,41 @@ const SearchFilterUrls: React.FC<SearchFilterUrlsProps> = ({
           </div>
         </div>
       </div>
+
+      {activeFilterChips.length > 0 && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-black/10 bg-white/60 p-2.5 dark:border-white/10 dark:bg-neutral-950/30"
+          aria-label="Active saved URL filters"
+        >
+          <span className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            Active
+          </span>
+
+          {activeFilterChips.map((filterChip) => (
+            <span
+              key={filterChip.id}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-brand-primary/20 bg-white/90 py-1 pl-2.5 pr-1 text-xs font-medium text-neutral-700 shadow-sm dark:border-white/10 dark:bg-neutral-900/90 dark:text-neutral-200"
+              title={`${filterChip.label}: ${filterChip.value}`}
+            >
+              <span className="shrink-0 text-neutral-500 dark:text-neutral-400">
+                {filterChip.label}:
+              </span>
+              <span className="max-w-[14rem] truncate">
+                {filterChip.value}
+              </span>
+              <button
+                type="button"
+                onClick={filterChip.onRemove}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                aria-label={filterChip.title}
+                title={filterChip.title}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Filters grid */}
       <div

@@ -2,14 +2,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
+  Activity,
   ArrowUpRight,
   BookOpen,
   Building2,
   CalendarClock,
+  ClipboardCheck,
   FileText,
   Filter,
   GitBranch,
+  Gauge,
+  ListChecks,
   Loader2,
+  MessageSquareQuote,
   Scale,
   ShieldAlert,
 } from "lucide-react";
@@ -19,6 +24,9 @@ import {
   apiUrl,
   getGovernanceIssueCaseWorkspace,
   type GovernanceCaseActorCard,
+  type GovernanceClaim,
+  type GovernanceGap,
+  type GovernanceMandate,
   type GovernanceProvenance,
   type GovernanceRelation,
   type GovernanceRelationType,
@@ -33,6 +41,26 @@ type ProvenanceSelection = {
   narrative: string | null;
   chips: string[];
   provenance: GovernanceProvenance | null;
+};
+
+type DecisionFactor = {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  tone: string;
+  icon: React.ReactNode;
+  evidence: ProvenanceSelection | null;
+};
+
+type DecisionRecord = {
+  id: string;
+  title: string;
+  detail: string;
+  date: string | null;
+  agency: string;
+  kind: string;
+  provenance: ProvenanceSelection;
 };
 
 type CaseWorkspacePanelProps = {
@@ -55,6 +83,102 @@ const relationOptions: Array<{ value: RelationFilter; label: string }> = [
   { value: "supersedes", label: "Supersedes" },
   { value: "other", label: "Other" },
 ];
+
+const decisionFactorDefinitions = [
+  {
+    key: "air_quality",
+    label: "AQI and severity",
+    description: "Past air quality levels, severe category signals, and pollution intensity.",
+    terms: [
+      "aqi",
+      "air quality",
+      "severe",
+      "pollution",
+      "pm2.5",
+      "pm10",
+      "concentration",
+    ],
+    tone: "border-sky-200 bg-sky-50 text-sky-900",
+    icon: <Gauge className="h-4 w-4" />,
+  },
+  {
+    key: "forecast",
+    label: "Forecast and weather",
+    description: "Meteorology, dispersion, forecasted deterioration, wind, and episodic triggers.",
+    terms: [
+      "forecast",
+      "meteorological",
+      "weather",
+      "wind",
+      "calm",
+      "dispersion",
+      "temperature",
+      "stubble",
+      "episodic",
+    ],
+    tone: "border-cyan-200 bg-cyan-50 text-cyan-900",
+    icon: <Activity className="h-4 w-4" />,
+  },
+  {
+    key: "agency_inputs",
+    label: "Agency inputs",
+    description: "Recorded positions, meeting inputs, recommendations, and inter-agency signals.",
+    terms: [
+      "meeting",
+      "minutes",
+      "recommended",
+      "input",
+      "committee",
+      "agency",
+      "department",
+      "member",
+      "reviewed",
+    ],
+    tone: "border-violet-200 bg-violet-50 text-violet-900",
+    icon: <MessageSquareQuote className="h-4 w-4" />,
+  },
+  {
+    key: "measures",
+    label: "Measures considered",
+    description: "Restrictions, directions, implementation choices, exemptions, and staged response.",
+    terms: [
+      "grap",
+      "stage",
+      "stage iv",
+      "grap iv",
+      "restriction",
+      "ban",
+      "direction",
+      "measure",
+      "activate",
+      "invoke",
+      "construction",
+      "vehicle",
+    ],
+    tone: "border-amber-200 bg-amber-50 text-amber-900",
+    icon: <ClipboardCheck className="h-4 w-4" />,
+  },
+  {
+    key: "follow_up",
+    label: "Follow-up and compliance",
+    description: "Actions ordered, reporting loops, inspections, compliance status, and gaps.",
+    terms: [
+      "compliance",
+      "follow-up",
+      "follow up",
+      "report",
+      "submit",
+      "monitor",
+      "inspection",
+      "enforcement",
+      "implemented",
+      "action taken",
+      "gap",
+    ],
+    tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    icon: <ListChecks className="h-4 w-4" />,
+  },
+] as const;
 
 function formatDate(value?: string | null) {
   if (!value) return "Unknown date";
@@ -225,6 +349,209 @@ function buildRelationProvenance(
   };
 }
 
+function includesAnyTerm(text: string, terms: readonly string[]) {
+  const lower = text.toLowerCase();
+  return terms.some((term) => lower.includes(term));
+}
+
+function timelineText(entry: GovernanceTimelineEntry) {
+  return [
+    entry.label,
+    entry.summary,
+    entry.position?.stanceSummary,
+    entry.position?.stanceText,
+    entry.event?.summary,
+    entry.actorAgency?.name,
+    entry.actorAgency?.shortName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function claimText(claim: GovernanceClaim) {
+  return [
+    claim.claimSummary,
+    claim.claimText,
+    claim.scopeText,
+    claim.subjectAgency?.name,
+    claim.subjectAgency?.shortName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function mandateText(mandate: GovernanceMandate) {
+  return [
+    mandate.title,
+    mandate.description,
+    mandate.mandateType,
+    mandate.agency?.name,
+    mandate.agency?.shortName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function gapText(gap: GovernanceGap) {
+  return [
+    gap.summary,
+    gap.gapType,
+    gap.primaryAgency?.name,
+    gap.primaryAgency?.shortName,
+    gap.secondaryAgency?.name,
+    gap.secondaryAgency?.shortName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildDecisionFactors(args: {
+  timelineEntries: GovernanceTimelineEntry[];
+  claims: GovernanceClaim[];
+  mandates: GovernanceMandate[];
+  gaps: GovernanceGap[];
+}): DecisionFactor[] {
+  return decisionFactorDefinitions.map((definition) => {
+    const timelineMatches = args.timelineEntries.filter((entry) =>
+      includesAnyTerm(timelineText(entry), definition.terms),
+    );
+    const claimMatches = args.claims.filter((claim) =>
+      includesAnyTerm(claimText(claim), definition.terms),
+    );
+    const mandateMatches = args.mandates.filter((mandate) =>
+      includesAnyTerm(mandateText(mandate), definition.terms),
+    );
+    const gapMatches = args.gaps.filter((gap) =>
+      includesAnyTerm(gapText(gap), definition.terms),
+    );
+
+    const firstTimeline = timelineMatches[0];
+    const firstClaim = claimMatches[0];
+    const firstMandate = mandateMatches[0];
+    const firstGap = gapMatches[0];
+
+    const evidence = firstTimeline
+      ? buildTimelineProvenance(firstTimeline)
+      : firstClaim
+        ? {
+            title: firstClaim.claimSummary || firstClaim.claimText,
+            subtitle: firstClaim.subjectAgency?.name ?? "claim",
+            narrative: firstClaim.claimText,
+            chips: ["claim", firstClaim.polarity ?? "unknown"],
+            provenance: firstClaim.provenance,
+          }
+        : firstMandate
+          ? {
+              title: firstMandate.title,
+              subtitle: firstMandate.agency?.name ?? firstMandate.mandateType,
+              narrative: firstMandate.description,
+              chips: ["mandate", firstMandate.mandateType],
+              provenance: firstMandate.provenance,
+            }
+          : firstGap
+            ? {
+                title: firstGap.summary,
+                subtitle: firstGap.primaryAgency?.name ?? firstGap.gapType,
+                narrative: firstGap.summary,
+                chips: ["gap", firstGap.gapType],
+                provenance: firstGap.provenance,
+              }
+            : null;
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      description: definition.description,
+      count:
+        timelineMatches.length +
+        claimMatches.length +
+        mandateMatches.length +
+        gapMatches.length,
+      tone: definition.tone,
+      icon: definition.icon,
+      evidence,
+    };
+  });
+}
+
+function buildDecisionRecords(
+  timelineEntries: GovernanceTimelineEntry[],
+): DecisionRecord[] {
+  const triggerTerms = [
+    "grap",
+    "stage",
+    "activate",
+    "invoke",
+    "aqi",
+    "severe",
+    "forecast",
+    "meeting",
+    "direction",
+    "action",
+    "compliance",
+    "review",
+    "restriction",
+  ];
+
+  return timelineEntries
+    .filter((entry) => includesAnyTerm(timelineText(entry), triggerTerms))
+    .slice(0, 10)
+    .map((entry) => ({
+      id: entry.id,
+      title: entry.label,
+      detail: compactText(
+        entry.summary ?? entry.position?.stanceSummary ?? entry.event?.summary,
+        "No reasoning summary extracted",
+      ),
+      date: entry.sortDate,
+      agency:
+        entry.actorAgency?.shortName ||
+        entry.actorAgency?.name ||
+        "Unattributed",
+      kind: entry.itemType,
+      provenance: buildTimelineProvenance(entry),
+    }));
+}
+
+function buildActionRecords(
+  timelineEntries: GovernanceTimelineEntry[],
+): DecisionRecord[] {
+  const actionTerms = [
+    "directed",
+    "direction",
+    "shall",
+    "submit",
+    "report",
+    "compliance",
+    "implemented",
+    "monitor",
+    "enforce",
+    "inspection",
+    "follow-up",
+    "follow up",
+    "action taken",
+  ];
+
+  return timelineEntries
+    .filter((entry) => includesAnyTerm(timelineText(entry), actionTerms))
+    .slice(0, 8)
+    .map((entry) => ({
+      id: entry.id,
+      title: entry.label,
+      detail: compactText(
+        entry.summary ?? entry.position?.stanceSummary ?? entry.event?.summary,
+        "No follow-up summary extracted",
+      ),
+      date: entry.sortDate,
+      agency:
+        entry.actorAgency?.shortName ||
+        entry.actorAgency?.name ||
+        "Unattributed",
+      kind: entry.itemType,
+      provenance: buildTimelineProvenance(entry),
+    }));
+}
+
 export default function CaseWorkspacePanel({
   issueId,
   issueTitle,
@@ -264,6 +591,9 @@ export default function CaseWorkspacePanel({
   const alignments = workspace?.relations.alignments ?? [];
   const timelineEntries = workspace?.timeline.entries ?? [];
   const sources = workspace?.sources ?? [];
+  const claims = workspace?.claims ?? [];
+  const mandates = workspace?.mandates ?? [];
+  const gaps = workspace?.gaps ?? [];
   const relationSummary = workspace?.relations.summary ?? null;
   const relationBucketSummary = relationSummary?.byBucket ?? {};
 
@@ -290,6 +620,33 @@ export default function CaseWorkspacePanel({
     if (!actorAgencyId) return null;
     return actors.find((actor) => actor.agency?.id === actorAgencyId) ?? null;
   }, [actors, actorAgencyId]);
+
+  const decisionFactors = useMemo(
+    () => buildDecisionFactors({ timelineEntries, claims, mandates, gaps }),
+    [timelineEntries, claims, mandates, gaps],
+  );
+  const coveredDecisionFactors = decisionFactors.filter(
+    (factor) => factor.count > 0,
+  );
+  const decisionRecords = useMemo(
+    () => buildDecisionRecords(timelineEntries),
+    [timelineEntries],
+  );
+  const actionRecords = useMemo(
+    () => buildActionRecords(timelineEntries),
+    [timelineEntries],
+  );
+  const decisionReadiness =
+    workspace && workspace.summary.sourceCount > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (coveredDecisionFactors.length / decisionFactors.length) * 55 +
+              Math.min(workspace.summary.sourceCount, 10) * 3 +
+              Math.min(actionRecords.length, 5) * 3,
+          ),
+        )
+      : 0;
 
   const anyError = caseQuery.error as Error | null;
 
@@ -343,6 +700,77 @@ export default function CaseWorkspacePanel({
             detail="Distinct source documents contributing structured case evidence."
             icon={<FileText className="h-5 w-5" />}
           />
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-[0_22px_50px_rgba(15,23,42,0.18)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-100">
+                <Gauge className="h-3.5 w-3.5" />
+                Use case 2 decision review
+              </div>
+              <h3 className="mt-3 text-xl font-semibold tracking-tight">
+                Past-decision cockpit for GRAP-style questions
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Review what was considered, why a response was activated, what
+                was directed, which agencies carried follow-up, and where the
+                record still needs human verification.
+              </p>
+            </div>
+
+            <div className="grid min-w-[240px] grid-cols-2 gap-3 text-sm">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-slate-300">
+                  Readiness
+                </div>
+                <div className="mt-2 text-2xl font-semibold">
+                  {decisionReadiness}%
+                </div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-slate-300">
+                  Factors
+                </div>
+                <div className="mt-2 text-2xl font-semibold">
+                  {coveredDecisionFactors.length}/{decisionFactors.length}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-5">
+            {decisionFactors.map((factor) => (
+              <button
+                key={factor.key}
+                type="button"
+                onClick={() => {
+                  if (factor.evidence) setSelectedProvenance(factor.evidence);
+                }}
+                disabled={!factor.evidence}
+                className={[
+                  "rounded-2xl border bg-white p-3 text-left transition disabled:cursor-default disabled:opacity-55",
+                  factor.tone,
+                  factor.evidence ? "hover:-translate-y-0.5 hover:shadow-lg" : "",
+                ].join(" ")}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded-xl border border-black/5 bg-white/70 p-2">
+                    {factor.icon}
+                  </span>
+                  <span className="rounded-full border border-black/5 bg-white/70 px-2 py-1 text-[11px] font-semibold">
+                    {factor.count}
+                  </span>
+                </div>
+                <div className="mt-3 text-sm font-semibold">
+                  {factor.label}
+                </div>
+                <div className="mt-1 text-xs leading-5 opacity-80">
+                  {factor.description}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {anyError && (
@@ -447,6 +875,62 @@ export default function CaseWorkspacePanel({
             tabIndex={-1}
           >
             <SectionHeader
+              icon={<ListChecks className="h-5 w-5" />}
+              title="Meeting prep queue"
+              subtitle="Questions an officer can answer before a live decision meeting."
+            />
+
+            <div className="mt-5 space-y-3">
+              {[
+                "Which AQI, forecast, and meteorological signals were cited before activation?",
+                "Which agencies gave inputs, and did any agency dissent or qualify its position?",
+                "What exact restrictions or exemptions were directed under the response?",
+                "Which follow-up actions were assigned, and were action-taken reports captured?",
+                "What evidence gaps should be verified before briefing the Chairperson?",
+              ].map((question, index) => (
+                <div
+                  key={question}
+                  className="rounded-2xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700"
+                >
+                  <div className="flex gap-3">
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                      {index + 1}
+                    </span>
+                    <span>{question}</span>
+                  </div>
+                </div>
+              ))}
+
+              {gaps.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedProvenance({
+                      title: gaps[0].summary,
+                      subtitle: gaps[0].gapType,
+                      narrative: gaps[0].summary,
+                      chips: ["gap", gaps[0].gapType],
+                      provenance: gaps[0].provenance,
+                    })
+                  }
+                  className="w-full rounded-2xl border border-rose-200 bg-rose-50/70 p-4 text-left transition hover:bg-rose-50"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700">
+                    Evidence gap spotlight
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-slate-700">
+                    {gaps[0].summary}
+                  </div>
+                </button>
+              ) : null}
+            </div>
+          </SmartCard>
+
+          <SmartCard
+            className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+            tabIndex={-1}
+          >
+            <SectionHeader
               icon={<Building2 className="h-5 w-5" />}
               title="Actor positions"
               subtitle="Agencies and stance evolution in the current issue."
@@ -517,8 +1001,8 @@ export default function CaseWorkspacePanel({
           >
             <SectionHeader
               icon={<CalendarClock className="h-5 w-5" />}
-              title="Merged timeline"
-              subtitle="Chronological entries merged from events and actor positions."
+              title="Decision chronology"
+              subtitle="Past reasoning, triggers, and action records ranked for meeting prep."
             />
 
             <div className="mt-5 space-y-3">
@@ -527,39 +1011,86 @@ export default function CaseWorkspacePanel({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Building timeline…
                 </div>
-              ) : timelineEntries.length === 0 ? (
+              ) : decisionRecords.length === 0 ? (
                 <EmptyPanel
-                  title="No timeline entries match the current filter"
-                  body="Clear the actor/date filters or enrich this issue with more structured events and positions."
+                  title="No decision records match the current filter"
+                  body="Clear filters or enrich this issue with GRAP decisions, meeting notes, AQI context, agency inputs, and follow-up actions."
                 />
               ) : (
-                timelineEntries.map((entry) => (
+                decisionRecords.map((record) => (
                   <button
-                    key={entry.id}
+                    key={record.id}
                     type="button"
-                    onClick={() =>
-                      setSelectedProvenance(buildTimelineProvenance(entry))
-                    }
+                    onClick={() => setSelectedProvenance(record.provenance)}
                     className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-slate-300 hover:bg-slate-50"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          {entry.itemType} · {entry.sortPrecision ?? "unknown"}
+                          {record.kind} - decision evidence
                         </div>
                         <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {entry.label}
+                          {record.title}
                         </div>
                         <div className="mt-2 text-sm leading-6 text-slate-600">
-                          {compactText(entry.summary, "No summary extracted")}
+                          {record.detail}
                         </div>
                       </div>
                       <div className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-right text-xs text-slate-600">
-                        <div>{formatShortDate(entry.sortDate)}</div>
+                        <div>{formatShortDate(record.date)}</div>
                         <div className="mt-1 truncate max-w-[120px]">
-                          {entry.actorAgency?.shortName ||
-                            entry.actorAgency?.name ||
-                            "Unattributed"}
+                          {record.agency}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </SmartCard>
+
+          <SmartCard
+            className="border-white/70 bg-white/85 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+            tabIndex={-1}
+          >
+            <SectionHeader
+              icon={<ClipboardCheck className="h-5 w-5" />}
+              title="Action and follow-up"
+              subtitle="What was directed, who owned it, and where continuity may break."
+            />
+
+            <div className="mt-5 space-y-3">
+              {caseQuery.isLoading ? (
+                <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Finding follow-up actions...
+                </div>
+              ) : actionRecords.length === 0 ? (
+                <EmptyPanel
+                  title="No follow-up actions found"
+                  body="The current evidence set does not yet expose directed actions, compliance reporting, inspections, or implementation records."
+                />
+              ) : (
+                actionRecords.map((record) => (
+                  <button
+                    key={record.id}
+                    type="button"
+                    onClick={() => setSelectedProvenance(record.provenance)}
+                    className="w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-left transition hover:bg-emerald-50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {record.title}
+                        </div>
+                        <div className="mt-2 text-sm leading-6 text-slate-600">
+                          {record.detail}
+                        </div>
+                      </div>
+                      <div className="shrink-0 rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-right text-xs text-emerald-800">
+                        <div>{formatShortDate(record.date)}</div>
+                        <div className="mt-1 truncate max-w-[120px]">
+                          {record.agency}
                         </div>
                       </div>
                     </div>

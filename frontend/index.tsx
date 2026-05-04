@@ -22,7 +22,16 @@ import {
   reportClientEvent,
 } from "./lib/clientTelemetry";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      gcTime: 30 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function NavigationRegistrar() {
   const navigate = useNavigate();

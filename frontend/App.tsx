@@ -14,19 +14,39 @@ import { hydrateCollectionsFromBackend } from "./utils/collections";
 const DESKTOP_SIDEBAR_STORAGE_KEY = "sidebar.desktop.expanded";
 const DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
 
-const UrlCollectorPage = lazy(() => import("./pages/UrlCollectorPage"));
-const SavedUrlsPage = lazy(() => import("./pages/SavedUrlsPage"));
-const FileManagerPage = lazy(() => import("./pages/FileManagerPage"));
-const GovernanceWorkspacePage = lazy(
-  () => import("./pages/GovernanceWorkspacePage"),
-);
+type WorkspacePage = Exclude<Page, "notebook">;
+
+const loadUrlCollectorPage = () => import("./pages/UrlCollectorPage");
+const loadSavedUrlsPage = () => import("./pages/SavedUrlsPage");
+const loadFileManagerPage = () => import("./pages/FileManagerPage");
+const loadGovernanceWorkspacePage = () =>
+  import("./pages/GovernanceWorkspacePage");
+
+const UrlCollectorPage = lazy(loadUrlCollectorPage);
+const SavedUrlsPage = lazy(loadSavedUrlsPage);
+const FileManagerPage = lazy(loadFileManagerPage);
+const GovernanceWorkspacePage = lazy(loadGovernanceWorkspacePage);
+
+const WORKSPACE_PAGE_LOADERS: Record<WorkspacePage, () => Promise<unknown>> = {
+  "url-collector": loadUrlCollectorPage,
+  "saved-urls": loadSavedUrlsPage,
+  "file-manager": loadFileManagerPage,
+  "governance-workspace": loadGovernanceWorkspacePage,
+};
+
+const WORKSPACE_PAGE_COMPONENTS: Record<WorkspacePage, React.ReactNode> = {
+  "url-collector": <UrlCollectorPage />,
+  "saved-urls": <SavedUrlsPage />,
+  "file-manager": <FileManagerPage />,
+  "governance-workspace": <GovernanceWorkspacePage />,
+};
 
 const App: React.FC = () => {
   const navigate = useNavigate();
 
   const { page: routePage } = useParams<{ page?: string }>();
 
-  const workspacePages = useMemo<Page[]>(
+  const workspacePages = useMemo<WorkspacePage[]>(
     () => [
       "url-collector",
       "saved-urls",
@@ -39,6 +59,7 @@ const App: React.FC = () => {
   const currentPage: Page = workspacePages.includes(routePage as Page)
     ? (routePage as Page)
     : "url-collector";
+  const currentWorkspacePage = currentPage as WorkspacePage;
 
   const setCurrentPage = (page: Page) => {
     navigate(`/app/${page}`);
@@ -56,7 +77,12 @@ const App: React.FC = () => {
   });
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
-  const [isRouteContentReady, setIsRouteContentReady] = useState(false);
+  const [warmPages, setWarmPages] = useState<Set<WorkspacePage>>(
+    () => new Set([currentWorkspacePage]),
+  );
+  const [paintReadyPages, setPaintReadyPages] = useState<Set<WorkspacePage>>(
+    () => new Set(),
+  );
 
   const isSidebarOpen = isDesktopViewport
     ? desktopSidebarOpen
@@ -129,18 +155,73 @@ const App: React.FC = () => {
     hydrateCollectionsFromBackend();
   }, []);
 
-  // Lightweight first-render polish for heavy workspace surfaces.
-  // Two RAFs avoids flashing the skeleton for already-painted layouts while
-  // still giving the route a polished loading state on cold entry.
   useEffect(() => {
+    setWarmPages((prev) => {
+      if (prev.has(currentWorkspacePage)) return prev;
+      const next = new Set(prev);
+      next.add(currentWorkspacePage);
+      return next;
+    });
+  }, [currentWorkspacePage]);
+
+  // Warm the other workspace chunks after the active route has had a chance to
+  // paint. Returning users get instant navigation without bloating first paint.
+  useEffect(() => {
+    let cancelled = false;
+
+    const preload = () => {
+      for (const page of workspacePages) {
+        if (page !== currentWorkspacePage) {
+          void WORKSPACE_PAGE_LOADERS[page]().catch(() => undefined);
+        }
+      }
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const idleId = idleWindow.requestIdleCallback(
+        () => {
+          if (!cancelled) preload();
+        },
+        { timeout: 2500 },
+      );
+
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(idleId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) preload();
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [currentWorkspacePage, workspacePages]);
+
+  // Lightweight first-render polish for cold workspace surfaces only.
+  // Once a page has painted, keep its DOM mounted so going back feels instant.
+  useEffect(() => {
+    if (paintReadyPages.has(currentWorkspacePage)) return;
+
     let raf1 = 0;
     let raf2 = 0;
 
-    setIsRouteContentReady(false);
-
     raf1 = window.requestAnimationFrame(() => {
       raf2 = window.requestAnimationFrame(() => {
-        setIsRouteContentReady(true);
+        setPaintReadyPages((prev) => {
+          if (prev.has(currentWorkspacePage)) return prev;
+          const next = new Set(prev);
+          next.add(currentWorkspacePage);
+          return next;
+        });
       });
     });
 
@@ -148,18 +229,7 @@ const App: React.FC = () => {
       window.cancelAnimationFrame(raf1);
       window.cancelAnimationFrame(raf2);
     };
-  }, [currentPage]);
-
-  const renderPages = () => {
-    if (currentPage === "url-collector") return <UrlCollectorPage />;
-    if (currentPage === "saved-urls") return <SavedUrlsPage />;
-    if (currentPage === "file-manager") return <FileManagerPage />;
-    if (currentPage === "governance-workspace") {
-      return <GovernanceWorkspacePage />;
-    }
-
-    return null;
-  };
+  }, [currentWorkspacePage, paintReadyPages]);
 
   const isWorkspacePage = workspacePages.includes(currentPage);
 
@@ -187,13 +257,28 @@ const App: React.FC = () => {
           hideAmbient={isWorkspacePage}
           variant="workspace"
         >
-          {isRouteContentReady ? (
-            <Suspense fallback={<RouteSurfaceSkeleton variant="workspace" />}>
-              {renderPages()}
-            </Suspense>
-          ) : (
-            <RouteSurfaceSkeleton variant="workspace" />
-          )}
+          {workspacePages.map((page) => {
+            if (!warmPages.has(page)) return null;
+
+            const active = page === currentWorkspacePage;
+            const ready = paintReadyPages.has(page);
+
+            return (
+              <section
+                key={page}
+                aria-hidden={!active}
+                className={active ? "block" : "hidden"}
+              >
+                {ready ? (
+                  <Suspense fallback={<RouteSurfaceSkeleton variant="workspace" />}>
+                    {WORKSPACE_PAGE_COMPONENTS[page]}
+                  </Suspense>
+                ) : (
+                  <RouteSurfaceSkeleton variant="workspace" />
+                )}
+              </section>
+            );
+          })}
         </AppShell>
       </ConfirmProvider>
     </ToastProvider>

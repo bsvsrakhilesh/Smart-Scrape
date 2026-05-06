@@ -33,6 +33,7 @@ const notebookTemplateKeyEnum = z.enum([
   "issue_landscape_summary",
   "case_timeline_note",
   "accountability_coordination_gap_note",
+  "question_review_brief",
 ]);
 
 const r = Router();

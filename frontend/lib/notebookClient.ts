@@ -256,7 +256,8 @@ export type NotebookTemplateKey =
   | "agency_comparison_summary"
   | "issue_landscape_summary"
   | "case_timeline_note"
-  | "accountability_coordination_gap_note";
+  | "accountability_coordination_gap_note"
+  | "question_review_brief";
 
 export type NotebookTemplateDefinition = {
   key: NotebookTemplateKey;

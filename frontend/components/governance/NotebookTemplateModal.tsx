@@ -54,6 +54,8 @@ function iconForTemplate(key: NotebookTemplateKey) {
       return <Scale className="h-4 w-4" />;
     case "accountability_coordination_gap_note":
       return <ShieldAlert className="h-4 w-4" />;
+    case "question_review_brief":
+      return <FileText className="h-4 w-4" />;
     default:
       return <FileText className="h-4 w-4" />;
   }

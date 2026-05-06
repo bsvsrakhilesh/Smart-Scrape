@@ -47,7 +47,11 @@ import {
 
 type RelationFilter = "all" | GovernanceRelationType;
 
-type WorkspaceIntakeMode = "auto" | "landscape" | "case_trace";
+type WorkspaceIntakeMode =
+  | "auto"
+  | "landscape"
+  | "case_trace"
+  | "question_review";
 
 const workspaceIntentModeOptions: Array<{
   value: WorkspaceIntakeMode;
@@ -57,7 +61,7 @@ const workspaceIntentModeOptions: Array<{
   {
     value: "auto",
     label: "Auto-detect",
-    help: "Let the workspace choose between landscape mapping and case tracing.",
+    help: "Let the workspace choose between landscape mapping, case tracing, and question review.",
   },
   {
     value: "landscape",
@@ -68,6 +72,11 @@ const workspaceIntentModeOptions: Array<{
     value: "case_trace",
     label: "Case Tracing",
     help: "Use this for one unit, one dispute, one timeline, or contradiction review.",
+  },
+  {
+    value: "question_review",
+    label: "Question Review",
+    help: "Use this for why, factors, evidence, actions, responsibility, or follow-up questions.",
   },
 ];
 
@@ -88,10 +97,16 @@ const governancePromptExamples: Array<{
       "Map the active agencies, directions, follow-up actions, and compliance gaps for stone crushers in Bhiwadi.",
   },
   {
-    label: "Contradiction review",
-    mode: "case_trace",
+    label: "Evidence-backed why",
+    mode: "question_review",
     prompt:
-      "Why does this Bhiwadi unit appear restricted in one record and permitted in another?",
+      "Why does this unit appear restricted in one record and permitted in another?",
+  },
+  {
+    label: "Actions and responsibility",
+    mode: "question_review",
+    prompt:
+      "What actions followed the 2022 order, and which agencies were responsible?",
   },
 ];
 
@@ -99,6 +114,7 @@ function normalizeWorkspaceIntentMode(
   preferredMode?: string | null,
 ): WorkspaceIntakeMode {
   if (preferredMode === "landscape") return "landscape";
+  if (preferredMode === "question_review") return "question_review";
   if (preferredMode === "case_trace" || preferredMode === "contradiction") {
     return "case_trace";
   }
@@ -111,6 +127,8 @@ function formatWorkspaceIntentModeLabel(mode: WorkspaceIntakeMode) {
       return "Governance Landscape Mapping";
     case "case_trace":
       return "Case-Tracing and Contradiction Mapping";
+    case "question_review":
+      return "Question Review";
     default:
       return "Auto-detect";
   }
@@ -130,6 +148,8 @@ function formatQueryTypeLabel(
       return "Chronology review";
     case "case_review":
       return "Case review";
+    case "question_review":
+      return "Question review";
     default:
       return "Broad scan";
   }
@@ -281,7 +301,7 @@ function formatRetrievalLaneLabel(
 }
 
 function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
-  return mode === "case_trace" ? "case" : "map";
+  return mode === "case_trace" || mode === "question_review" ? "case" : "map";
 }
 
 type ProvenanceSelection = {
@@ -356,6 +376,15 @@ function notebookLaunchMeta(key: NotebookTemplateKey) {
         accentClass:
           "border-rose-200 bg-rose-50/70 text-rose-950 hover:border-rose-300 hover:bg-rose-50",
         icon: <AlertCircle className="h-4 w-4" />,
+      };
+    case "question_review_brief":
+      return {
+        label: "Question Review",
+        description:
+          "Create an evidence-backed answer note with factors, chronology, actor inputs, gaps, and citation audit.",
+        accentClass:
+          "border-indigo-200 bg-indigo-50/70 text-indigo-950 hover:border-indigo-300 hover:bg-indigo-50",
+        icon: <FileText className="h-4 w-4" />,
       };
     default:
       return {
@@ -820,7 +849,7 @@ export default function GovernanceWorkspacePage() {
     const resolvedMode = workspaceEvidenceQuery.data?.workflow?.resolvedMode;
     if (!resolvedMode) return;
 
-    setWorkspaceMode(resolvedMode === "case_trace" ? "case" : "map");
+    setWorkspaceMode(resolvedMode === "landscape" ? "map" : "case");
   }, [workspaceEvidenceQuery.data?.workflow?.resolvedMode]);
 
   const documentQuery = useQuery({
@@ -1041,6 +1070,20 @@ export default function GovernanceWorkspacePage() {
       };
     }
 
+    if (workspaceIntentMode === "question_review") {
+      return {
+        requestedMode: "question_review" as const,
+        resolvedMode: "question_review" as const,
+        rationale:
+          "The intake is pinned to question review, so the workspace will prioritize evidence-backed answer signals, factors, chronology, actor inputs, and verification gaps.",
+        expectedOutputs: [
+          "Evidence-backed answer",
+          "Factors and chronology",
+          "Verification and gap register",
+        ],
+      };
+    }
+
     if (workspaceIntentMode === "landscape") {
       return {
         requestedMode: "landscape" as const,
@@ -1063,8 +1106,10 @@ export default function GovernanceWorkspacePage() {
   const queryUnderstanding = workspaceEvidenceQuery.data
     ?.queryUnderstanding ?? {
     queryType:
-      workflowPlan.resolvedMode === "case_trace"
-        ? ("case_review" as const)
+      workflowPlan.resolvedMode === "question_review"
+        ? ("question_review" as const)
+        : workflowPlan.resolvedMode === "case_trace"
+          ? ("case_review" as const)
         : ("broad_scan" as const),
     focusTerms: workspaceEvidenceQuery.data?.query.tokens ?? [],
     timeHints: [],
@@ -1185,6 +1230,28 @@ export default function GovernanceWorkspacePage() {
     timelineHighlights: [],
   };
 
+  const questionReviewSurface = workspaceEvidenceQuery.data
+    ?.questionReviewSurface ?? {
+    active: false,
+    rationale:
+      "No question-review surface is available until an evidence-backed question run assembles answer signals.",
+    question: workspaceQuestion,
+    queryType: queryUnderstanding.queryType,
+    summary: {
+      sourceCount: 0,
+      factorCount: 0,
+      timelineHighlightCount: 0,
+      actorCount: 0,
+      gapCount: 0,
+      reviewCount: 0,
+    },
+    answerSignals: [],
+    factors: [],
+    timelineHighlights: [],
+    actorInputs: [],
+    openQuestions: [],
+  };
+
   const caseTrailFoundation = workspaceEvidenceQuery.data
     ?.caseTrailFoundation ?? {
     active: false,
@@ -1220,6 +1287,7 @@ export default function GovernanceWorkspacePage() {
     const preferredOrder: NotebookTemplateKey[] =
       workspaceMode === "case"
         ? [
+            "question_review_brief",
             "contradiction_brief",
             "case_timeline_note",
             "issue_landscape_summary",
@@ -1292,6 +1360,20 @@ export default function GovernanceWorkspacePage() {
             ],
           };
 
+        case "question_review_brief":
+          return {
+            key,
+            label: "Question Review",
+            description:
+              "Create an evidence-backed answer note with factors, chronology, actor inputs, gaps, and citation audit.",
+            enabled: Boolean(activeDocumentId && selectedIssueId),
+            accentClass: notebookLaunchMeta(key).accentClass,
+            chips: [
+              selectedIssue?.title ?? "issue required",
+              workspaceQuestion.trim() ? "question attached" : "issue evidence",
+            ],
+          };
+
         case "case_timeline_note":
           return {
             key,
@@ -1339,6 +1421,7 @@ export default function GovernanceWorkspacePage() {
     selectedIssue?.title,
     selectedAgency?.name,
     relationFilter,
+    workspaceQuestion,
     documentSummary.agencyCount,
   ]);
 
@@ -3363,7 +3446,7 @@ export default function GovernanceWorkspacePage() {
             <div className="text-sm text-slate-600">
               {workspaceMode === "map"
                 ? "Governance Map mode"
-                : "Case Review mode"}
+                : "Question Review mode"}
             </div>
             <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
               <button
@@ -3392,7 +3475,7 @@ export default function GovernanceWorkspacePage() {
                   !selectedIssueId ? "cursor-not-allowed opacity-50" : "",
                 ].join(" ")}
               >
-                Case Review
+                Question Review
               </button>
             </div>
           </div>
@@ -3402,6 +3485,8 @@ export default function GovernanceWorkspacePage() {
               issueId={selectedIssueId}
               issueTitle={selectedIssue?.title ?? null}
               actorAgencyId={selectedAgencyId}
+              reviewQuestion={workspaceQuestion.trim() || null}
+              questionReviewSurface={questionReviewSurface}
               onActorAgencyIdChange={setSelectedAgencyId}
               onClose={() => setWorkspaceMode("map")}
             />

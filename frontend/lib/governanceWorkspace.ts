@@ -10,6 +10,7 @@ export type GovernanceWorkspaceMode =
   | "auto"
   | "landscape"
   | "case_trace"
+  | "question_review"
   | "contradiction";
 
 export type GovernanceWorkspaceSourceScope = "all" | "files" | "urls" | "mixed";
@@ -65,6 +66,7 @@ function normalizePreferredMode(
   return value === "auto" ||
     value === "landscape" ||
     value === "case_trace" ||
+    value === "question_review" ||
     value === "contradiction"
     ? value
     : null;

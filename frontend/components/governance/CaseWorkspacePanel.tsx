@@ -26,6 +26,7 @@ import {
   type GovernanceCaseActorCard,
   type GovernanceClaim,
   type GovernanceGap,
+  type GovernanceWorkspaceEvidenceResponse,
   type GovernanceMandate,
   type GovernanceProvenance,
   type GovernanceRelation,
@@ -63,10 +64,15 @@ type DecisionRecord = {
   provenance: ProvenanceSelection;
 };
 
+type QuestionReviewSurface =
+  GovernanceWorkspaceEvidenceResponse["questionReviewSurface"];
+
 type CaseWorkspacePanelProps = {
   issueId: string;
   issueTitle?: string | null;
   actorAgencyId: string | null;
+  reviewQuestion?: string | null;
+  questionReviewSurface?: QuestionReviewSurface | null;
   onActorAgencyIdChange: (agencyId: string | null) => void;
   onClose: () => void;
 };
@@ -86,43 +92,48 @@ const relationOptions: Array<{ value: RelationFilter; label: string }> = [
 
 const decisionFactorDefinitions = [
   {
-    key: "air_quality",
-    label: "AQI and severity",
-    description: "Past air quality levels, severe category signals, and pollution intensity.",
+    key: "context",
+    label: "Context and trigger",
+    description: "Background conditions, events, timing, or circumstances that made the question relevant.",
     terms: [
-      "aqi",
-      "air quality",
-      "severe",
-      "pollution",
-      "pm2.5",
-      "pm10",
-      "concentration",
+      "trigger",
+      "context",
+      "because",
+      "due",
+      "reason",
+      "incident",
+      "condition",
+      "previous",
+      "past",
+      "current",
+      "latest",
     ],
     tone: "border-sky-200 bg-sky-50 text-sky-900",
     icon: <Gauge className="h-4 w-4" />,
   },
   {
-    key: "forecast",
-    label: "Forecast and weather",
-    description: "Meteorology, dispersion, forecasted deterioration, wind, and episodic triggers.",
+    key: "evidence",
+    label: "Evidence considered",
+    description: "Reports, records, observations, data, findings, or source material cited in the evidence set.",
     terms: [
-      "forecast",
-      "meteorological",
-      "weather",
-      "wind",
-      "calm",
-      "dispersion",
-      "temperature",
-      "stubble",
-      "episodic",
+      "evidence",
+      "report",
+      "record",
+      "finding",
+      "data",
+      "inspection",
+      "observed",
+      "noted",
+      "minutes",
+      "submitted",
     ],
     tone: "border-cyan-200 bg-cyan-50 text-cyan-900",
     icon: <Activity className="h-4 w-4" />,
   },
   {
     key: "agency_inputs",
-    label: "Agency inputs",
-    description: "Recorded positions, meeting inputs, recommendations, and inter-agency signals.",
+    label: "Institutional inputs",
+    description: "Agency positions, submissions, recommendations, dissent, and inter-institutional signals.",
     terms: [
       "meeting",
       "minutes",
@@ -138,45 +149,80 @@ const decisionFactorDefinitions = [
     icon: <MessageSquareQuote className="h-4 w-4" />,
   },
   {
-    key: "measures",
-    label: "Measures considered",
-    description: "Restrictions, directions, implementation choices, exemptions, and staged response.",
+    key: "authority",
+    label: "Authority or mandate basis",
+    description: "Legal, policy, mandate, direction, order, jurisdiction, or responsibility basis.",
     terms: [
-      "grap",
-      "stage",
-      "stage iv",
-      "grap iv",
-      "restriction",
-      "ban",
       "direction",
-      "measure",
-      "activate",
-      "invoke",
-      "construction",
-      "vehicle",
+      "order",
+      "mandate",
+      "jurisdiction",
+      "authority",
+      "policy",
+      "rule",
+      "act",
+      "compliance",
+      "responsible",
     ],
     tone: "border-amber-200 bg-amber-50 text-amber-900",
     icon: <ClipboardCheck className="h-4 w-4" />,
   },
   {
-    key: "follow_up",
-    label: "Follow-up and compliance",
-    description: "Actions ordered, reporting loops, inspections, compliance status, and gaps.",
+    key: "decision_actions",
+    label: "Decision and actions",
+    description: "Conclusions, approvals, restrictions, actions taken, or implementation choices.",
     terms: [
-      "compliance",
-      "follow-up",
-      "follow up",
-      "report",
-      "submit",
-      "monitor",
-      "inspection",
-      "enforcement",
+      "decision",
+      "decided",
+      "action",
+      "activated",
+      "permitted",
+      "restricted",
+      "approved",
+      "rejected",
       "implemented",
-      "action taken",
-      "gap",
+      "enforced",
     ],
     tone: "border-emerald-200 bg-emerald-50 text-emerald-900",
     icon: <ListChecks className="h-4 w-4" />,
+  },
+  {
+    key: "follow_up",
+    label: "Follow-up and outcomes",
+    description: "Follow-up actions, monitoring, reports, outcomes, compliance status, or continuity signals.",
+    terms: [
+      "follow",
+      "outcome",
+      "monitor",
+      "status",
+      "compliance",
+      "report",
+      "action taken",
+      "inspection",
+      "verified",
+      "pending",
+    ],
+    tone: "border-teal-200 bg-teal-50 text-teal-900",
+    icon: <ClipboardCheck className="h-4 w-4" />,
+  },
+  {
+    key: "uncertainty",
+    label: "Contradictions and gaps",
+    description: "Conflicts, unresolved questions, scope differences, missing evidence, or analyst-review flags.",
+    terms: [
+      "contradict",
+      "conflict",
+      "gap",
+      "missing",
+      "unclear",
+      "different",
+      "override",
+      "supersede",
+      "review",
+      "verify",
+    ],
+    tone: "border-rose-200 bg-rose-50 text-rose-900",
+    icon: <ShieldAlert className="h-4 w-4" />,
   },
 ] as const;
 
@@ -478,19 +524,21 @@ function buildDecisionRecords(
   timelineEntries: GovernanceTimelineEntry[],
 ): DecisionRecord[] {
   const triggerTerms = [
-    "grap",
-    "stage",
-    "activate",
-    "invoke",
-    "aqi",
-    "severe",
-    "forecast",
+    "decision",
+    "decided",
+    "considered",
+    "reason",
+    "because",
+    "evidence",
     "meeting",
     "direction",
+    "order",
     "action",
     "compliance",
     "review",
     "restriction",
+    "approval",
+    "permitted",
   ];
 
   return timelineEntries
@@ -556,6 +604,8 @@ export default function CaseWorkspacePanel({
   issueId,
   issueTitle,
   actorAgencyId,
+  reviewQuestion,
+  questionReviewSurface,
   onActorAgencyIdChange,
   onClose,
 }: CaseWorkspacePanelProps) {
@@ -647,6 +697,60 @@ export default function CaseWorkspacePanel({
           ),
         )
       : 0;
+  const reviewReadiness = questionReviewSurface?.active
+    ? Math.min(
+        100,
+        Math.round(
+          (questionReviewSurface.summary.factorCount /
+            Math.max(1, decisionFactorDefinitions.length)) *
+            45 +
+            Math.min(questionReviewSurface.summary.sourceCount, 10) * 3 +
+            Math.min(questionReviewSurface.summary.timelineHighlightCount, 8) *
+              2 +
+            Math.min(questionReviewSurface.summary.actorCount, 6) * 2,
+        ),
+      )
+    : decisionReadiness;
+
+  const surfaceFactorByKey = useMemo(() => {
+    const map = new Map(
+      (questionReviewSurface?.factors ?? []).map((factor) => [
+        factor.key,
+        factor,
+      ]),
+    );
+    return map;
+  }, [questionReviewSurface?.factors]);
+
+  const reviewFactors = decisionFactors.map((factor) => {
+    const surfaceFactor = surfaceFactorByKey.get(factor.key);
+    return {
+      ...factor,
+      count: Math.max(factor.count, surfaceFactor?.count ?? 0),
+      description: surfaceFactor?.description ?? factor.description,
+      surfaceSignal: surfaceFactor?.strongestSignal ?? null,
+    };
+  });
+
+  const coveredReviewFactors = reviewFactors.filter(
+    (factor) => factor.count > 0,
+  );
+
+  const answerSignals = questionReviewSurface?.answerSignals ?? [];
+  const openQuestions =
+    questionReviewSurface?.openQuestions?.length
+      ? questionReviewSurface.openQuestions
+      : [
+          gaps[0]?.summary,
+          relationSummary?.requiresAnalystReviewCount
+            ? `${relationSummary.requiresAnalystReviewCount} relation signal(s) need analyst review before final use.`
+            : null,
+          !sources.length
+            ? "No source trail is available for this issue yet."
+            : null,
+        ].filter((item): item is string => Boolean(item));
+  const questionLabel =
+    compactText(reviewQuestion, workspace?.issue?.title ?? issueTitle ?? "Review this issue");
 
   const anyError = caseQuery.error as Error | null;
 
@@ -658,11 +762,9 @@ export default function CaseWorkspacePanel({
       >
         <SectionHeader
           icon={<Scale className="h-5 w-5" />}
-          title="Case Review"
+          title="Question Review"
           subtitle={
-            workspace?.issue?.title ??
-            issueTitle ??
-            "Merged case tracing, actor evolution, and contradiction review"
+            questionLabel
           }
           action={
             <button
@@ -707,15 +809,15 @@ export default function CaseWorkspacePanel({
             <div className="max-w-3xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-100">
                 <Gauge className="h-3.5 w-3.5" />
-                Use case 2 decision review
+                Evidence-backed question review
               </div>
               <h3 className="mt-3 text-xl font-semibold tracking-tight">
-                Past-decision cockpit for GRAP-style questions
+                Analyst workbench for the exact question
               </h3>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                Review what was considered, why a response was activated, what
-                was directed, which agencies carried follow-up, and where the
-                record still needs human verification.
+                Review what the evidence supports, which factors appear in the
+                record, who contributed, what actions followed, and where the
+                answer still needs human verification.
               </p>
             </div>
 
@@ -725,7 +827,7 @@ export default function CaseWorkspacePanel({
                   Readiness
                 </div>
                 <div className="mt-2 text-2xl font-semibold">
-                  {decisionReadiness}%
+                  {reviewReadiness}%
                 </div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
@@ -733,14 +835,14 @@ export default function CaseWorkspacePanel({
                   Factors
                 </div>
                 <div className="mt-2 text-2xl font-semibold">
-                  {coveredDecisionFactors.length}/{decisionFactors.length}
+                  {coveredReviewFactors.length}/{reviewFactors.length}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-5">
-            {decisionFactors.map((factor) => (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {reviewFactors.map((factor) => (
               <button
                 key={factor.key}
                 type="button"
@@ -768,8 +870,71 @@ export default function CaseWorkspacePanel({
                 <div className="mt-1 text-xs leading-5 opacity-80">
                   {factor.description}
                 </div>
+                {!factor.evidence && factor.surfaceSignal ? (
+                  <div className="mt-2 rounded-xl border border-black/5 bg-white/70 p-2 text-xs leading-5 opacity-90">
+                    {factor.surfaceSignal.detail}
+                  </div>
+                ) : null}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.4fr),minmax(280px,0.6fr)]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Answer snapshot
+            </div>
+            {answerSignals.length ? (
+              <div className="mt-3 space-y-3">
+                {answerSignals.slice(0, 3).map((signal) => (
+                  <div
+                    key={signal.id}
+                    className="rounded-xl border border-slate-200 bg-slate-50/80 p-3"
+                  >
+                    <div className="text-sm font-semibold text-slate-900">
+                      {signal.label}
+                    </div>
+                    <div className="mt-1 text-sm leading-6 text-slate-600">
+                      {signal.detail}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                      {signal.agencyName ? <span>{signal.agencyName}</span> : null}
+                      {signal.issueTitle ? <span>{signal.issueTitle}</span> : null}
+                      {signal.sourceTitle ? <span>{signal.sourceTitle}</span> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                The panel will build a concise answer after evidence retrieval
+                surfaces ranked source signals. The sections below still show
+                structured issue evidence and provenance.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+              Needs verification
+            </div>
+            {openQuestions.length ? (
+              <div className="mt-3 space-y-2">
+                {openQuestions.slice(0, 4).map((question) => (
+                  <div
+                    key={question}
+                    className="rounded-xl border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-slate-700"
+                  >
+                    {question}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                No verification warnings were generated for the current view.
+              </p>
+            )}
           </div>
         </div>
 
@@ -876,17 +1041,17 @@ export default function CaseWorkspacePanel({
           >
             <SectionHeader
               icon={<ListChecks className="h-5 w-5" />}
-              title="Meeting prep queue"
-              subtitle="Questions an officer can answer before a live decision meeting."
+              title="Review checklist"
+              subtitle="Questions an analyst can answer before relying on the draft."
             />
 
             <div className="mt-5 space-y-3">
               {[
-                "Which AQI, forecast, and meteorological signals were cited before activation?",
-                "Which agencies gave inputs, and did any agency dissent or qualify its position?",
-                "What exact restrictions or exemptions were directed under the response?",
-                "Which follow-up actions were assigned, and were action-taken reports captured?",
-                "What evidence gaps should be verified before briefing the Chairperson?",
+                "What evidence directly answers the user's question?",
+                "Which institutions gave inputs, changed position, or carried responsibility?",
+                "What decision, action, restriction, approval, or conclusion is recorded?",
+                "What follow-up actions, reports, compliance checks, or outcomes are visible?",
+                "What gaps, contradictions, or source limitations need verification?",
               ].map((question, index) => (
                 <div
                   key={question}
@@ -1014,7 +1179,7 @@ export default function CaseWorkspacePanel({
               ) : decisionRecords.length === 0 ? (
                 <EmptyPanel
                   title="No decision records match the current filter"
-                  body="Clear filters or enrich this issue with GRAP decisions, meeting notes, AQI context, agency inputs, and follow-up actions."
+                  body="Clear filters or enrich this issue with decisions, meeting notes, evidence records, institutional inputs, and follow-up actions."
                 />
               ) : (
                 decisionRecords.map((record) => (

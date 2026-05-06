@@ -94,7 +94,9 @@ const workspaceQueryBody = z.object({
   anchorDocumentIds: z.array(z.string().trim().min(1)).max(25).optional(),
   anchorUrlIds: z.array(z.coerce.number().int().positive()).max(25).optional(),
   sourceScope: z.enum(["all", "files", "urls", "mixed"]).optional(),
-  workflowMode: z.enum(["auto", "landscape", "case_trace"]).optional(),
+  workflowMode: z
+    .enum(["auto", "landscape", "case_trace", "question_review"])
+    .optional(),
   limit: z.coerce.number().int().positive().max(12).optional(),
 });
 

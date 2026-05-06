@@ -9,7 +9,15 @@ import { analyzeRelation } from "./contradictionAlignment.service";
 import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
 
 type GovernanceWorkspaceSourceScope = "all" | "files" | "urls" | "mixed";
-type GovernanceWorkspaceWorkflowMode = "auto" | "landscape" | "case_trace";
+type GovernanceWorkspaceWorkflowMode =
+  | "auto"
+  | "landscape"
+  | "case_trace"
+  | "question_review";
+type GovernanceWorkspaceResolvedMode = Exclude<
+  GovernanceWorkspaceWorkflowMode,
+  "auto"
+>;
 
 type GovernanceWorkspaceQueryInput = {
   question?: string | null;
@@ -76,7 +84,8 @@ type GovernanceWorkspaceQueryType =
   | "broad_scan"
   | "case_review"
   | "chronology_review"
-  | "contradiction_review";
+  | "contradiction_review"
+  | "question_review";
 
 type GovernanceWorkspaceIssueSignal = {
   id: string;
@@ -343,6 +352,52 @@ type GovernanceWorkspaceCaseTracingSurface = {
   timelineHighlights: GovernanceWorkspaceCaseTrailEvent[];
 };
 
+type GovernanceWorkspaceQuestionReviewSignal = {
+  id: string;
+  label: string;
+  detail: string;
+  sourceTitle: string | null;
+  issueTitle: string | null;
+  agencyName: string | null;
+  documentIds: string[];
+  confidence: number | null;
+};
+
+type GovernanceWorkspaceQuestionReviewFactor = {
+  key: string;
+  label: string;
+  description: string;
+  count: number;
+  strongestSignal: GovernanceWorkspaceQuestionReviewSignal | null;
+};
+
+type GovernanceWorkspaceQuestionReviewActorInput = {
+  actorName: string;
+  role: string | null;
+  signalCount: number;
+  strongestSignal: GovernanceWorkspaceQuestionReviewSignal | null;
+};
+
+type GovernanceWorkspaceQuestionReviewSurface = {
+  active: boolean;
+  rationale: string;
+  question: string;
+  queryType: GovernanceWorkspaceQueryType;
+  summary: {
+    sourceCount: number;
+    factorCount: number;
+    timelineHighlightCount: number;
+    actorCount: number;
+    gapCount: number;
+    reviewCount: number;
+  };
+  answerSignals: GovernanceWorkspaceQuestionReviewSignal[];
+  factors: GovernanceWorkspaceQuestionReviewFactor[];
+  timelineHighlights: GovernanceWorkspaceCaseTrailEvent[];
+  actorInputs: GovernanceWorkspaceQuestionReviewActorInput[];
+  openQuestions: string[];
+};
+
 type GovernanceWorkspaceOverrideChain = {
   chainKey: string;
   documentIds: string[];
@@ -482,7 +537,10 @@ function normalizeScope(value: unknown): GovernanceWorkspaceSourceScope {
 function normalizeWorkflowMode(
   value: unknown,
 ): GovernanceWorkspaceWorkflowMode {
-  return value === "landscape" || value === "case_trace" || value === "auto"
+  return value === "landscape" ||
+    value === "case_trace" ||
+    value === "question_review" ||
+    value === "auto"
     ? value
     : "auto";
 }
@@ -522,6 +580,20 @@ function resolveWorkflowPlan(args: {
     };
   }
 
+  if (args.requestedMode === "question_review") {
+    return {
+      requestedMode: args.requestedMode,
+      resolvedMode: "question_review" as const,
+      rationale:
+        "Question Review mode was chosen explicitly, so retrieval will optimize for evidence-backed answers, factors considered, chronology, actor inputs, actions, and unresolved checks.",
+      expectedOutputs: [
+        "Evidence-backed answer",
+        "Factors and chronology",
+        "Verification and gap register",
+      ],
+    };
+  }
+
   const haystack = `${args.question} ${args.tokens.join(" ")}`.toLowerCase();
 
   const caseSignals = [
@@ -537,6 +609,25 @@ function resolveWorkflowPlan(args: {
     "facility",
     "override",
     "supersede",
+  ].filter((term) => haystack.includes(term)).length;
+
+  const questionReviewSignals = [
+    "what factors",
+    "why",
+    "what evidence",
+    "evidence supports",
+    "actions followed",
+    "what actions",
+    "who acted",
+    "who was responsible",
+    "what was considered",
+    "considered",
+    "previous years",
+    "past years",
+    "how did",
+    "position change",
+    "what happened",
+    "explain",
   ].filter((term) => haystack.includes(term)).length;
 
   const landscapeSignals = [
@@ -556,6 +647,20 @@ function resolveWorkflowPlan(args: {
 
   const anchorBias =
     args.anchorDocumentIds.length + args.anchorUrlIds.length >= 2 ? 1 : 0;
+
+  if (questionReviewSignals > 0) {
+    return {
+      requestedMode: args.requestedMode,
+      resolvedMode: "question_review" as const,
+      rationale:
+        "The question asks for an evidence-backed explanation, so the workspace will prioritize answer signals, factors considered, chronology, actor inputs, and verification gaps.",
+      expectedOutputs: [
+        "Evidence-backed answer",
+        "Factors and chronology",
+        "Verification and gap register",
+      ],
+    };
+  }
 
   if (caseSignals + anchorBias > landscapeSignals) {
     return {
@@ -660,10 +765,19 @@ function extractLocationHints(question: string): string[] {
 }
 
 function resolveQueryType(args: {
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   question: string;
 }): GovernanceWorkspaceQueryType {
   const text = String(args.question || "").toLowerCase();
+
+  if (
+    args.workflowMode === "question_review" ||
+    /\b(what factors|what evidence|evidence supports|what actions|actions followed|who acted|who was responsible|what was considered|considered|previous years|past years|why|how did|explain)\b/.test(
+      text,
+    )
+  ) {
+    return "question_review";
+  }
 
   if (
     /\b(contradict|conflict|override|supersede|permitted|restricted|non-compliant|compliant)\b/.test(
@@ -691,7 +805,7 @@ function resolveQueryType(args: {
 async function buildQueryUnderstanding(args: {
   question: string;
   tokens: string[];
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
 }): Promise<GovernanceWorkspaceQueryUnderstanding> {
   const focusTerms = args.tokens.slice(0, 6);
   const timeHints = extractTimeHints(args.question);
@@ -1471,7 +1585,7 @@ function inferOverrideHint(args: {
 
 async function buildContradictionFoundation(args: {
   documentIds: string[];
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
 }): Promise<GovernanceWorkspaceContradictionFoundation> {
   if (args.documentIds.length < 2) {
     return {
@@ -1935,7 +2049,7 @@ function buildComparisonSurface(args: {
 
 function buildLandscapeMappingSurface(args: {
   ranked: RankedCandidate[];
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   queryType: GovernanceWorkspaceQueryType;
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
 }): GovernanceWorkspaceLandscapeMappingSurface {
@@ -2155,7 +2269,7 @@ function buildLandscapeMappingSurface(args: {
 
 function buildCaseTracingSurface(args: {
   ranked: RankedCandidate[];
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   queryType: GovernanceWorkspaceQueryType;
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
   comparisonSurface: GovernanceWorkspaceComparisonSurface;
@@ -2247,12 +2361,319 @@ function buildCaseTracingSurface(args: {
   };
 }
 
+const questionReviewFactorDefinitions = [
+  {
+    key: "context",
+    label: "Context and trigger",
+    description:
+      "Background conditions, trigger events, time hints, or circumstances that made the question relevant.",
+    terms: [
+      "trigger",
+      "context",
+      "because",
+      "due",
+      "reason",
+      "incident",
+      "condition",
+      "previous",
+      "past",
+      "current",
+      "latest",
+    ],
+  },
+  {
+    key: "evidence",
+    label: "Evidence considered",
+    description:
+      "Source material, reports, observations, records, data, or findings cited by the evidence set.",
+    terms: [
+      "evidence",
+      "report",
+      "record",
+      "finding",
+      "data",
+      "inspection",
+      "observed",
+      "noted",
+      "minutes",
+      "submitted",
+    ],
+  },
+  {
+    key: "actor_inputs",
+    label: "Institutional inputs",
+    description:
+      "Agency positions, recommendations, submissions, dissent, or inter-institutional signals.",
+    terms: [
+      "agency",
+      "committee",
+      "department",
+      "recommended",
+      "submitted",
+      "directed",
+      "meeting",
+      "position",
+      "input",
+      "dissent",
+    ],
+  },
+  {
+    key: "mandate_basis",
+    label: "Authority or mandate basis",
+    description:
+      "Legal, policy, mandate, direction, order, jurisdiction, or responsibility basis.",
+    terms: [
+      "order",
+      "direction",
+      "mandate",
+      "jurisdiction",
+      "authority",
+      "policy",
+      "rule",
+      "act",
+      "compliance",
+      "responsible",
+    ],
+  },
+  {
+    key: "decision_actions",
+    label: "Decision and actions",
+    description:
+      "Conclusions, approvals, restrictions, actions taken, or implementation choices.",
+    terms: [
+      "decision",
+      "decided",
+      "action",
+      "activated",
+      "permitted",
+      "restricted",
+      "approved",
+      "rejected",
+      "implemented",
+      "enforced",
+    ],
+  },
+  {
+    key: "follow_up",
+    label: "Follow-up and outcomes",
+    description:
+      "Follow-up actions, monitoring, reports, outcomes, compliance status, or continuity signals.",
+    terms: [
+      "follow",
+      "outcome",
+      "monitor",
+      "status",
+      "compliance",
+      "report",
+      "action taken",
+      "inspection",
+      "verified",
+      "pending",
+    ],
+  },
+  {
+    key: "uncertainty",
+    label: "Contradictions and gaps",
+    description:
+      "Conflicts, unresolved questions, scope differences, missing evidence, or analyst-review flags.",
+    terms: [
+      "contradict",
+      "conflict",
+      "gap",
+      "missing",
+      "unclear",
+      "different",
+      "override",
+      "supersede",
+      "review",
+      "verify",
+    ],
+  },
+] as const;
+
+function buildQuestionReviewSignalFromCandidate(
+  candidate: RankedCandidate,
+  index: number,
+): GovernanceWorkspaceQuestionReviewSignal {
+  const reason =
+    candidate.temporalReason ||
+    candidate.diversityReason ||
+    candidate.whyRanked[0] ||
+    candidate.summary ||
+    "Relevant evidence document for the question.";
+
+  return {
+    id: `candidate:${candidate.documentId}:${index}`,
+    label: candidate.title,
+    detail: reason,
+    sourceTitle: candidate.sourceLabel,
+    issueTitle: Array.from(candidate.matchedIssues)[0] ?? null,
+    agencyName: Array.from(candidate.matchedAgencies)[0] ?? null,
+    documentIds: candidate.clusterDocumentIds,
+    confidence: Math.max(0, Math.min(1, candidate.matchScore / 100)),
+  };
+}
+
+function signalText(signal: GovernanceWorkspaceQuestionReviewSignal) {
+  return [
+    signal.label,
+    signal.detail,
+    signal.sourceTitle,
+    signal.issueTitle,
+    signal.agencyName,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildQuestionReviewSurface(args: {
+  question: string;
+  ranked: RankedCandidate[];
+  workflowMode: GovernanceWorkspaceResolvedMode;
+  queryType: GovernanceWorkspaceQueryType;
+  contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
+  comparisonSurface: GovernanceWorkspaceComparisonSurface;
+  caseTrailFoundation: GovernanceWorkspaceCaseTrailFoundation;
+}): GovernanceWorkspaceQuestionReviewSurface {
+  const shouldActivate =
+    args.workflowMode === "question_review" ||
+    args.queryType === "question_review" ||
+    args.queryType === "chronology_review" ||
+    args.queryType === "contradiction_review";
+
+  const emptySummary = {
+    sourceCount: 0,
+    factorCount: 0,
+    timelineHighlightCount: 0,
+    actorCount: 0,
+    gapCount: 0,
+    reviewCount: 0,
+  };
+
+  if (!shouldActivate) {
+    return {
+      active: false,
+      rationale:
+        "Question Review stays out of the way for broad landscape mapping questions.",
+      question: args.question,
+      queryType: args.queryType,
+      summary: emptySummary,
+      answerSignals: [],
+      factors: [],
+      timelineHighlights: [],
+      actorInputs: [],
+      openQuestions: [],
+    };
+  }
+
+  if (!args.ranked.length) {
+    return {
+      active: false,
+      rationale:
+        "Question Review needs retrieved evidence before it can assemble an answer, factors, chronology, and verification gaps.",
+      question: args.question,
+      queryType: args.queryType,
+      summary: emptySummary,
+      answerSignals: [],
+      factors: [],
+      timelineHighlights: [],
+      actorInputs: [],
+      openQuestions: [
+        "No evidence documents were retrieved for the current question.",
+        "Broaden the source scope or attach stronger source anchors before drafting an answer.",
+      ],
+    };
+  }
+
+  const answerSignals = args.ranked
+    .slice(0, 8)
+    .map((candidate, index) =>
+      buildQuestionReviewSignalFromCandidate(candidate, index),
+    );
+
+  const factors = questionReviewFactorDefinitions.map((definition) => {
+    const matches = answerSignals.filter((signal) =>
+      definition.terms.some((term) => signalText(signal).includes(term)),
+    );
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      description: definition.description,
+      count: matches.length,
+      strongestSignal: matches[0] ?? null,
+    };
+  });
+
+  const actorMap = new Map<string, GovernanceWorkspaceQuestionReviewActorInput>();
+  for (const signal of answerSignals) {
+    const actorName = signal.agencyName || "Unattributed institution";
+    const current = actorMap.get(actorName) ?? {
+      actorName,
+      role: signal.issueTitle,
+      signalCount: 0,
+      strongestSignal: signal,
+    };
+    current.signalCount += 1;
+    actorMap.set(actorName, current);
+  }
+
+  const timelineHighlights = args.caseTrailFoundation.events.slice(0, 8);
+  const reviewCount =
+    args.contradictionFoundation.summary.reviewCount +
+    args.comparisonSurface.summary.reviewCount;
+
+  const openQuestions = [
+    factors.some((factor) => factor.key === "evidence" && factor.count === 0)
+      ? "The evidence-considered factor is thin; verify source reports or records before finalizing the answer."
+      : null,
+    factors.some((factor) => factor.key === "follow_up" && factor.count === 0)
+      ? "Follow-up or outcome evidence is not prominent in the retrieved set."
+      : null,
+    reviewCount > 0
+      ? "Some conflict or scope-change signals require analyst review before external use."
+      : null,
+    args.contradictionFoundation.summary.contradictionCount === 0
+      ? "No explicit contradiction signals were found in the retrieved set."
+      : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    active: true,
+    rationale:
+      "Question Review assembles an evidence-backed answer surface from source candidates, chronology, actor signals, contradictions, and verification gaps.",
+    question: args.question,
+    queryType: args.queryType,
+    summary: {
+      sourceCount: args.ranked.length,
+      factorCount: factors.filter((factor) => factor.count > 0).length,
+      timelineHighlightCount: timelineHighlights.length,
+      actorCount: actorMap.size,
+      gapCount: openQuestions.length,
+      reviewCount,
+    },
+    answerSignals,
+    factors,
+    timelineHighlights,
+    actorInputs: Array.from(actorMap.values())
+      .sort((a, b) => b.signalCount - a.signalCount)
+      .slice(0, 8),
+    openQuestions,
+  };
+}
+
+export const governanceWorkspaceQueryTestHooks = {
+  resolveWorkflowPlan,
+  resolveQueryType,
+};
+
 function buildCaseTrailFoundation(args: {
   ranked: RankedCandidate[];
   contradictionFoundation: GovernanceWorkspaceContradictionFoundation;
   overrideChainFoundation: GovernanceWorkspaceOverrideChainFoundation;
   comparisonSurface: GovernanceWorkspaceComparisonSurface;
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
 }): GovernanceWorkspaceCaseTrailFoundation {
   if (!args.ranked.length) {
     return {
@@ -2623,7 +3044,7 @@ function candidateHasCurrentCue(candidate: RankedCandidate) {
 }
 
 function resolveTemporalControl(args: {
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   queryType: GovernanceWorkspaceQueryType;
   question: string;
   timeHints: string[];
@@ -2785,20 +3206,22 @@ function candidateSourceBucket(candidate: RankedCandidate) {
 }
 
 function shouldApplyEvidenceDiversity(args: {
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   queryType: GovernanceWorkspaceQueryType;
   candidateCount: number;
 }) {
   if (args.workflowMode === "case_trace") return false;
+  if (args.workflowMode === "question_review") return false;
   if (args.queryType === "case_review") return false;
   if (args.queryType === "chronology_review") return false;
   if (args.queryType === "contradiction_review") return false;
+  if (args.queryType === "question_review") return false;
   return args.candidateCount > 3;
 }
 
 function diversifyEvidenceCandidates(args: {
   ranked: RankedCandidate[];
-  workflowMode: "landscape" | "case_trace";
+  workflowMode: GovernanceWorkspaceResolvedMode;
   queryType: GovernanceWorkspaceQueryType;
   limit: number;
 }): {
@@ -3697,6 +4120,16 @@ export async function queryGovernanceWorkspaceEvidence(
     caseTrailFoundation,
   });
 
+  const questionReviewSurface = buildQuestionReviewSurface({
+    question: input.question,
+    ranked: diversified,
+    workflowMode: workflow.resolvedMode,
+    queryType: queryUnderstanding.queryType,
+    contradictionFoundation,
+    comparisonSurface,
+    caseTrailFoundation,
+  });
+
   const retrievalDecision = resolveRetrievalDecision(diversified);
 
   const statsByDocument = await attachDocumentStats(
@@ -3763,6 +4196,7 @@ export async function queryGovernanceWorkspaceEvidence(
     comparisonSurface,
     landscapeMappingSurface,
     caseTracingSurface,
+    questionReviewSurface,
     caseTrailFoundation,
     retrievalDecision,
     selectedDocumentId: retrievalDecision.shouldAutoSelect

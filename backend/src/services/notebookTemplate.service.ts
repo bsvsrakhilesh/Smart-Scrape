@@ -13,6 +13,7 @@ export const NOTEBOOK_TEMPLATE_KEYS = [
   "issue_landscape_summary",
   "case_timeline_note",
   "accountability_coordination_gap_note",
+  "question_review_brief",
 ] as const;
 
 export type NotebookTemplateKey = (typeof NOTEBOOK_TEMPLATE_KEYS)[number];
@@ -32,6 +33,25 @@ type TemplateDefinition = {
 };
 
 const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
+  {
+    key: "question_review_brief",
+    label: "Question Review Brief",
+    badge: "Question Review",
+    description:
+      "Evidence-backed answer note with factors, chronology, actor inputs, follow-up, gaps, and citation audit.",
+    defaultTitlePrefix: "Question Review",
+    required: { document: false, issue: true, agency: false },
+    sections: [
+      "Question and scope",
+      "Short answer",
+      "Factors considered",
+      "Chronology",
+      "Actor inputs",
+      "Actions and follow-up",
+      "Contradictions / gaps",
+      "Citation audit",
+    ],
+  },
   {
     key: "governance_brief",
     label: "Governance Brief",
@@ -821,6 +841,145 @@ function buildAccountabilityGapNoteContent(context: LoadedTemplateContext) {
   return { content, evidence };
 }
 
+function buildQuestionReviewBriefContent(context: LoadedTemplateContext) {
+  const evidence: Array<{ claim: string; citations: any[] }> = [];
+  const caseWorkspace = context.caseWorkspace;
+
+  const timelineLines = toArray<any>(caseWorkspace?.timeline?.entries)
+    .slice(0, 10)
+    .map((entry) => {
+      const text = `${formatShortDate(entry.sortDate)} - ${entry.actorAgency?.name || "Unattributed"}: ${entry.label}. ${limitText(entry.summary || entry.position?.stanceSummary || entry.position?.stanceText || entry.event?.summary || "", 220)}`;
+      pushEvidence(evidence, text, entry.provenance);
+      return `${text}${renderEvidenceRef(entry.provenance)}`;
+    });
+
+  const actorLines = toArray<any>(caseWorkspace?.actors)
+    .slice(0, 8)
+    .map((actor) => {
+      const latest = actor.latestPosition;
+      const text = `${actor.agency?.name || "Unknown institution"}: ${limitText(actor.evolution?.summary || latest?.stanceSummary || latest?.stanceText || "No actor summary extracted.", 220)}`;
+      if (latest?.provenance) pushEvidence(evidence, text, latest.provenance);
+      return `${text}${renderEvidenceRef(latest?.provenance)}`;
+    });
+
+  const actionLines = toArray<any>(caseWorkspace?.timeline?.entries)
+    .filter((entry) =>
+      /action|direct|order|submit|report|follow|compliance|monitor|inspect|implement/i.test(
+        [
+          entry.label,
+          entry.summary,
+          entry.position?.stanceSummary,
+          entry.position?.stanceText,
+          entry.event?.summary,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ),
+    )
+    .slice(0, 8)
+    .map((entry) => {
+      const text = `${formatShortDate(entry.sortDate)} - ${entry.label}: ${limitText(entry.summary || entry.position?.stanceSummary || entry.event?.summary || "No action summary extracted.", 220)}`;
+      pushEvidence(evidence, text, entry.provenance);
+      return `${text}${renderEvidenceRef(entry.provenance)}`;
+    });
+
+  const contradictionLines = toArray<any>(
+    caseWorkspace?.relations?.contradictions,
+  )
+    .slice(0, 6)
+    .map((relation) => {
+      const text = `${relation.fromAgency?.name || "Source"} -> ${relation.toAgency?.name || "Target"} (${relation.relationType}): ${limitText(relation.rationale || relation.fromClaim?.claimSummary || relation.toClaim?.claimSummary || "No rationale extracted.", 220)}`;
+      pushEvidence(evidence, text, relation.provenance);
+      return `${text}${renderEvidenceRef(relation.provenance)}`;
+    });
+
+  const gapLines = toArray<any>(caseWorkspace?.gaps)
+    .slice(0, 6)
+    .map((gap) => {
+      const text = `${gap.gapType}: ${limitText(gap.summary, 220)}`;
+      pushEvidence(evidence, text, gap.provenance);
+      return `${text}${renderEvidenceRef(gap.provenance)}`;
+    });
+
+  const factorLines = [
+    timelineLines.length
+      ? "Chronology evidence is available for the question."
+      : "",
+    actorLines.length ? "Actor or institution input evidence is available." : "",
+    actionLines.length ? "Action or follow-up evidence is available." : "",
+    contradictionLines.length
+      ? "Contradiction or tension evidence is available."
+      : "",
+    gapLines.length ? "Evidence gaps are flagged for review." : "",
+  ].filter(Boolean);
+
+  const citationLines = evidence
+    .slice(0, 12)
+    .map((item, index) => `${index + 1}. ${limitText(item.claim, 220)}`);
+
+  const content = [
+    "# Question Review Brief",
+    "",
+    "## Question and scope",
+    renderBulletList(
+      [
+        caseWorkspace?.issue?.title
+          ? `Issue: ${caseWorkspace.issue.title}`
+          : "",
+        context.agencyId ? `Actor lens: ${context.agencyId}` : "",
+        context.relationType ? `Relation filter: ${context.relationType}` : "",
+        `Generated at: ${new Date().toLocaleString()}`,
+      ].filter(Boolean),
+      "No scope metadata available.",
+    ),
+    "",
+    "## Short answer",
+    renderBulletList(
+      timelineLines.slice(0, 3),
+      "No answer-ready timeline or position evidence is currently extracted for this question.",
+    ),
+    "",
+    "## Factors considered",
+    renderBulletList(
+      factorLines,
+      "No factor coverage can be inferred from the current structured evidence.",
+    ),
+    "",
+    "## Chronology",
+    renderBulletList(
+      timelineLines,
+      "No normalized chronology is currently available.",
+    ),
+    "",
+    "## Actor inputs",
+    renderBulletList(
+      actorLines,
+      "No actor or institution input evidence is currently available.",
+    ),
+    "",
+    "## Actions and follow-up",
+    renderBulletList(
+      actionLines,
+      "No action or follow-up evidence is currently available.",
+    ),
+    "",
+    "## Contradictions / gaps",
+    renderBulletList(
+      [...contradictionLines, ...gapLines].slice(0, 10),
+      "No contradiction or gap evidence is currently available.",
+    ),
+    "",
+    "## Citation audit",
+    renderBulletList(
+      citationLines,
+      "No citation-bearing claims were generated.",
+    ),
+    "",
+  ].join("\n");
+
+  return { content, evidence };
+}
+
 function buildTemplateContent(
   templateKey: NotebookTemplateKey,
   context: LoadedTemplateContext,
@@ -838,6 +997,8 @@ function buildTemplateContent(
       return buildCaseTimelineNoteContent(context);
     case "accountability_coordination_gap_note":
       return buildAccountabilityGapNoteContent(context);
+    case "question_review_brief":
+      return buildQuestionReviewBriefContent(context);
     default:
       throw httpError(400, "Unsupported notebook template");
   }

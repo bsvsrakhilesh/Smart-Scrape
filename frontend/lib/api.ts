@@ -2254,14 +2254,14 @@ export type GovernanceWorkspaceEvidenceResponse = {
     question: string;
     tokens: string[];
     sourceScope: "all" | "files" | "urls" | "mixed";
-    workflowMode: "auto" | "landscape" | "case_trace";
+    workflowMode: "auto" | "landscape" | "case_trace" | "question_review";
     anchorDocumentIds: string[];
     anchorUrlIds: number[];
     limit: number;
   };
   workflow: {
-    requestedMode: "auto" | "landscape" | "case_trace";
-    resolvedMode: "landscape" | "case_trace";
+    requestedMode: "auto" | "landscape" | "case_trace" | "question_review";
+    resolvedMode: "landscape" | "case_trace" | "question_review";
     rationale: string;
     expectedOutputs: string[];
   };
@@ -2270,7 +2270,8 @@ export type GovernanceWorkspaceEvidenceResponse = {
       | "broad_scan"
       | "case_review"
       | "chronology_review"
-      | "contradiction_review";
+      | "contradiction_review"
+      | "question_review";
     focusTerms: string[];
     timeHints: string[];
     locationHints: string[];
@@ -2600,6 +2601,83 @@ export type GovernanceWorkspaceEvidenceResponse = {
       confidence: number | null;
     }>;
   };
+  questionReviewSurface: {
+    active: boolean;
+    rationale: string;
+    question: string;
+    queryType:
+      | "broad_scan"
+      | "case_review"
+      | "chronology_review"
+      | "contradiction_review"
+      | "question_review";
+    summary: {
+      sourceCount: number;
+      factorCount: number;
+      timelineHighlightCount: number;
+      actorCount: number;
+      gapCount: number;
+      reviewCount: number;
+    };
+    answerSignals: Array<{
+      id: string;
+      label: string;
+      detail: string;
+      sourceTitle: string | null;
+      issueTitle: string | null;
+      agencyName: string | null;
+      documentIds: string[];
+      confidence: number | null;
+    }>;
+    factors: Array<{
+      key: string;
+      label: string;
+      description: string;
+      count: number;
+      strongestSignal: {
+        id: string;
+        label: string;
+        detail: string;
+        sourceTitle: string | null;
+        issueTitle: string | null;
+        agencyName: string | null;
+        documentIds: string[];
+        confidence: number | null;
+      } | null;
+    }>;
+    timelineHighlights: Array<{
+      eventId: string;
+      eventType:
+        | "document"
+        | "conflict_cluster"
+        | "override_hint"
+        | "override_chain";
+      title: string;
+      subtitle: string | null;
+      issueTitle: string | null;
+      narrative: string;
+      sortDate: string | null;
+      dateLabel: string;
+      documentIds: string[];
+      confidence: number | null;
+    }>;
+    actorInputs: Array<{
+      actorName: string;
+      role: string | null;
+      signalCount: number;
+      strongestSignal: {
+        id: string;
+        label: string;
+        detail: string;
+        sourceTitle: string | null;
+        issueTitle: string | null;
+        agencyName: string | null;
+        documentIds: string[];
+        confidence: number | null;
+      } | null;
+    }>;
+    openQuestions: string[];
+  };
   retrievalDecision: {
     shouldAutoSelect: boolean;
     recommendedDocumentId: string | null;
@@ -2641,7 +2719,7 @@ export async function queryGovernanceWorkspaceEvidence(payload: {
   anchorDocumentIds?: string[];
   anchorUrlIds?: number[];
   sourceScope?: "all" | "files" | "urls" | "mixed";
-  workflowMode?: "auto" | "landscape" | "case_trace";
+  workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   limit?: number;
 }) {
   try {

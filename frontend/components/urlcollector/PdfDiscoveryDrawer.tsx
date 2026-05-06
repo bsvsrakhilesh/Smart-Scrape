@@ -414,7 +414,7 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
         role="dialog"
         aria-modal="true"
         aria-label="Discovered PDFs"
-        className="fixed bottom-3 right-3 top-3 z-[91] flex w-[min(1120px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl shadow-slate-950/20 dark:border-white/10 dark:bg-neutral-950"
+        className="fixed bottom-3 left-1/2 top-3 z-[91] flex w-[min(1400px,calc(100vw-1.5rem))] -translate-x-1/2 flex-col overflow-hidden rounded-3xl border border-black/10 bg-white shadow-2xl shadow-slate-950/20 dark:border-white/10 dark:bg-neutral-950"
       >
         <header className="border-b border-black/10 bg-white/95 px-5 py-4 dark:border-white/10 dark:bg-neutral-950/95">
           <div className="flex items-start justify-between gap-4">
@@ -585,12 +585,17 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
             </div>
           ) : documents.length ? (
             <div className="flex h-full flex-col">
-              <div className="hidden grid-cols-[2.5rem,minmax(0,1fr),9rem,10rem,9rem] gap-3 border-b border-black/10 bg-white px-5 py-2 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-white/10 dark:bg-neutral-950 dark:text-neutral-400 lg:grid">
-                <div />
-                <div>Document</div>
-                <div>Signal</div>
-                <div>Source</div>
-                <div className="text-right">Actions</div>
+              <div className="hidden border-b border-black/10 bg-white/90 px-5 py-3 dark:border-white/10 dark:bg-neutral-950/90 lg:block">
+                <div className="grid grid-cols-[2.5rem_minmax(0,1fr)_8rem_11rem_13rem] items-center gap-3 rounded-2xl border border-black/5 bg-neutral-50/80 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-neutral-400">
+                  <div />
+                  <div className="flex items-center gap-2">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Document
+                  </div>
+                  <div>Signal</div>
+                  <div>Source</div>
+                  <div className="text-right">Actions</div>
+                </div>
               </div>
 
               {visibleDocuments.length ? (
@@ -606,7 +611,7 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
                           key={doc.id}
                           className={[
                             "grid gap-3 px-5 py-3 transition hover:bg-neutral-50 dark:hover:bg-white/[0.03]",
-                            "grid-cols-[2.5rem,minmax(0,1fr)] lg:grid-cols-[2.5rem,minmax(0,1fr),9rem,10rem,9rem]",
+                            "grid-cols-[2.5rem_minmax(0,1fr)] lg:grid-cols-[2.5rem_minmax(0,1fr)_8rem_11rem_13rem]",
                             captured
                               ? "bg-emerald-50/30 dark:bg-emerald-400/[0.04]"
                               : "bg-white dark:bg-neutral-950",
@@ -702,33 +707,35 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
                             </div>
                           </div>
 
-                          <div className="col-span-2 flex items-center justify-end gap-2 lg:col-span-1">
-                            <a
-                              href={doc.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
-                              aria-label={`Open ${doc.title}`}
-                              title="Open PDF"
-                            >
-                              <ExternalLink
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                            </a>
-                            <button
-                              type="button"
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-black/10 text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-950 dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
-                              onClick={() => void copyPdfUrl(doc.url)}
-                              aria-label={`Copy URL for ${doc.title}`}
-                              title="Copy URL"
-                            >
-                              <Copy className="h-4 w-4" aria-hidden="true" />
-                            </button>
+                          <div className="col-span-2 flex items-center justify-end gap-2 lg:col-span-1 lg:pl-2">
+                            <div className="inline-flex items-center rounded-2xl border border-black/10 bg-white p-1 shadow-sm dark:border-white/10 dark:bg-white/[0.04]">
+                              <a
+                                href={doc.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
+                                aria-label={`Open ${doc.title}`}
+                                title="Open PDF"
+                              >
+                                <ExternalLink
+                                  className="h-4 w-4"
+                                  aria-hidden="true"
+                                />
+                              </a>
+                              <button
+                                type="button"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-neutral-600 transition hover:bg-neutral-100 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
+                                onClick={() => void copyPdfUrl(doc.url)}
+                                aria-label={`Copy URL for ${doc.title}`}
+                                title="Copy URL"
+                              >
+                                <Copy className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            </div>
                             {!captured && (
                               <button
                                 type="button"
-                                className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                                className="inline-flex h-11 min-w-[7.75rem] items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/35 disabled:opacity-60"
                                 disabled={capturing}
                                 onClick={() => openCapturePicker([doc])}
                               >

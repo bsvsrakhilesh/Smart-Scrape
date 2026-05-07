@@ -775,8 +775,11 @@ export async function getUrlSnapshots(urlId: number, limit = 50) {
 
 export async function fetchDiscoveredPdfDocuments(
   urlId: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<PdfDiscoveryResponse> {
-  const res = await api.get(`/api/urls/${urlId}/discovered-documents`);
+  const res = await api.get(`/api/urls/${urlId}/discovered-documents`, {
+    signal: options.signal,
+  });
   return res.data as PdfDiscoveryResponse;
 }
 
@@ -787,8 +790,11 @@ export async function discoverPdfDocuments(
     maxDepth?: number;
     useBrowserFallback?: boolean;
   } = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<PdfDiscoveryResponse> {
-  const res = await api.post(`/api/urls/${urlId}/discover-documents`, opts);
+  const res = await api.post(`/api/urls/${urlId}/discover-documents`, opts, {
+    signal: options.signal,
+  });
   return res.data as PdfDiscoveryResponse;
 }
 
@@ -1196,18 +1202,26 @@ export async function crawlSaveText(
   fileName?: string,
   urlId?: number,
   accessMode: "public" | "institutional" = "public",
+  options: { signal?: AbortSignal } = {},
 ) {
   try {
-    const res = await api.post("/api/crawl/text", {
-      url,
-      folderId,
-      fileName,
-      urlId,
-      accessMode,
-    });
+    const res = await api.post(
+      "/api/crawl/text",
+      {
+        url,
+        folderId,
+        fileName,
+        urlId,
+        accessMode,
+      },
+      { signal: options.signal },
+    );
 
     return toFileItem(res.data as BackendStoredFile);
   } catch (err: any) {
+    if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+      throw err;
+    }
     normalizeApiError(err, "Text capture failed");
   }
 }
@@ -1226,21 +1240,29 @@ export async function crawlSavePdf(
     sourcePageUrl?: string | null;
     originalSearchQuery?: string | null;
   },
+  options: { signal?: AbortSignal } = {},
 ) {
   try {
-    const res = await api.post("/api/crawl/pdf", {
-      url,
-      folderId,
-      fileName,
-      fullPage,
-      reader,
-      urlId,
-      accessMode,
-      ...(discovery || {}),
-    });
+    const res = await api.post(
+      "/api/crawl/pdf",
+      {
+        url,
+        folderId,
+        fileName,
+        fullPage,
+        reader,
+        urlId,
+        accessMode,
+        ...(discovery || {}),
+      },
+      { signal: options.signal },
+    );
 
     return toFileItem(res.data as BackendStoredFile);
   } catch (err: any) {
+    if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+      throw err;
+    }
     normalizeApiError(err, "PDF capture failed");
   }
 }

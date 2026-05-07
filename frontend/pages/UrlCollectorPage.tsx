@@ -11,6 +11,8 @@ import {
 } from "../lib/api";
 import { useLocation, useNavigate } from "react-router-dom";
 import SmartCard from "../components/ui/SmartCard";
+import CollectorJobConsole from "../components/urlcollector/CollectorJobConsole";
+import { useCollectorJobs } from "../hooks/useCollectorJobs";
 import {
   buildCollectorSearchQuery,
   formatAppliedCollectorSearchPlan,
@@ -38,6 +40,21 @@ function sleep(ms: number, signal?: AbortSignal) {
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function isAbortLike(error: any) {
+  return (
+    error?.name === "AbortError" ||
+    error?.name === "CanceledError" ||
+    error?.code === "ERR_CANCELED"
+  );
+}
+
+function userSearchErrorMessage(error: any, fallback: string) {
+  const msg = typeof error?.message === "string" ? error.message : fallback;
+  return msg.includes("Failed to fetch") || msg.includes("Network Error")
+    ? "Network error. Is your server running and reachable?"
+    : msg;
 }
 
 type SortKey = "original" | "title" | "domain" | "year";
@@ -102,6 +119,14 @@ const UrlCollectorPage: React.FC = () => {
   const navigate = useNavigate();
   const loc = useLocation();
   const params = new URLSearchParams(loc.search);
+  const {
+    jobs: collectorJobs,
+    actions: collectorJobActions,
+  } = useCollectorJobs();
+  const searchRetryRef = useRef<(site?: string, keywords?: string) => void>(
+    () => {},
+  );
+  const loadMoreRetryRef = useRef<() => void>(() => {});
 
   const urlSite = params.get("site") ?? "";
   const urlKeywords = params.get("q") ?? "";
@@ -415,6 +440,32 @@ const UrlCollectorPage: React.FC = () => {
       const controller = new AbortController();
       fetchAbortRef.current = controller;
 
+      const jobLabel = [site || "Whole web", kws || "(site scan)"].join(" · ");
+      const jobId = collectorJobActions.startJob({
+        kind: "search",
+        title: "Collector search",
+        targetLabel: jobLabel,
+        stage: "queued",
+        message: "Preparing search",
+        progressPct: 0,
+        retryable: true,
+        cancelable: true,
+        onRetry: () => searchRetryRef.current(site, kws),
+        onCancel: () => controller.abort(),
+        meta: {
+          site,
+          keywords: kws,
+          scope,
+        },
+      });
+      collectorJobActions.updateJob(jobId, {
+        status: "running",
+        stage: "searching",
+        message: "Fetching first page",
+        progressPct: 6,
+        startedAt: new Date().toISOString(),
+      });
+
       setIsLoading(true);
       setError(null);
       setHasSearched(true);
@@ -438,6 +489,11 @@ const UrlCollectorPage: React.FC = () => {
 
         // Fetch page 1 immediately
         const p1 = await fetchPage(1);
+        collectorJobActions.updateJob(jobId, {
+          stage: "page-1",
+          message: `Loaded first ${p1.rows.length} result${p1.rows.length === 1 ? "" : "s"}`,
+          progressPct: 22,
+        });
         setSearchResults(p1.rows);
         setSelectedUrls(new Set());
         setNextPage(p1.nextPage);
@@ -456,6 +512,10 @@ const UrlCollectorPage: React.FC = () => {
           setError(
             "No results found. Try different keywords, widen filters, or remove the site filter.",
           );
+          collectorJobActions.succeedJob(jobId, "Search completed with no results", {
+            stage: "empty",
+            progressPct: 100,
+          });
           return;
         }
 
@@ -474,6 +534,14 @@ const UrlCollectorPage: React.FC = () => {
         ) {
           // Pace requests to avoid bursty 429s
           await sleep(PREFETCH_DELAY_MS, controller.signal);
+          collectorJobActions.updateJob(jobId, {
+            stage: `page-${np}`,
+            message: `Fetching page ${np}`,
+            progressPct: Math.min(
+              68,
+              22 + Math.round((pagesFetched / maxPages) * 42),
+            ),
+          });
 
           let pn;
           try {
@@ -484,6 +552,11 @@ const UrlCollectorPage: React.FC = () => {
               setError(
                 `Rate limit reached. Showing the first ${merged.length} results. Try again in ~60s.`,
               );
+              collectorJobActions.updateJob(jobId, {
+                stage: "rate-limited",
+                message: `Rate limited after ${merged.length} results`,
+                progressPct: 72,
+              });
               break; // stop auto-prefetch, keep what we already have
             }
             throw e;
@@ -501,6 +574,14 @@ const UrlCollectorPage: React.FC = () => {
 
           setSearchResults([...merged]);
           setPrefetchCount(merged.length);
+          collectorJobActions.updateJob(jobId, {
+            stage: `loaded-${merged.length}`,
+            message: `Loaded ${merged.length}/${INITIAL_RESULTS_TARGET} target results`,
+            progressPct: Math.min(
+              72,
+              30 + Math.round((merged.length / INITIAL_RESULTS_TARGET) * 40),
+            ),
+          });
           setNextPage(pn.nextPage);
           if (typeof pn.totalResults === "number")
             setTotalResults(pn.totalResults);
@@ -511,6 +592,11 @@ const UrlCollectorPage: React.FC = () => {
         }
 
         if (!controller.signal.aborted && merged.length > 1) {
+          collectorJobActions.updateJob(jobId, {
+            stage: "reranking",
+            message: "AI reranking loaded results",
+            progressPct: 82,
+          });
           const reranked = await applyMergedRerank(
             q,
             merged,
@@ -522,21 +608,36 @@ const UrlCollectorPage: React.FC = () => {
             setSearchResults(reranked);
           }
         }
+        if (!controller.signal.aborted) {
+          collectorJobActions.succeedJob(
+            jobId,
+            `Loaded ${merged.length} result${merged.length === 1 ? "" : "s"}`,
+            {
+              meta: {
+                site,
+                keywords: kws,
+                totalResults: totalResults ?? undefined,
+              },
+            },
+          );
+        }
       } catch (e: any) {
-        if (e?.name !== "AbortError" && e?.code !== "ERR_CANCELED") {
+        if (isAbortLike(e)) {
+          collectorJobActions.cancelJob(jobId, "Search canceled");
+        } else {
           if (e?.message === "RATE_LIMITED") {
             rateLimitUntilRef.current = Date.now() + RATE_LIMIT_COOLDOWN_MS;
             setError(
               "Too many searches too quickly. Please wait ~60 seconds and try again.",
             );
+            collectorJobActions.failJob(jobId, "Rate limit reached", {
+              stage: "rate-limited",
+              message: "Too many searches too quickly",
+            });
           } else {
-            const msg =
-              typeof e?.message === "string" ? e.message : "Search failed";
-            setError(
-              msg.includes("Failed to fetch") || msg.includes("Network Error")
-                ? "Network error. Is your server running and reachable?"
-                : msg,
-            );
+            const msg = userSearchErrorMessage(e, "Search failed");
+            setError(msg);
+            collectorJobActions.failJob(jobId, msg);
           }
         }
       } finally {
@@ -545,8 +646,14 @@ const UrlCollectorPage: React.FC = () => {
         setPrefetchCount(0);
       }
     },
-    [navigate, website, keywords, scope],
+    [navigate, website, keywords, scope, collectorJobActions, applyMergedRerank],
   );
+
+  useEffect(() => {
+    searchRetryRef.current = (siteArg?: string, kwArg?: string) => {
+      void handleSearch(siteArg, kwArg);
+    };
+  }, [handleSearch]);
 
   const handleAiAssist = useCallback(
     async (draft: {
@@ -592,8 +699,32 @@ const UrlCollectorPage: React.FC = () => {
   const handleLoadMore = useCallback(async () => {
     if (!nextPage || !lastQuery) return;
 
+    const controller = new AbortController();
+    const jobId = collectorJobActions.startJob({
+      kind: "load_more",
+      title: "Load more results",
+      targetLabel: formatAppliedCollectorSearchPlan(
+        lastQuery,
+        lastSearchOpts,
+      ),
+      stage: "queued",
+      message: `Preparing page ${nextPage}`,
+      progressPct: 0,
+      retryable: true,
+      cancelable: true,
+      onRetry: () => loadMoreRetryRef.current(),
+      onCancel: () => controller.abort(),
+    });
+
     setIsLoadingMore(true);
     setError(null);
+    collectorJobActions.updateJob(jobId, {
+      status: "running",
+      stage: `page-${nextPage}`,
+      message: `Fetching page ${nextPage}`,
+      progressPct: 15,
+      startedAt: new Date().toISOString(),
+    });
 
     try {
       const {
@@ -603,9 +734,15 @@ const UrlCollectorPage: React.FC = () => {
       } = await searchWeb(
         lastQuery,
         nextPage,
-        undefined,
+        controller.signal,
         lastSearchOpts ?? undefined,
       );
+
+      collectorJobActions.updateJob(jobId, {
+        stage: "merging",
+        message: `Merging ${newRows.length} new result${newRows.length === 1 ? "" : "s"}`,
+        progressPct: 52,
+      });
 
       const seen = new Set(searchResults.map((r) => r.url));
       const merged = [...searchResults];
@@ -619,11 +756,21 @@ const UrlCollectorPage: React.FC = () => {
 
       setSearchResults(merged);
 
+      collectorJobActions.updateJob(jobId, {
+        stage: "reranking",
+        message: "Reranking merged result set",
+        progressPct: 78,
+      });
       const reranked = await applyMergedRerank(
         lastQuery,
         merged,
         lastSearchOpts ?? undefined,
+        controller.signal,
       );
+
+      if (controller.signal.aborted) {
+        throw Object.assign(new Error("AbortError"), { name: "AbortError" });
+      }
 
       setSearchResults(reranked);
 
@@ -631,21 +778,28 @@ const UrlCollectorPage: React.FC = () => {
       setTotalResults(tot);
 
       if (newRows.length === 0) setNextPage(null);
+      collectorJobActions.succeedJob(
+        jobId,
+        newRows.length
+          ? `Loaded ${newRows.length} more result${newRows.length === 1 ? "" : "s"}`
+          : "No additional results returned",
+      );
     } catch (e: any) {
-      const msg =
-        typeof e?.message === "string" ? e.message : "Load more failed";
-
-      if (msg === "RATE_LIMITED") {
+      if (isAbortLike(e)) {
+        collectorJobActions.cancelJob(jobId, "Load more canceled");
+      } else if (e?.message === "RATE_LIMITED") {
         rateLimitUntilRef.current = Date.now() + RATE_LIMIT_COOLDOWN_MS;
         setError(
           "Rate limit reached. Please wait ~60 seconds, then try Load more again.",
         );
+        collectorJobActions.failJob(jobId, "Rate limit reached", {
+          stage: "rate-limited",
+          message: "Try again after the cooldown",
+        });
       } else {
-        setError(
-          msg.includes("Failed to fetch") || msg.includes("Network Error")
-            ? "Network error. Is your server running and reachable?"
-            : msg,
-        );
+        const msg = userSearchErrorMessage(e, "Load more failed");
+        setError(msg);
+        collectorJobActions.failJob(jobId, msg);
       }
     } finally {
       setIsLoadingMore(false);
@@ -656,7 +810,14 @@ const UrlCollectorPage: React.FC = () => {
     lastSearchOpts,
     searchResults,
     applyMergedRerank,
+    collectorJobActions,
   ]);
+
+  useEffect(() => {
+    loadMoreRetryRef.current = () => {
+      void handleLoadMore();
+    };
+  }, [handleLoadMore]);
 
   /* ---------- Selection handlers ---------- */
   const onToggleRow = useCallback((url: string) => {
@@ -982,6 +1143,11 @@ const UrlCollectorPage: React.FC = () => {
         </SmartCard>
       </section>
 
+      <CollectorJobConsole
+        jobs={collectorJobs}
+        actions={collectorJobActions}
+      />
+
       {/* Results (sticky toolbar inside the card) */}
       <section
         ref={resultsSectionRef}
@@ -1022,6 +1188,7 @@ const UrlCollectorPage: React.FC = () => {
                   sortKey={sortKey}
                   onSortChange={(k) => setSortKey(k)}
                   searchQuery={lastQuery || keywords}
+                  jobs={collectorJobActions}
                 />
 
                 {hasSearched && searchResults.length > 0 && (

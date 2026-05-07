@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
+import type { CollectorJobActions } from "../../hooks/useCollectorJobs";
 
 type Props = {
   open: boolean;
@@ -28,6 +29,7 @@ type Props = {
   sourceTitle?: string;
   query?: string | null;
   autoDiscover?: boolean;
+  jobs?: CollectorJobActions;
   onClose: () => void;
   onAfterCapture?: () => void | Promise<void>;
 };
@@ -70,6 +72,14 @@ function sanitizePdfName(raw: string) {
       .trim()
       .slice(0, 140) || "document";
   return stem.toLowerCase().endsWith(".pdf") ? stem : `${stem}.pdf`;
+}
+
+function isAbortLike(error: any) {
+  return (
+    error?.name === "AbortError" ||
+    error?.name === "CanceledError" ||
+    error?.code === "ERR_CANCELED"
+  );
 }
 
 function suggestedFileName(doc: DiscoveredPdfDocument) {
@@ -136,6 +146,7 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
   sourceTitle,
   query,
   autoDiscover = false,
+  jobs,
   onClose,
   onAfterCapture,
 }) => {
@@ -211,20 +222,64 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
       setNotice(null);
       if (runDiscovery) setDiscovering(true);
       else setLoading(true);
+      const controller = new AbortController();
+      const jobId = runDiscovery
+        ? jobs?.startJob({
+            kind: "pdf_discovery",
+            title: "Harvest linked PDFs",
+            targetLabel: sourceTitle || sourceUrl,
+            stage: "discovering",
+            message: "Scanning links, embeds, scripts, and browser-visible PDFs",
+            progressPct: 10,
+            retryable: true,
+            cancelable: true,
+            onRetry: () => void load(true),
+            onCancel: () => controller.abort(),
+            meta: { sourceUrlId, sourceUrl, query: query || null },
+          })
+        : null;
 
       try {
+        if (jobId) {
+          jobs?.updateJob(jobId, {
+            status: "running",
+            stage: "discovering",
+            message: "Scanning source page for PDF candidates",
+            progressPct: 28,
+            startedAt: new Date().toISOString(),
+          });
+        }
+
         const out = runDiscovery
           ? await discoverPdfDocuments(sourceUrlId, {
               query,
               maxDepth: 1,
               useBrowserFallback: true,
-            })
-          : await fetchDiscoveredPdfDocuments(sourceUrlId);
+            }, { signal: controller.signal })
+          : await fetchDiscoveredPdfDocuments(sourceUrlId, {
+              signal: controller.signal,
+            });
         setDocuments(out.documents || []);
         setSummary(out.summary || EMPTY_SUMMARY);
         setSelected(new Set());
         if (runDiscovery) {
           const count = out.documents?.length || 0;
+          if (jobId) {
+            jobs?.succeedJob(
+              jobId,
+              count
+                ? `Found ${count} PDF candidate${count === 1 ? "" : "s"}`
+                : "No PDF candidates found",
+              {
+                meta: {
+                  sourceUrlId,
+                  sourceUrl,
+                  discoveredCount: count,
+                  verifiedCount: out.summary?.verifiedCount ?? 0,
+                },
+              },
+            );
+          }
           setNotice({
             type: count ? "success" : "info",
             text: count
@@ -233,16 +288,25 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
           });
         }
       } catch (error: any) {
-        setNotice({
-          type: "error",
-          text: error?.message || "PDF discovery failed.",
-        });
+        if (isAbortLike(error)) {
+          if (jobId) jobs?.cancelJob(jobId, "PDF harvest canceled");
+        } else {
+          setNotice({
+            type: "error",
+            text: error?.message || "PDF discovery failed.",
+          });
+          if (jobId) {
+            jobs?.failJob(jobId, error, {
+              message: "PDF harvest failed",
+            });
+          }
+        }
       } finally {
         setLoading(false);
         setDiscovering(false);
       }
     },
-    [query, sourceUrlId],
+    [jobs, query, sourceTitle, sourceUrl, sourceUrlId],
   );
 
   useEffect(() => {
@@ -317,8 +381,43 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
     setCaptureDone(0);
     setCaptureFailures([]);
 
+    const targets = [...captureTargets];
+    const controller = new AbortController();
+    const jobId = jobs?.startJob({
+      kind: "pdf_capture",
+      title: "Capture discovered PDFs",
+      targetLabel: sourceTitle || sourceUrl,
+      stage: "capturing",
+      message: `Preparing ${targets.length} PDF capture${targets.length === 1 ? "" : "s"}`,
+      progressPct: 4,
+      retryable: true,
+      cancelable: true,
+      onRetry: () => {
+        setCaptureTargets(targets);
+        void runCapture(opts);
+      },
+      onCancel: () => controller.abort(),
+      meta: {
+        sourceUrlId,
+        sourceUrl,
+        count: targets.length,
+      },
+    });
+
     const failures: Array<{ id: string; title: string; error: string }> = [];
-    for (const doc of captureTargets) {
+    let completedCount = 0;
+    for (let index = 0; index < targets.length; index += 1) {
+      if (controller.signal.aborted) break;
+
+      const doc = targets[index];
+      jobs?.updateJob(jobId || "", {
+        status: "running",
+        stage: "capturing",
+        message: `Capturing ${index + 1}/${targets.length}: ${doc.title}`,
+        progressPct: Math.max(8, Math.round((index / targets.length) * 88)),
+        startedAt: new Date().toISOString(),
+      });
+
       try {
         await crawlSavePdf(
           doc.url,
@@ -334,14 +433,20 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
             sourcePageUrl: sourceUrl,
             originalSearchQuery: query || null,
           },
+          { signal: controller.signal },
         );
       } catch (error: any) {
-        failures.push({
-          id: doc.id,
-          title: doc.title,
-          error: error?.message || "Capture failed",
-        });
+        if (isAbortLike(error)) {
+          break;
+        } else {
+          failures.push({
+            id: doc.id,
+            title: doc.title,
+            error: error?.message || "Capture failed",
+          });
+        }
       } finally {
+        completedCount += 1;
         setCaptureDone((n) => n + 1);
       }
     }
@@ -351,13 +456,43 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
     await load(false);
     await onAfterCapture?.();
 
-    const succeeded = captureTargets.length - failures.length;
+    const succeeded = targets.length - failures.length;
     setNotice({
-      type: failures.length ? "error" : "success",
-      text: failures.length
-        ? `Captured ${succeeded} of ${captureTargets.length} PDFs.`
+      type: controller.signal.aborted
+        ? "info"
+        : failures.length
+          ? "error"
+          : "success",
+      text: controller.signal.aborted
+        ? `Canceled after ${completedCount} of ${targets.length} PDFs.`
+        : failures.length
+          ? `Captured ${succeeded} of ${targets.length} PDFs.`
         : `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}.`,
     });
+    if (jobId) {
+      if (controller.signal.aborted) {
+        jobs?.cancelJob(jobId, "PDF capture canceled");
+      } else if (failures.length) {
+        jobs?.failJob(
+          jobId,
+          `Captured ${succeeded} of ${targets.length} PDFs.`,
+          {
+            stage: "partial-failure",
+            message: "Some PDF captures failed",
+            progressPct: 100,
+            meta: { sourceUrlId, sourceUrl, succeeded, failed: failures.length },
+          },
+        );
+      } else {
+        jobs?.succeedJob(
+          jobId,
+          `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}`,
+          {
+            meta: { sourceUrlId, sourceUrl, succeeded },
+          },
+        );
+      }
+    }
     setCaptureTargets([]);
   };
 
@@ -372,8 +507,29 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
     setCapturing(true);
     setCaptureDone(0);
     setCaptureFailures([]);
+    const controller = new AbortController();
+    const jobId = jobs?.startJob({
+      kind: "pdf_capture",
+      title: "Capture page PDF snapshot",
+      targetLabel: sourceTitle || sourceUrl,
+      stage: "capturing-page",
+      message: "Preparing page snapshot",
+      progressPct: 10,
+      retryable: true,
+      cancelable: true,
+      onRetry: () => void runPageSnapshotCapture(opts),
+      onCancel: () => controller.abort(),
+      meta: { sourceUrlId, sourceUrl },
+    });
 
     try {
+      jobs?.updateJob(jobId || "", {
+        status: "running",
+        stage: "capturing-page",
+        message: "Rendering source page as PDF",
+        progressPct: 45,
+        startedAt: new Date().toISOString(),
+      });
       await crawlSavePdf(
         sourceUrl,
         opts.folderId ?? undefined,
@@ -382,14 +538,30 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
         true,
         sourceUrlId,
         opts.accessMode || "public",
+        undefined,
+        { signal: controller.signal },
       );
       await onAfterCapture?.();
       setNotice({ type: "success", text: "Captured page PDF snapshot." });
+      if (jobId) {
+        jobs?.succeedJob(jobId, "Captured page PDF snapshot", {
+          meta: { sourceUrlId, sourceUrl },
+        });
+      }
     } catch (error: any) {
-      setNotice({
-        type: "error",
-        text: error?.message || "Page snapshot capture failed.",
-      });
+      if (isAbortLike(error)) {
+        if (jobId) jobs?.cancelJob(jobId, "Page snapshot capture canceled");
+      } else {
+        setNotice({
+          type: "error",
+          text: error?.message || "Page snapshot capture failed.",
+        });
+        if (jobId) {
+          jobs?.failJob(jobId, error, {
+            message: "Page snapshot capture failed",
+          });
+        }
+      }
     } finally {
       setCapturing(false);
     }

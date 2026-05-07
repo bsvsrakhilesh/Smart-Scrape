@@ -38,6 +38,7 @@ import {
   suggestCollectorCaptureName,
   type CaptureMode,
 } from "../../utils/urlCollector";
+import type { CollectorJobActions } from "../../hooks/useCollectorJobs";
 
 interface ResultsTableProps {
   results: SearchResult[];
@@ -51,6 +52,7 @@ interface ResultsTableProps {
   sortKey?: "original" | "title" | "domain" | "year";
   onSortChange?: (k: "original" | "title" | "domain" | "year") => void;
   searchQuery?: string;
+  jobs?: CollectorJobActions;
 }
 
 /* ---------------- helpers ---------------- */
@@ -76,6 +78,14 @@ const nicePath = (url: string) => {
 
 const favicon = (url: string) =>
   apiUrl(`/api/favicon?url=${encodeURIComponent(url)}`);
+
+function isAbortLike(error: any) {
+  return (
+    error?.name === "AbortError" ||
+    error?.name === "CanceledError" ||
+    error?.code === "ERR_CANCELED"
+  );
+}
 
 const YEAR_RE = /\b(19|20)\d{2}\b/g;
 
@@ -178,6 +188,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   sortKey: sortKeyProp,
   onSortChange,
   searchQuery = "",
+  jobs,
 }) => {
   // local selection if parent doesn't control it
   const [localSelected, setLocalSelected] = useState<Set<string>>(selectedUrls);
@@ -792,14 +803,54 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   const openPdfDiscovery = async (url: string, title: string) => {
     setCaptureBusy(url);
+    const jobId = jobs?.startJob({
+      kind: "pdf_discovery",
+      title: "Prepare PDF harvest",
+      targetLabel: title || url,
+      stage: "saving-source-url",
+      message: "Resolving source URL record",
+      progressPct: 12,
+      retryable: true,
+      cancelable: false,
+      onRetry: () => void openPdfDiscovery(url, title),
+      meta: { url },
+    });
+
     try {
+      if (jobId) {
+        jobs?.updateJob(jobId, {
+          status: "running",
+          stage: "saving-source-url",
+          message: "Resolving source URL record",
+          progressPct: 25,
+          startedAt: new Date().toISOString(),
+        });
+      }
       const urlId = await ensureSavedUrlId(url, title);
+      if (jobId) {
+        jobs?.updateJob(jobId, {
+          stage: "opening-drawer",
+          message: "Opening PDF harvest drawer",
+          progressPct: 80,
+          meta: { url, urlId },
+        });
+      }
       setPdfDiscoveryTarget({ urlId, url, title });
+      if (jobId) {
+        jobs?.succeedJob(jobId, "PDF harvest ready", {
+          meta: { url, urlId },
+        });
+      }
     } catch (e: any) {
       pushNotice(
         "error",
         `Could not start PDF harvest: ${e?.message ?? "Unknown error"}`,
       );
+      if (jobId) {
+        jobs?.failJob(jobId, e, {
+          message: "Could not start PDF harvest",
+        });
+      }
     } finally {
       setCaptureBusy(null);
     }
@@ -866,24 +917,59 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     return id;
   };
 
-  // confirm + call backend to persist capture
-  const onConfirmCapture = async (opts: {
+  type CaptureRunInput = {
+    url: string;
+    title: string;
     folderId?: string | null;
     fileName: string;
     mode: "text" | "pdf";
     accessMode?: "public" | "institutional";
-  }) => {
-    setPickerOpen(false);
-    const { folderId, fileName, mode, accessMode = "public" } = opts;
-    const url = pickerTarget.url;
-    const title = pickerTarget.title;
+  };
+
+  const runCaptureJob = async (input: CaptureRunInput) => {
+    const { url, title, folderId, fileName, mode, accessMode = "public" } =
+      input;
+    const controller = new AbortController();
+    const jobId = jobs?.startJob({
+      kind: "capture",
+      title: mode === "pdf" ? "Capture PDF" : "Capture text",
+      targetLabel: title || url,
+      stage: "saving-source-url",
+      message: "Saving source URL before capture",
+      progressPct: 8,
+      retryable: true,
+      cancelable: true,
+      onRetry: () => void runCaptureJob(input),
+      onCancel: () => controller.abort(),
+      meta: { url, mode, accessMode },
+    });
 
     setCaptureBusy(url);
     try {
-      // 1) Ensure URL row exists → get urlId
+      if (jobId) {
+        jobs?.updateJob(jobId, {
+          status: "running",
+          stage: "saving-source-url",
+          message: "Resolving saved URL record",
+          progressPct: 18,
+          startedAt: new Date().toISOString(),
+        });
+      }
+
       const urlId = await ensureSavedUrlId(url, title);
 
-      // 2) Capture with urlId (strong linkage URL → snapshot)
+      if (jobId) {
+        jobs?.updateJob(jobId, {
+          stage: mode === "pdf" ? "capturing-pdf" : "capturing-text",
+          message:
+            mode === "pdf"
+              ? "Rendering or downloading PDF"
+              : "Extracting readable text",
+          progressPct: 45,
+          meta: { url, urlId, mode, accessMode },
+        });
+      }
+
       const saved =
         mode === "text"
           ? await crawlSaveText(
@@ -892,6 +978,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
               fileName,
               urlId,
               accessMode,
+              { signal: controller.signal },
             )
           : await crawlSavePdf(
               url,
@@ -901,13 +988,23 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
               true,
               urlId,
               accessMode,
+              undefined,
+              { signal: controller.signal },
             );
+
+      if (jobId) {
+        jobs?.updateJob(jobId, {
+          stage: "finalizing",
+          message: "Finalizing captured file",
+          progressPct: 88,
+        });
+      }
 
       const method = saved?.captureMeta?.method
         ? `via ${saved.captureMeta.method}`
         : "";
       const src = saved?.captureMeta?.capturedUrl
-        ? ` • ${saved.captureMeta.capturedUrl}`
+        ? ` â€¢ ${saved.captureMeta.capturedUrl}`
         : "";
       const msg = `Captured ${method}${src}`.replace(/\s+/g, " ").trim();
 
@@ -917,13 +1014,51 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           accessMode === "institutional" ? " Routed via IIT session." : ""
         }`,
       );
+
+      if (jobId) {
+        jobs?.succeedJob(jobId, msg || "Captured and saved successfully.", {
+          meta: {
+            url,
+            urlId,
+            mode,
+            accessMode,
+            fileId: saved?.id,
+            fileName: saved?.title,
+          },
+        });
+      }
     } catch (e: any) {
-      console.error(e);
-      const msg = e?.message ?? "Unknown error";
-      pushNotice("error", `Capture failed: ${msg}`);
+      if (isAbortLike(e)) {
+        if (jobId) jobs?.cancelJob(jobId, "Capture canceled");
+      } else {
+        console.error(e);
+        const msg = e?.message ?? "Unknown error";
+        pushNotice("error", `Capture failed: ${msg}`);
+        if (jobId) {
+          jobs?.failJob(jobId, msg, {
+            message: "Capture failed",
+            meta: { url, mode, accessMode },
+          });
+        }
+      }
     } finally {
       setCaptureBusy(null);
     }
+  };
+
+  // confirm + call backend to persist capture
+  const onConfirmCapture = async (opts: {
+    folderId?: string | null;
+    fileName: string;
+    mode: "text" | "pdf";
+    accessMode?: "public" | "institutional";
+  }) => {
+    setPickerOpen(false);
+    await runCaptureJob({
+      ...opts,
+      url: pickerTarget.url,
+      title: pickerTarget.title,
+    });
   };
 
   const padY = "py-4";
@@ -1699,6 +1834,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         sourceTitle={pdfDiscoveryTarget?.title ?? ""}
         query={searchQuery}
         autoDiscover
+        jobs={jobs}
         onClose={() => setPdfDiscoveryTarget(null)}
       />
     </div>

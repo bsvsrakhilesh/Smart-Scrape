@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 import re
 import json
@@ -16,13 +16,12 @@ import requests
 import trafilatura
 from pdfminer.high_level import extract_pages, extract_text as pdfminer_extract
 
-OCR_ENABLED = os.getenv("OCR_ENABLED", "false").lower() == "true"
-OCR_LANGS = os.getenv("OCR_LANGS", "eng")
-OCR_PDF_DPI = int(os.getenv("OCR_PDF_DPI", "200"))
-OCR_MAX_PAGES = max(1, int(os.getenv("OCR_MAX_PAGES", "20")))
-OCR_PDF_MIN_CHARS = max(0, int(os.getenv("OCR_PDF_MIN_CHARS", "120")))
-OCR_IMAGE_MAX_SIDE = max(640, int(os.getenv("OCR_IMAGE_MAX_SIDE", "2200")))
-OCR_IMAGE_MIN_CHARS = max(0, int(os.getenv("OCR_IMAGE_MIN_CHARS", "20")))
+from ocr_router import (
+    OcrRuntimeError,
+    normalize_ocr_options,
+    ocr_pdf_bytes,
+    ocr_pil_image_to_page,
+)
 
 URL_CONNECT_TIMEOUT = float(os.getenv("URL_CONNECT_TIMEOUT", "8"))
 URL_READ_TIMEOUT = float(os.getenv("URL_READ_TIMEOUT", "20"))
@@ -197,6 +196,7 @@ def _unit(
     *,
     source: str,
     ocr_used: bool,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     cleaned = _normalize_text(text)
     if not cleaned:
@@ -207,6 +207,7 @@ def _unit(
         "source": source,
         "ocrUsed": bool(ocr_used),
         "charCount": len(cleaned),
+        **(extra or {}),
     }
 
 
@@ -226,6 +227,13 @@ def _summarize_units(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "ocrUsed": bool(u.get("ocrUsed")),
                 "charCount": int(u.get("charCount") or len(txt)),
                 "preview": txt[:280],
+                **(
+                    {
+                        k: u.get(k)
+                        for k in ("ocrEngine", "isBlank", "isWeak")
+                        if k in u
+                    }
+                ),
             }
         )
     return out
@@ -255,41 +263,44 @@ def _finalize_bundle(
     }
 
 
-def _ocr_pil_image(image, *, locator: Dict[str, Any], source: str) -> Optional[Dict[str, Any]]:
-    if not OCR_ENABLED:
+def _ocr_pil_image(
+    image,
+    *,
+    locator: Dict[str, Any],
+    source: str,
+    ocr_options: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    opts = normalize_ocr_options(ocr_options)
+    if not opts["enabled"]:
         return None
     try:
-        import pytesseract  # type: ignore
-        from PIL import ImageOps  # type: ignore
-
-        im = image.convert("RGB")
-        w, h = im.size
-        max_side = max(w, h)
-        if max_side > OCR_IMAGE_MAX_SIDE:
-            scale = OCR_IMAGE_MAX_SIDE / float(max_side)
-            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
-        im = ImageOps.autocontrast(im)
-
-        txt = pytesseract.image_to_string(im, lang=OCR_LANGS, config="--psm 6")
-        cleaned = _normalize_text(txt)
-        if len(cleaned) < OCR_IMAGE_MIN_CHARS:
-            txt = pytesseract.image_to_string(im, lang=OCR_LANGS, config="--psm 11")
-            cleaned = _normalize_text(txt)
-
-        if not cleaned:
+        page = ocr_pil_image_to_page(image, page_number=1, options=opts, engine="tesseract")
+        if page.get("isBlank"):
             return None
 
-        return _unit(cleaned, locator, source=source, ocr_used=True)
+        return _unit(
+            page.get("text") or "",
+            locator,
+            source=source,
+            ocr_used=True,
+            extra={
+                "ocrEngine": page.get("engine"),
+                "isBlank": bool(page.get("isBlank")),
+                "isWeak": bool(page.get("isWeak")),
+            },
+        )
     except Exception:
         return None
 
 
-def _extract_pdf_native_units(data: bytes) -> List[Dict[str, Any]]:
+def _extract_pdf_native(data: bytes) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     units: List[Dict[str, Any]] = []
+    page_count: Optional[int] = None
     try:
         from pdfminer.layout import LTTextContainer  # type: ignore
 
         for page_idx, page_layout in enumerate(extract_pages(io.BytesIO(data)), start=1):
+            page_count = page_idx
             parts: List[str] = []
             for element in page_layout:
                 if isinstance(element, LTTextContainer):
@@ -305,12 +316,44 @@ def _extract_pdf_native_units(data: bytes) -> List[Dict[str, Any]]:
                 units.append(unit)
     except Exception:
         units = []
+        page_count = None
 
+    return units, page_count
+
+
+def _extract_pdf_native_units(data: bytes) -> List[Dict[str, Any]]:
+    units, _page_count = _extract_pdf_native(data)
     return units
 
 
-def _from_pdf_bytes_bundle(data: bytes) -> Dict[str, Any]:
-    native_units = _extract_pdf_native_units(data)
+def _pdf_ocr_units(result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    units: List[Dict[str, Any]] = []
+    for page in result.get("pages") or []:
+        if page.get("isBlank"):
+            continue
+        unit = _unit(
+            page.get("text") or "",
+            _locator(kind="page", pageNumber=page.get("pageNumber")),
+            source=str(page.get("engine") or result.get("engine") or "ocr"),
+            ocr_used=True,
+            extra={
+                "ocrEngine": page.get("engine") or result.get("engine"),
+                "isBlank": bool(page.get("isBlank")),
+                "isWeak": bool(page.get("isWeak")),
+            },
+        )
+        if unit:
+            units.append(unit)
+    return units
+
+
+def _from_pdf_bytes_bundle(
+    data: bytes,
+    *,
+    ocr_options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    opts = normalize_ocr_options(ocr_options)
+    native_units, page_count = _extract_pdf_native(data)
     native_text = _join_units(native_units)
 
     try:
@@ -330,29 +373,30 @@ def _from_pdf_bytes_bundle(data: bytes) -> Dict[str, Any]:
         if u:
             native_units.append(u)
 
-    if native_text and len(native_text) >= OCR_PDF_MIN_CHARS:
-        return _finalize_bundle("pdf", "native", native_units, ocr_used=False)
+    base_extra: Dict[str, Any] = {
+        "nativeCharCount": len(native_text),
+        "pageCount": page_count,
+    }
 
-    if OCR_ENABLED:
+    if native_text and len(native_text) >= int(opts["pdfMinChars"]):
+        return _finalize_bundle(
+            "pdf",
+            "native",
+            native_units,
+            ocr_used=False,
+            extra=base_extra,
+        )
+
+    if opts["enabled"]:
+        ocr_errors: List[str] = []
         try:
-            from pdf2image import convert_from_bytes  # type: ignore
-
-            pages = convert_from_bytes(
+            ocr_result = ocr_pdf_bytes(
                 data,
-                dpi=max(72, OCR_PDF_DPI),
-                first_page=1,
-                last_page=OCR_MAX_PAGES,
+                options=opts,
+                page_count=page_count,
             )
-
-            ocr_units: List[Dict[str, Any]] = []
-            for idx, page in enumerate(pages, start=1):
-                unit = _ocr_pil_image(
-                    page,
-                    locator=_locator(kind="page", pageNumber=idx),
-                    source="tesseract",
-                )
-                if unit:
-                    ocr_units.append(unit)
+            ocr_units = _pdf_ocr_units(ocr_result)
+            ocr_errors = list(ocr_result.get("errors") or [])
 
             if ocr_units:
                 return _finalize_bundle(
@@ -361,19 +405,27 @@ def _from_pdf_bytes_bundle(data: bytes) -> Dict[str, Any]:
                     ocr_units,
                     ocr_used=True,
                     extra={
-                        "nativeCharCount": len(native_text),
-                        "ocrPageCount": len(ocr_units),
+                        **base_extra,
+                        "ocrEngine": ocr_result.get("engine"),
+                        "ocrFallbackUsed": bool(ocr_result.get("fallbackUsed")),
+                        "ocrLangs": (ocr_result.get("options") or {}).get("langs"),
+                        "ocrPageRange": (ocr_result.get("options") or {}).get("pages"),
+                        "ocrQuality": ocr_result.get("quality") or {},
+                        "ocrErrors": ocr_errors,
                     },
                 )
-        except Exception:
-            pass
+        except (OcrRuntimeError, ValueError) as exc:
+            ocr_errors.append(str(exc))
+        except Exception as exc:
+            ocr_errors.append(f"OCR failed: {exc}")
+        base_extra["ocrErrors"] = ocr_errors
 
     return _finalize_bundle(
         "pdf",
         "native" if native_units else "empty",
         native_units,
         ocr_used=False,
-        extra={"nativeCharCount": len(native_text)},
+        extra=base_extra,
     )
 
 
@@ -464,7 +516,12 @@ def _from_text_bytes_bundle(data: bytes, *, kind: str = "text") -> Dict[str, Any
     return _finalize_bundle(kind, "native", units, ocr_used=False)
 
 
-def _from_image_bytes_bundle(data: bytes, *, file_name: Optional[str] = None) -> Dict[str, Any]:
+def _from_image_bytes_bundle(
+    data: bytes,
+    *,
+    file_name: Optional[str] = None,
+    ocr_options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     units: List[Dict[str, Any]] = []
     try:
         from PIL import Image, ImageSequence  # type: ignore
@@ -476,6 +533,7 @@ def _from_image_bytes_bundle(data: bytes, *, file_name: Optional[str] = None) ->
                         frame.copy(),
                         locator=_locator(kind="image-frame", imageIndex=1, frameNumber=idx),
                         source="tesseract",
+                        ocr_options=ocr_options,
                     )
                     if unit:
                         units.append(unit)
@@ -486,13 +544,27 @@ def _from_image_bytes_bundle(data: bytes, *, file_name: Optional[str] = None) ->
                     im,
                     locator=_locator(kind="image", imageIndex=1, fileName=file_name),
                     source="tesseract",
+                    ocr_options=ocr_options,
                 )
                 if unit:
                     units.append(unit)
     except Exception:
         units = []
 
-    return _finalize_bundle("image", "ocr" if units else "empty", units, ocr_used=bool(units))
+    quality = {
+        "pageCount": len(units),
+        "processedPages": len(units),
+        "blankPages": 0,
+        "weakPages": sum(1 for unit in units if unit.get("isWeak")),
+        "charCount": sum(int(unit.get("charCount") or 0) for unit in units),
+    }
+    return _finalize_bundle(
+        "image",
+        "ocr" if units else "empty",
+        units,
+        ocr_used=bool(units),
+        extra={"ocrEngine": "tesseract", "ocrQuality": quality} if units else None,
+    )
 
 
 def _looks_like_pdf(data: bytes) -> bool:
@@ -524,7 +596,11 @@ def from_text(text: Optional[str]) -> str:
     return text or ""
 
 
-def from_url(url: str) -> str:
+def _from_url_bundle(
+    url: str,
+    *,
+    ocr_options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     resp = requests.get(
         url,
         timeout=(URL_CONNECT_TIMEOUT, URL_READ_TIMEOUT),
@@ -551,17 +627,37 @@ def from_url(url: str) -> str:
     is_pdf_magic = _looks_like_pdf(data)
 
     if is_pdf_header or is_pdf_magic or looks_like_pdf_url:
-        return _from_pdf_bytes_bundle(data)["text"]
+        bundle = _from_pdf_bytes_bundle(data, ocr_options=ocr_options)
+        bundle.setdefault("extraction", {})["url"] = url
+        return bundle
 
     html = resp.text or ""
     if not html:
-        return ""
+        return _finalize_bundle("url", "empty", [], ocr_used=False, extra={"url": url})
 
-    return _extract_from_html(html, url=url)
+    txt = _extract_from_html(html, url=url)
+    units: List[Dict[str, Any]] = []
+    u = _unit(txt, _locator(kind="document", url=url), source="url", ocr_used=False)
+    if u:
+        units.append(u)
+    return _finalize_bundle("url", "fetched", units, ocr_used=False, extra={"url": url})
 
 
-def from_file(file_bytes: bytes, file_name: Optional[str] = None) -> str:
-    return extract_content(file_bytes=file_bytes, file_name=file_name).get("text", "")
+def from_url(url: str, *, ocr_options: Optional[Dict[str, Any]] = None) -> str:
+    return _from_url_bundle(url, ocr_options=ocr_options).get("text", "")
+
+
+def from_file(
+    file_bytes: bytes,
+    file_name: Optional[str] = None,
+    *,
+    ocr_options: Optional[Dict[str, Any]] = None,
+) -> str:
+    return extract_content(
+        file_bytes=file_bytes,
+        file_name=file_name,
+        ocr_options=ocr_options,
+    ).get("text", "")
 
 
 def from_path(file_path: str) -> str:
@@ -581,6 +677,7 @@ def extract_content(
     file_bytes: Optional[bytes] = None,
     file_name: Optional[str] = None,
     file_path: Optional[str] = None,
+    ocr_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if text:
         units: List[Dict[str, Any]] = []
@@ -590,12 +687,7 @@ def extract_content(
         return _finalize_bundle("text", "provided", units, ocr_used=False)
 
     if url:
-        txt = from_url(url)
-        units: List[Dict[str, Any]] = []
-        u = _unit(txt, _locator(kind="document", url=url), source="url", ocr_used=False)
-        if u:
-            units.append(u)
-        return _finalize_bundle("url", "fetched", units, ocr_used=False)
+        return _from_url_bundle(url, ocr_options=ocr_options)
 
     if file_path and file_bytes is None:
         try:
@@ -611,7 +703,7 @@ def extract_content(
     name = (file_name or "").lower()
 
     if name.endswith(".pdf") or _looks_like_pdf(file_bytes):
-        return _from_pdf_bytes_bundle(file_bytes)
+        return _from_pdf_bytes_bundle(file_bytes, ocr_options=ocr_options)
 
     if name.endswith(".docx"):
         return _from_docx_bytes_bundle(file_bytes)
@@ -626,7 +718,11 @@ def extract_content(
         or _looks_like_webp(file_bytes)
         or _looks_like_gif(file_bytes)
     ):
-        return _from_image_bytes_bundle(file_bytes, file_name=file_name)
+        return _from_image_bytes_bundle(
+            file_bytes,
+            file_name=file_name,
+            ocr_options=ocr_options,
+        )
 
     if name.endswith(".json"):
         return _from_text_bytes_bundle(file_bytes, kind="json")
@@ -649,6 +745,7 @@ def extract_text(
     file_bytes: Optional[bytes] = None,
     file_name: Optional[str] = None,
     file_path: Optional[str] = None,
+    ocr_options: Optional[Dict[str, Any]] = None,
 ) -> str:
     return extract_content(
         text=text,
@@ -656,4 +753,5 @@ def extract_text(
         file_bytes=file_bytes,
         file_name=file_name,
         file_path=file_path,
+        ocr_options=ocr_options,
     ).get("text", "")

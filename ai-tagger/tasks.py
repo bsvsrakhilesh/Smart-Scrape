@@ -106,6 +106,7 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     t = (payload.get("input_type") or "").strip()
     topk = str(payload.get("topk", ""))
     use_llm = str(payload.get("use_llm", ""))
+    ocr_options = json.dumps(payload.get("ocr_options") or {}, sort_keys=True)
     if t == "text":
         base = _normalize_ws(payload.get("text") or "")
     elif t == "url":
@@ -124,7 +125,7 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
         # Fallback: bounded JSON dump
         base = json.dumps(payload, sort_keys=True)[:2048]
 
-    raw = f"{t}|k={topk}|llm={use_llm}|{base}"
+    raw = f"{t}|k={topk}|llm={use_llm}|ocr={ocr_options}|{base}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -236,6 +237,7 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
         input_type = payload.get("input_type")
         topk = int(payload.get("topk", 10))
         use_llm = bool(payload.get("use_llm", False))
+        ocr_options = payload.get("ocr_options") or None
 
         _emit_progress(
             self,
@@ -283,10 +285,15 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                     url=url,
                     topk=topk,
                     use_llm=use_llm,
+                    ocr_options=ocr_options,
                 )
             else:
                 if extract_text:
-                    text = _call_with_supported(extract_text, url=url)  # type: ignore
+                    text = _call_with_supported(
+                        extract_text,
+                        url=url,
+                        ocr_options=ocr_options,
+                    )  # type: ignore
                     out = _fallback_tag(
                         text or "", version=os.getenv("TAGGER_VERSION", "0.1.0")
                     )
@@ -322,6 +329,7 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                     "file_name": file_name,
                     "topk": topk,
                     "use_llm": use_llm,
+                    "ocr_options": ocr_options,
                 }
                 if file_path:
                     kwargs["file_path"] = file_path
@@ -333,6 +341,7 @@ def process_job(self: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
                 if extract_text:
                     kwargs: Dict[str, Any] = {
                         "file_name": file_name,
+                        "ocr_options": ocr_options,
                     }
                     if file_path:
                         kwargs["file_path"] = file_path

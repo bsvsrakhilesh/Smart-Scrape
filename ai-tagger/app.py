@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
 
+from ocr_router import get_ocr_readiness, parse_page_range
 from tasks import CELERY, process_job  # celery app + task
 
 log = logging.getLogger("ai_tagger")
@@ -53,6 +54,7 @@ def health() -> Dict[str, Any]:
             "workers": worker_count,
             "worker_names": worker_names,
         },
+        "ocr": get_ocr_readiness(),
     }
 
 
@@ -62,6 +64,87 @@ def _normalize_bool(val: Optional[str], default=True) -> bool:
     if val is None:
         return default
     return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _first_value(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+async def _json_payload(request: Request) -> Dict[str, Any]:
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" not in content_type:
+        return {}
+    try:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_ocr_options(
+    *,
+    engine: Any = None,
+    langs: Any = None,
+    pages: Any = None,
+    deskew: Any = None,
+    rotate_pages: Any = None,
+    clean: Any = None,
+    fallback: Any = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[JSONResponse]]:
+    raw = {
+        "engine": engine,
+        "langs": langs,
+        "pages": pages,
+        "deskew": deskew,
+        "rotatePages": rotate_pages,
+        "clean": clean,
+        "fallback": fallback,
+    }
+    if all(value is None for value in raw.values()):
+        return None, None
+
+    if engine is not None and str(engine).strip().lower() not in {
+        "auto",
+        "ocrmypdf",
+        "tesseract",
+    }:
+        return None, JSONResponse(
+            status_code=400,
+            content={
+                "detail": "ocr_engine must be one of: auto, ocrmypdf, tesseract",
+                "code": "INVALID_OCR_ENGINE",
+            },
+        )
+
+    if pages is not None:
+        try:
+            parse_page_range(pages)
+        except Exception as exc:
+            return None, JSONResponse(
+                status_code=400,
+                content={"detail": str(exc), "code": "INVALID_OCR_PAGES"},
+            )
+
+    options: Dict[str, Any] = {"enabled": True}
+    if engine is not None:
+        options["engine"] = str(engine).strip().lower()
+    if langs is not None:
+        options["langs"] = str(langs).strip()
+    if pages is not None:
+        options["pages"] = str(pages).strip()
+    if deskew is not None:
+        options["deskew"] = _normalize_bool(deskew, default=True)
+    if rotate_pages is not None:
+        options["rotatePages"] = _normalize_bool(rotate_pages, default=True)
+    if clean is not None:
+        options["clean"] = _normalize_bool(clean, default=False)
+    if fallback is not None:
+        options["fallback"] = _normalize_bool(fallback, default=True)
+
+    return options, None
 
 
 def _safe_file_name(name: Optional[str]) -> str:
@@ -177,13 +260,46 @@ async def create_job(
     # knobs
     topk: Optional[int] = Form(20),
     use_llm: Optional[str] = Form("true"),
+    ocr_engine: Optional[str] = Form(None),
+    ocr_langs: Optional[str] = Form(None),
+    ocr_pages: Optional[str] = Form(None),
+    ocr_deskew: Optional[str] = Form(None),
+    ocr_rotate_pages: Optional[str] = Form(None),
+    ocr_clean: Optional[str] = Form(None),
+    ocr_fallback: Optional[str] = Form(None),
 ):
     """
     Accepts any of: url, text, file_path, file_base64, or a file upload
     (under any field name). Large files are queued by shared path, not inline base64.
     """
+    json_body = await _json_payload(request)
+
+    url = _first_value(url, json_body.get("url"))
+    text = _first_value(text, json_body.get("text"))
+    file_base64 = _first_value(file_base64, json_body.get("file_base64"), json_body.get("fileBase64"))
+    file_name = _first_value(file_name, json_body.get("file_name"), json_body.get("fileName"))
+    file_path = _first_value(file_path, json_body.get("file_path"), json_body.get("filePath"))
+    topk = _first_value(json_body.get("topk"), topk)
+    use_llm = _first_value(json_body.get("use_llm"), json_body.get("useLLM"), use_llm)
+
     use_llm_bool = _normalize_bool(use_llm, default=True)
     topk = int(topk) if topk is not None else 20
+
+    ocr_options, ocr_error = _build_ocr_options(
+        engine=_first_value(ocr_engine, json_body.get("ocr_engine"), json_body.get("ocrEngine")),
+        langs=_first_value(ocr_langs, json_body.get("ocr_langs"), json_body.get("ocrLangs")),
+        pages=_first_value(ocr_pages, json_body.get("ocr_pages"), json_body.get("ocrPages")),
+        deskew=_first_value(ocr_deskew, json_body.get("ocr_deskew"), json_body.get("ocrDeskew")),
+        rotate_pages=_first_value(
+            ocr_rotate_pages,
+            json_body.get("ocr_rotate_pages"),
+            json_body.get("ocrRotatePages"),
+        ),
+        clean=_first_value(ocr_clean, json_body.get("ocr_clean"), json_body.get("ocrClean")),
+        fallback=_first_value(ocr_fallback, json_body.get("ocr_fallback"), json_body.get("ocrFallback")),
+    )
+    if ocr_error is not None:
+        return ocr_error
 
     worker_count = _celery_worker_count()
     if worker_count == 0:
@@ -214,6 +330,8 @@ async def create_job(
             log.warning("Failed to parse multipart form: %s", e)
 
     payload: Dict[str, Any] = {"topk": topk, "use_llm": use_llm_bool}
+    if ocr_options:
+        payload["ocr_options"] = ocr_options
 
     if text:
         payload.update({"input_type": "text", "text": text})

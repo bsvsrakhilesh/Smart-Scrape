@@ -181,6 +181,7 @@ def _load_content_bundle(
     file_bytes: Optional[bytes] = None,
     file_name: Optional[str] = None,
     file_path: Optional[str] = None,
+    ocr_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     global extract_text, extract_content
     try:
@@ -204,6 +205,7 @@ def _load_content_bundle(
                 file_bytes=file_bytes,
                 file_name=file_name,
                 file_path=file_path,
+                ocr_options=ocr_options,
             )
             or {}
         )
@@ -218,6 +220,7 @@ def _load_content_bundle(
                 file_bytes=file_bytes,
                 file_name=file_name,
                 file_path=file_path,
+                ocr_options=ocr_options,
             )
             or ""
         )
@@ -2097,6 +2100,7 @@ def extract_and_tag_sync(
     file_bytes: Optional[bytes] = None,
     file_name: Optional[str] = None,
     file_path: Optional[str] = None,
+    ocr_options: Optional[Dict[str, Any]] = None,
     topk: int = 20,
     use_llm: bool = False,
 ) -> Dict[str, Any]:
@@ -2111,6 +2115,7 @@ def extract_and_tag_sync(
             file_bytes=file_bytes,
             file_name=file_name,
             file_path=file_path,
+            ocr_options=ocr_options,
         )
         or {}
     )

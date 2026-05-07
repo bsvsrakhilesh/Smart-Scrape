@@ -10,13 +10,20 @@ ENV PYTHONUNBUFFERED=1 \
 
 # ---- OS deps ----
 # build-essential: for packages that need compilation
-# poppler-utils: pdf2image backend (pdftoppm)
-# tesseract-ocr: OCR backend (pytesseract)
+# poppler-utils: pdf2image fallback backend (pdftoppm)
+# OCRmyPDF stack: primary scanned-PDF OCR path
+# tesseract-ocr: image/fallback OCR backend
 # curl: for HEALTHCHECK
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    ghostscript \
+    ocrmypdf \
     poppler-utils \
+    qpdf \
+    unpaper \
     tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-hin \
     curl \
  && rm -rf /var/lib/apt/lists/*
 

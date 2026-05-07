@@ -8,6 +8,7 @@ export type CollectorSearchWebOptions = {
   jurisdiction?: string;
   region?: string;
   fileType?: "pdf" | "html";
+  excludeFileType?: "pdf";
   lr?: string;
   cr?: string;
   gl?: string;
@@ -122,6 +123,7 @@ export function formatAppliedCollectorSearchPlan(
 
   if (opts?.fileType === "pdf") parts.push("format=pdf");
   if (opts?.fileType === "html") parts.push("format=html");
+  if (opts?.excludeFileType === "pdf") parts.push("format=exclude-pdf");
 
   return parts.join(" | ");
 }

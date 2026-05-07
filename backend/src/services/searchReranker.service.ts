@@ -153,7 +153,8 @@ function buildQueryHints(query: string, opts?: GoogleSearchOpts): QueryHints {
 
   const wantsHtmlOnly = opts?.fileType === "html";
 
-  const excludePdf = /\b-filetype:pdf\b/i.test(query);
+  const excludePdf =
+    opts?.excludeFileType === "pdf" || /\b-filetype:pdf\b/i.test(query);
 
   const isCourtIntent =
     /\bcourt\b|\bjudg(e)?ment\b|\border\b|\btribunal\b|\bwrit\b|\bpetition\b|\baffidavit\b/.test(

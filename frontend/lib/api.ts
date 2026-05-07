@@ -205,6 +205,7 @@ export type SearchWebOptions = {
   jurisdiction?: string;
   region?: string;
   fileType?: "pdf" | "html";
+  excludeFileType?: "pdf";
   lr?: string; // e.g. lang_en
   cr?: string; // e.g. countryIN
   gl?: string; // e.g. IN

@@ -10,6 +10,7 @@ export type GoogleSearchOpts = {
   jurisdiction?: string; // AND constraint via hq
   region?: string; // AND constraint via hq
   fileType?: "pdf" | "html";
+  excludeFileType?: "pdf";
   lr?: string; // e.g. lang_en
   cr?: string; // e.g. countryIN
   gl?: string; // e.g. IN
@@ -110,6 +111,10 @@ export async function googleSearch(
     .filter(Boolean);
   const hq = hqParts.length ? hqParts.join(" ") : undefined;
 
+  if (opts.excludeFileType === "pdf" && !/\b-filetype:pdf\b/i.test(qClean)) {
+    qClean = [qClean, "-filetype:pdf"].filter(Boolean).join(" ");
+  }
+
   const sort = sortRangeForYears(opts.yearFrom, opts.yearTo);
 
   const startedAt = Date.now();
@@ -167,6 +172,7 @@ export async function googleSearch(
       hq,
       siteSearch: siteHost || undefined,
       fileType: opts.fileType,
+      excludeFileType: opts.excludeFileType,
       lr: opts.lr,
       cr,
       gl,
@@ -195,6 +201,7 @@ export async function googleSearch(
       query: q,
       hq,
       siteSearch: siteHost || undefined,
+      excludeFileType: opts.excludeFileType,
       status,
       reason,
       hint,

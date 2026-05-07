@@ -319,11 +319,8 @@ const UrlCollectorPage: React.FC = () => {
       jurisdiction: sc.jurisdiction.trim() || undefined,
       region: sc.region.trim() || undefined,
       fileType:
-        sc.format === "pdfOnly"
-          ? "pdf"
-          : sc.format === "excludePdf"
-            ? "html"
-            : undefined,
+        sc.format === "pdfOnly" ? "pdf" : undefined,
+      excludeFileType: sc.format === "excludePdf" ? "pdf" : undefined,
     };
   }
 

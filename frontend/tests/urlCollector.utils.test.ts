@@ -54,6 +54,15 @@ test("formatAppliedCollectorSearchPlan shows structured filters without pollutin
   assert.equal(out.includes("before:"), false);
 });
 
+test("formatAppliedCollectorSearchPlan shows PDF exclusion as exclusion, not html-only", () => {
+  const out = formatAppliedCollectorSearchPlan("air quality", {
+    excludeFileType: "pdf",
+  });
+
+  assert.equal(out, "air quality | format=exclude-pdf");
+  assert.equal(out.includes("format=html"), false);
+});
+
 test("inferPreferredCollectorCapture prefers PDF for official document types and PDF urls", () => {
   const courtOrder: SearchResult = {
     title: "Order",

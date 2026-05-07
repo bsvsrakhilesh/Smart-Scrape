@@ -40,6 +40,9 @@ export async function searchHandler(
     jurisdiction: strOrUndef(req.query.jurisdiction),
     region: strOrUndef(req.query.region),
     fileType: strOrUndef(req.query.fileType) as "pdf" | "html" | undefined,
+    excludeFileType: strOrUndef(req.query.excludeFileType) as
+      | "pdf"
+      | undefined,
     lr: strOrUndef(req.query.lr),
     cr: strOrUndef(req.query.cr),
     gl: strOrUndef(req.query.gl),
@@ -114,6 +117,9 @@ export async function searchRerankHandler(
     jurisdiction: strOrUndef(req.body?.jurisdiction),
     region: strOrUndef(req.body?.region),
     fileType: strOrUndef(req.body?.fileType) as "pdf" | "html" | undefined,
+    excludeFileType: strOrUndef(req.body?.excludeFileType) as
+      | "pdf"
+      | undefined,
   };
 
   if (!q && !opts.site) {

@@ -15,6 +15,16 @@ test("querySchema accepts site-only collector searches", () => {
   assert.equal(parsed.fileType, "pdf");
 });
 
+test("querySchema accepts explicit PDF exclusion for non-PDF searches", () => {
+  const parsed = querySchema.parse({
+    q: "air quality",
+    excludeFileType: "pdf",
+  });
+
+  assert.equal(parsed.excludeFileType, "pdf");
+  assert.equal(parsed.fileType, undefined);
+});
+
 test("querySchema still rejects underspecified free-text searches", () => {
   const parsed = querySchema.safeParse({ q: "a" });
 

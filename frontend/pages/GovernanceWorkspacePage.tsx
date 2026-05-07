@@ -53,6 +53,13 @@ type WorkspaceIntakeMode =
   | "case_trace"
   | "question_review";
 
+type GovernanceQueryType =
+  | "broad_scan"
+  | "case_review"
+  | "chronology_review"
+  | "contradiction_review"
+  | "question_review";
+
 const workspaceIntentModeOptions: Array<{
   value: WorkspaceIntakeMode;
   label: string;
@@ -134,13 +141,7 @@ function formatWorkspaceIntentModeLabel(mode: WorkspaceIntakeMode) {
   }
 }
 
-function formatQueryTypeLabel(
-  type:
-    | "broad_scan"
-    | "case_review"
-    | "chronology_review"
-    | "contradiction_review",
-) {
+function formatQueryTypeLabel(type: GovernanceQueryType) {
   switch (type) {
     case "contradiction_review":
       return "Contradiction review";

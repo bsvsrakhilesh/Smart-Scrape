@@ -651,6 +651,14 @@ export type FetchSavedUrlsParams = {
   snapshotStatus?: "all" | "missing" | "stale" | "fresh";
   taggingStatus?: "all" | "NONE" | "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
   metadataState?: "all" | "missing" | "complete";
+  reviewStatus?: "updated-since-review";
+  queueId?:
+    | "all"
+    | "never-captured"
+    | "stale-capture"
+    | "ai-failed"
+    | "metadata-missing"
+    | "updated-since-review";
   sortKey?: "createdAt" | "updatedAt" | "title";
   sortOrder?: "asc" | "desc";
   page?: number;
@@ -676,6 +684,17 @@ export type SavedUrlReviewQueueSummary = {
   staleCapture: number;
   aiFailed: number;
   metadataMissing: number;
+  updatedSinceReview?: number;
+};
+
+export type SavedUrlWorkspaceResponse = {
+  urls: PagedSavedUrlsResponse;
+  facets: SavedUrlFacetSummary;
+  queueSummary: SavedUrlReviewQueueSummary;
+  collections: BackendCollection[];
+  savedSearches: BackendSavedUrlSearchPreset[];
+  taggingSummary: UrlTaggingSummary;
+  libraryTotal: number;
 };
 
 export async function fetchSavedUrls(): Promise<BackendUrlRow[]> {
@@ -730,6 +749,21 @@ export async function fetchSavedUrlReviewQueueSummary(
     },
   });
   return res.data as SavedUrlReviewQueueSummary;
+}
+
+export async function fetchSavedUrlWorkspace(
+  params: FetchSavedUrlsParams,
+  options: SavedUrlRequestOptions = {},
+): Promise<SavedUrlWorkspaceResponse> {
+  const res = await api.get("/api/saved-url-workspace", {
+    signal: options.signal,
+    params: {
+      ...params,
+      tags: params.tags?.length ? params.tags.join(",") : undefined,
+      domains: params.domains?.length ? params.domains.join(",") : undefined,
+    },
+  });
+  return res.data as SavedUrlWorkspaceResponse;
 }
 
 export async function saveUrls(
@@ -883,6 +917,135 @@ export async function deleteUrlsBulk(
 ): Promise<BulkDeleteUrlsResult> {
   const res = await api.delete("/api/urls", { data: { ids } });
   return res.data as BulkDeleteUrlsResult;
+}
+
+export type SavedUrlOperationStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "failed"
+  | "canceled";
+
+export type SavedUrlOperationType =
+  | "saved_url_bulk_capture_text"
+  | "saved_url_bulk_capture_pdf"
+  | "saved_url_bulk_ai_tag"
+  | "saved_url_metadata_refresh"
+  | "saved_url_bulk_delete"
+  | "saved_url_collection_assign";
+
+export type SavedUrlOperationItem = {
+  id: string;
+  runId: string;
+  resourceType: string;
+  resourceId: number;
+  status: SavedUrlOperationStatus;
+  error?: string | null;
+  result?: unknown;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+};
+
+export type SavedUrlOperationRun = {
+  id: string;
+  ownerId: string;
+  type: SavedUrlOperationType;
+  status: SavedUrlOperationStatus;
+  total: number;
+  completed: number;
+  failed: number;
+  progressPct: number;
+  stage?: string;
+  statusMessage?: string;
+  error?: string | null;
+  meta?: unknown;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+  items?: SavedUrlOperationItem[];
+};
+
+export type CreateSavedUrlOperationInput = {
+  type: SavedUrlOperationType;
+  urlIds: number[];
+  options?: {
+    folderId?: string | null;
+    collectionId?: string;
+    collectionMode?: "add" | "move";
+    accessMode?: "public" | "institutional";
+  };
+};
+
+export async function fetchSavedUrlOperations(
+  limit = 20,
+): Promise<{ items: SavedUrlOperationRun[] }> {
+  const res = await api.get("/api/saved-url-operations", {
+    params: { limit },
+  });
+  return res.data as { items: SavedUrlOperationRun[] };
+}
+
+export async function fetchSavedUrlOperation(
+  id: string,
+): Promise<SavedUrlOperationRun> {
+  const res = await api.get(`/api/saved-url-operations/${id}`);
+  return res.data as SavedUrlOperationRun;
+}
+
+export async function createSavedUrlOperation(
+  body: CreateSavedUrlOperationInput,
+): Promise<SavedUrlOperationRun> {
+  const res = await api.post("/api/saved-url-operations", body);
+  return res.data as SavedUrlOperationRun;
+}
+
+export async function cancelSavedUrlOperation(
+  id: string,
+): Promise<SavedUrlOperationRun> {
+  const res = await api.post(`/api/saved-url-operations/${id}/cancel`);
+  return res.data as SavedUrlOperationRun;
+}
+
+export async function retryFailedSavedUrlOperation(
+  id: string,
+): Promise<SavedUrlOperationRun> {
+  const res = await api.post(`/api/saved-url-operations/${id}/retry-failed`);
+  return res.data as SavedUrlOperationRun;
+}
+
+export type SavedUrlReviewState = {
+  ownerId: string;
+  reviews: Record<string, string>;
+};
+
+export async function fetchSavedUrlReviews(
+  urlIds: number[],
+): Promise<SavedUrlReviewState> {
+  const res = await api.get("/api/saved-url-reviews", {
+    params: { urlIds: urlIds.join(",") },
+  });
+  return res.data as SavedUrlReviewState;
+}
+
+export async function markSavedUrlsReviewed(
+  urlIds: number[],
+): Promise<{ ownerId: string; reviewedAt: string; count: number; urlIds: number[] }> {
+  const res = await api.post("/api/saved-url-reviews/mark-reviewed", {
+    urlIds,
+  });
+  return res.data;
+}
+
+export async function clearSavedUrlReviews(
+  urlIds?: number[],
+): Promise<{ ownerId: string; cleared: number }> {
+  const res = await api.post("/api/saved-url-reviews/clear", {
+    ...(urlIds ? { urlIds } : {}),
+  });
+  return res.data;
 }
 
 // ---------- Collections API ----------

@@ -13,6 +13,9 @@ import SavedUrlCard from "../components/savedurls/SavedUrlCard";
 import SavedUrlDetailModal from "../components/savedurls/SavedUrlDetailModal";
 import CollectionSidebar from "../components/savedurls/CollectionSidebar";
 import CollectionPickerModal from "../components/savedurls/CollectionPickerModal";
+import SavedUrlsEmptyState from "../components/savedurls/SavedUrlsEmptyState";
+import SavedUrlsOperationsPanel from "../components/savedurls/SavedUrlsOperationsPanel";
+import SavedUrlsPagination from "../components/savedurls/SavedUrlsPagination";
 import BulkActionBar from "../components/common/BulkActionBar";
 import SourceRegistryTable from "../components/savedurls/SourceRegistryTable";
 import {
@@ -21,8 +24,8 @@ import {
   fetchSavedUrlReviewQueueSummary as apiFetchSavedUrlReviewQueueSummary,
   saveUrls as apiSaveUrls,
   patchUrl,
-  deleteUrlsBulk,
   type BackendUrlRow,
+  type FetchSavedUrlsParams,
   type UrlTaggingSummary,
   type BackendSavedUrlSearchPreset,
   getUrlTaggingSummary,
@@ -30,7 +33,6 @@ import {
   crawlSavePdf,
   crawlSaveText,
   getUrlTagJob,
-  startUrlTagJob,
   getUrlById,
   refreshUrlMetadata,
   fetchSavedUrlSearchPresets,
@@ -38,6 +40,9 @@ import {
   updateSavedUrlSearchPreset,
   deleteSavedUrlSearchPreset,
 } from "../lib/api";
+import { useSavedUrlOperationsQuery } from "../hooks/useSavedUrlOperations";
+import { useSavedUrlReviewState } from "../hooks/useSavedUrlReviewState";
+import { useSavedUrlsWorkspaceQuery } from "../hooks/useSavedUrlsWorkspaceQuery";
 import {
   deriveSeparatedTags,
   mergeUniqueTags,
@@ -45,7 +50,6 @@ import {
 } from "../lib/tagBuckets";
 import {
   AI_TAG_JOB_POLL_MS,
-  AI_TAG_JOB_TIMEOUT_SEC,
   deriveAiTagRuntimeFromJob,
 } from "../lib/aiTagUi";
 import FolderPickerModal from "../components/urlcollector/FolderPickerModal";
@@ -56,17 +60,9 @@ import {
   renameCollection,
   deleteCollection,
   setUrlCollections,
-  reconcileUrlCollections,
   hydrateCollectionsFromBackend,
 } from "../utils/collections";
 import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
-import {
-  loadReviewStampMap,
-  saveReviewStampMap,
-  markReviewedEntries,
-  isUpdatedSinceReview,
-  type ReviewStampMap,
-} from "../utils/reviewState";
 import TextEntryModal from "../components/common/TextEntryModal";
 import { useToast } from "../components/providers/Toast";
 import { useConfirm } from "../components/providers/Confirm";
@@ -93,7 +89,6 @@ type SavedUrlSearchPreset = {
   queueId: SavedUrlQueueId;
 };
 
-const SAVED_URLS_REVIEWED_KEY = "saved-urls:reviewed-at";
 const LEGACY_SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
 
 type SavedUrlsViewMode = "registry" | "cards";
@@ -162,14 +157,6 @@ function getInitialSavedUrlsViewMode(): SavedUrlsViewMode {
 
   const stored = localStorage.getItem(SAVED_URLS_VIEW_KEY);
   return stored === "cards" ? "cards" : "registry";
-}
-
-function isAbortLikeError(error: any) {
-  return (
-    error?.name === "CanceledError" ||
-    error?.name === "AbortError" ||
-    error?.code === "ERR_CANCELED"
-  );
 }
 
 const DEFAULT_URL_FILTER: UrlFilterState = {
@@ -555,12 +542,14 @@ const SavedUrlsPage: React.FC = () => {
     staleCapture: number;
     aiFailed: number;
     metadataMissing: number;
+    updatedSinceReview?: number;
   }>({
     all: 0,
     neverCaptured: 0,
     staleCapture: 0,
     aiFailed: 0,
     metadataMissing: 0,
+    updatedSinceReview: 0,
   });
 
   const [activeQueueId, setActiveQueueId] =
@@ -641,7 +630,7 @@ const SavedUrlsPage: React.FC = () => {
     year,
   ]);
 
-  const baseServerQuery = useMemo(() => {
+  const baseServerQuery = useMemo<FetchSavedUrlsParams>(() => {
     const snapshotStatus =
       activeServerQueue === "never-captured"
         ? "missing"
@@ -680,12 +669,17 @@ const SavedUrlsPage: React.FC = () => {
       snapshotStatus,
       taggingStatus,
       metadataState,
+      reviewStatus:
+        activeQueueId === "updated-since-review"
+          ? "updated-since-review"
+          : undefined,
       sortKey,
       sortOrder,
       pageSize: PAGE_SIZE,
     };
   }, [
     activeServerQueue,
+    activeQueueId,
     filter.dateFrom,
     filter.dateTo,
     filter.domains,
@@ -708,13 +702,35 @@ const SavedUrlsPage: React.FC = () => {
     year,
   ]);
 
-  const [reviewedAtById, setReviewedAtById] = useState<ReviewStampMap>(() =>
-    loadReviewStampMap(SAVED_URLS_REVIEWED_KEY),
+  const workspaceQueryParams = useMemo(
+    () => ({
+      ...baseServerQuery,
+      queueId: activeQueueId,
+      page,
+    }),
+    [activeQueueId, baseServerQuery, page],
   );
+  const workspaceQuery = useSavedUrlsWorkspaceQuery(workspaceQueryParams);
 
-  useEffect(() => {
-    saveReviewStampMap(SAVED_URLS_REVIEWED_KEY, reviewedAtById);
-  }, [reviewedAtById]);
+  const visibleUrlIds = useMemo(
+    () =>
+      urls
+        .map((url) => Number(url.id))
+        .filter((id) => Number.isFinite(id)),
+    [urls],
+  );
+  const savedUrlReviewState = useSavedUrlReviewState(visibleUrlIds);
+  const savedUrlOperations = useSavedUrlOperationsQuery(20);
+  const captureOperationLive = useMemo(
+    () =>
+      (savedUrlOperations.data?.items ?? []).some(
+        (operation) =>
+          (operation.status === "queued" || operation.status === "running") &&
+          (operation.type === "saved_url_bulk_capture_text" ||
+            operation.type === "saved_url_bulk_capture_pdf"),
+      ),
+    [savedUrlOperations.data?.items],
+  );
 
   const [savedSearches, setSavedSearches] = useState<SavedUrlSearchPreset[]>(
     [],
@@ -827,18 +843,6 @@ const SavedUrlsPage: React.FC = () => {
   const facetRequestSeqRef = useRef(0);
   const queueRequestSeqRef = useRef(0);
 
-  const rowsAbortRef = useRef<AbortController | null>(null);
-  const facetsAbortRef = useRef<AbortController | null>(null);
-  const queueAbortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    return () => {
-      rowsAbortRef.current?.abort();
-      facetsAbortRef.current?.abort();
-      queueAbortRef.current?.abort();
-    };
-  }, []);
-
   // Clipboard for bulk copy/cut/paste
   const [clipboard, setClipboard] = useState<{
     mode: "copy" | "cut";
@@ -863,14 +867,6 @@ const SavedUrlsPage: React.FC = () => {
   const [bulkPickerOpen, setBulkPickerOpen] = useState(false);
   const [bulkPickerMode, setBulkPickerMode] = useState<"text" | "pdf">("text");
   const [bulkTargets, setBulkTargets] = useState<UISavedUrl[]>([]);
-  const [bulkRunning, setBulkRunning] = useState(false);
-  const [bulkDone, setBulkDone] = useState(0);
-  const [bulkFailed, setBulkFailed] = useState(0);
-  const [bulkTotal, setBulkTotal] = useState(0);
-  const [bulkFailures, setBulkFailures] = useState<
-    { id: string; url: string; error: string }[]
-  >([]);
-  const bulkAbortRef = useRef(false);
 
   const refreshCollectionsFromServer = useCallback(async () => {
     await hydrateCollectionsFromBackend();
@@ -1025,6 +1021,72 @@ const SavedUrlsPage: React.FC = () => {
     return rows;
   }, []);
 
+  useEffect(() => {
+    const data = workspaceQuery.data;
+    if (!data) return;
+
+    const requestedPage = workspaceQueryParams.page ?? 1;
+    if (!data.urls.items.length && data.urls.total > 0 && requestedPage > 1) {
+      setPage(Math.max(1, Math.ceil(data.urls.total / data.urls.pageSize)));
+      return;
+    }
+
+    setUrls(data.urls.items.map(toUISaved));
+    setTotalResults(data.urls.total);
+    setFacetSummary(data.facets);
+    setQueueSummary(data.queueSummary);
+    setCollections(data.collections as Collection[]);
+    setSavedSearches(data.savedSearches.map(toSavedUrlSearchPreset));
+    setTagSummary(data.taggingSummary);
+    setTagSummaryError(null);
+    setLibraryTotalCount(data.libraryTotal);
+    setError(null);
+    setLoading(false);
+  }, [workspaceQuery.data, workspaceQueryParams.page]);
+
+  useEffect(() => {
+    if (workspaceQuery.isLoading || (workspaceQuery.isFetching && !workspaceQuery.data)) {
+      setLoading(true);
+    }
+  }, [workspaceQuery.data, workspaceQuery.isFetching, workspaceQuery.isLoading]);
+
+  useEffect(() => {
+    if (!workspaceQuery.error) return;
+    setError(
+      (workspaceQuery.error as any)?.message ??
+        "Failed to load saved URLs workspace",
+    );
+    setLoading(false);
+  }, [workspaceQuery.error]);
+
+  const operationTerminalSignature = useMemo(
+    () =>
+      (savedUrlOperations.data?.items ?? [])
+        .filter(
+          (operation) =>
+            operation.status === "success" ||
+            operation.status === "failed" ||
+            operation.status === "canceled",
+        )
+        .map((operation) => `${operation.id}:${operation.status}:${operation.updatedAt}`)
+        .join("|"),
+    [savedUrlOperations.data?.items],
+  );
+
+  useEffect(() => {
+    if (!operationTerminalSignature) return;
+    void Promise.all([
+      refreshRowsAndFacetsAndQueue(),
+      refreshTaggingSummary(),
+      refreshCollectionsFromServer(),
+    ]);
+  }, [
+    operationTerminalSignature,
+    refreshCollectionsFromServer,
+    refreshRowsAndFacetsAndQueue,
+    refreshTaggingSummary,
+  ]);
+
   const hydrateSavedSearchesFromBackend = useCallback(async () => {
     const existing = await refreshSavedSearchesFromBackend();
     if (existing.length > 0) return;
@@ -1097,24 +1159,6 @@ const SavedUrlsPage: React.FC = () => {
     }
   }, [refreshRowsAndQueueSummary, refreshTaggingSummary, notify]);
 
-  async function runPool<T>(
-    items: T[],
-    limit: number,
-    worker: (item: T) => Promise<void>,
-  ) {
-    const q = [...items];
-    const runners = new Array(Math.min(limit, items.length))
-      .fill(0)
-      .map(async () => {
-        while (q.length) {
-          if (bulkAbortRef.current) return;
-          const item = q.shift()!;
-          await worker(item);
-        }
-      });
-    await Promise.all(runners);
-  }
-
   const startBulkCapture = useCallback(
     async (
       mode: "text" | "pdf",
@@ -1123,135 +1167,40 @@ const SavedUrlsPage: React.FC = () => {
     ) => {
       if (!targets.length) return;
 
-      bulkAbortRef.current = false;
-      setBulkRunning(true);
-      setBulkDone(0);
-      setBulkFailed(0);
-      setBulkTotal(targets.length);
-      setBulkFailures([]);
-
-      const worker = async (u: UISavedUrl) => {
-        const urlId = Number(u.id);
-        try {
-          if (mode === "pdf") {
-            // NOTE: omit fileName → backend generates; we still pass urlId
-            await crawlSavePdf(
-              u.url,
-              folderId ?? undefined,
-              undefined,
-              true,
-              true,
-              urlId,
-            );
-          } else {
-            await crawlSaveText(u.url, folderId ?? undefined, undefined, urlId);
-          }
-          setBulkDone((x) => x + 1);
-        } catch (e: any) {
-          setBulkFailed((x) => x + 1);
-          setBulkFailures((prev) => [
-            ...prev,
-            { id: u.id, url: u.url, error: e?.message ?? "Capture failed" },
-          ]);
-        }
-      };
+      const operationUrlIds = targets
+        .map((target) => Number(target.id))
+        .filter((id) => Number.isFinite(id));
+      if (!operationUrlIds.length) return;
 
       try {
-        // limit=2 keeps load sane; bump to 3 if you want faster
-        await runPool(targets, 2, worker);
+        await savedUrlOperations.createOperation.mutateAsync({
+          type:
+            mode === "pdf"
+              ? "saved_url_bulk_capture_pdf"
+              : "saved_url_bulk_capture_text",
+          urlIds: operationUrlIds,
+          options: {
+            folderId: folderId ?? null,
+          },
+        });
 
-        // Refresh rows and queue summary so snapshot-related pills stay correct.
-        await refreshRowsAndQueueSummary();
-      } finally {
-        setBulkRunning(false);
+        notify({
+          text:
+            operationUrlIds.length === 1
+              ? `Queued ${mode.toUpperCase()} capture for 1 URL.`
+              : `Queued ${mode.toUpperCase()} capture for ${operationUrlIds.length} URLs.`,
+          kind: "success",
+        });
+      } catch (e: any) {
+        notify({
+          text: e?.message ?? "Could not queue capture operation.",
+          kind: "error",
+        });
       }
+      return;
     },
-    [refreshRowsAndQueueSummary],
+    [notify, savedUrlOperations.createOperation],
   );
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        await Promise.all([
-          refreshCollectionsFromServer(),
-          refreshLibraryTotalCount(),
-          refreshTaggingSummary(),
-        ]);
-        setError(null);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load saved URLs");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [
-    refreshCollectionsFromServer,
-    refreshLibraryTotalCount,
-    refreshTaggingSummary,
-  ]);
-
-  useEffect(() => {
-    rowsAbortRef.current?.abort();
-
-    const controller = new AbortController();
-    rowsAbortRef.current = controller;
-
-    (async () => {
-      setLoading(true);
-      try {
-        await refreshUrlsFromServer(undefined, controller.signal);
-        if (!controller.signal.aborted) {
-          setError(null);
-        }
-      } catch (e: any) {
-        if (isAbortLikeError(e)) return;
-        if (!controller.signal.aborted) {
-          setError(e?.message ?? "Failed to load saved URLs");
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      controller.abort();
-    };
-  }, [page, refreshUrlsFromServer]);
-
-  useEffect(() => {
-    facetsAbortRef.current?.abort();
-
-    const controller = new AbortController();
-    facetsAbortRef.current = controller;
-
-    refreshFacetSummary(controller.signal).catch((e: any) => {
-      if (isAbortLikeError(e)) return;
-      console.error("Failed to load saved URL facets", e);
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, [refreshFacetSummary]);
-
-  useEffect(() => {
-    queueAbortRef.current?.abort();
-
-    const controller = new AbortController();
-    queueAbortRef.current = controller;
-
-    refreshQueueSummary(controller.signal).catch((e: any) => {
-      if (isAbortLikeError(e)) return;
-      console.error("Failed to load saved URL queue summary", e);
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, [refreshQueueSummary]);
 
   useEffect(() => {
     hydrateSavedSearchesFromBackend().catch((e: any) => {
@@ -1509,21 +1458,15 @@ const SavedUrlsPage: React.FC = () => {
   // evaluates the rows loaded on the current page.
 
   const updatedSinceReviewCount = useMemo(
-    () =>
-      urls.filter((u) =>
-        isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
-      ).length,
-    [urls, reviewedAtById],
+    () => queueSummary.updatedSinceReview ?? 0,
+    [queueSummary.updatedSinceReview],
   );
 
-  const isLocalReviewQueueActive = activeQueueId === "updated-since-review";
+  const isReviewQueueActive = activeQueueId === "updated-since-review";
 
   const queueFiltered = useMemo(() => {
-    if (!isLocalReviewQueueActive) return urls;
-    return urls.filter((u) =>
-      isUpdatedSinceReview(u.updatedAt, reviewedAtById[u.id]),
-    );
-  }, [urls, isLocalReviewQueueActive, reviewedAtById]);
+    return urls;
+  }, [urls]);
 
   const sorted = useMemo(() => queueFiltered, [queueFiltered]);
 
@@ -1568,7 +1511,7 @@ const SavedUrlsPage: React.FC = () => {
       id: "updated-since-review" as SavedUrlQueueId,
       label: "Updated since review",
       count: updatedSinceReviewCount,
-      help: "Browser-local review state for the rows loaded on this page only",
+      help: "Server-backed review state for URLs updated after your last review",
     }),
     [updatedSinceReviewCount],
   );
@@ -1695,15 +1638,30 @@ const SavedUrlsPage: React.FC = () => {
     });
   }, [notify]);
 
-  const markVisibleReviewed = useCallback(() => {
+  const markVisibleReviewed = useCallback(async () => {
     if (!sorted.length) return;
-    setReviewedAtById((prev) =>
-      markReviewedEntries(
-        prev,
-        sorted.map((u) => u.id),
-      ),
-    );
-  }, [sorted]);
+    const ids = sorted
+      .map((u) => Number(u.id))
+      .filter((id) => Number.isFinite(id));
+    if (!ids.length) return;
+
+    try {
+      await savedUrlReviewState.markReviewed.mutateAsync(ids);
+      await refreshRowsAndQueueSummary();
+      notify({
+        text:
+          ids.length === 1
+            ? "Marked 1 visible URL as reviewed."
+            : `Marked ${ids.length} visible URLs as reviewed.`,
+        kind: "success",
+      });
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Failed to mark URLs reviewed.",
+        kind: "error",
+      });
+    }
+  }, [notify, refreshRowsAndQueueSummary, savedUrlReviewState.markReviewed, sorted]);
 
   const applySavedSearch = useCallback(
     (preset: SavedUrlSearchPreset) => {
@@ -2157,204 +2115,33 @@ const SavedUrlsPage: React.FC = () => {
     async (ids: string[]) => {
       if (!ids?.length) return;
 
-      if (bulkAiTagIsBusy) {
-        notify({
-          text: "AI auto-tag is already running for a page selection.",
-          kind: "warning",
+      const urlIds = ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+
+      if (!urlIds.length) return;
+
+      try {
+        await savedUrlOperations.createOperation.mutateAsync({
+          type: "saved_url_bulk_ai_tag",
+          urlIds,
         });
-        return;
-      }
 
-      const targets = urls.filter((u) => ids.includes(u.id));
-      if (!targets.length) return;
-
-      bulkAiTagCancelRef.current = false;
-
-      setBulkAiTagRun({
-        status: "running",
-        total: targets.length,
-        completed: 0,
-        succeeded: 0,
-        failed: 0,
-        currentTitle: null,
-        currentUrl: null,
-        failures: [],
-        startedAt: Date.now(),
-        finishedAt: null,
-      });
-
-      let completed = 0;
-      let succeeded = 0;
-      let failed = 0;
-
-      for (const u of targets) {
-        if (bulkAiTagCancelRef.current) break;
-
-        setBulkAiTagRun((prev) => ({
-          ...prev,
-          status: bulkAiTagCancelRef.current ? "cancelling" : prev.status,
-          currentTitle: u.title || u.url,
-          currentUrl: u.url,
-        }));
-
-        try {
-          const idNum = Number(u.id);
-          const { jobId } = await startUrlTagJob(idNum);
-
-          let attempt = 0;
-          let success = false;
-
-          const maxAttempts = Math.max(
-            10,
-            Math.ceil((AI_TAG_JOB_TIMEOUT_SEC * 1000) / AI_TAG_JOB_POLL_MS),
-          );
-
-          while (attempt < maxAttempts) {
-            if (bulkAiTagCancelRef.current) break;
-
-            const data = await getUrlTagJob(jobId, idNum);
-
-            if (data?.state === "SUCCESS") {
-              const ai = normalizeTagList(data.tags ?? []);
-
-              setUrls((prev) =>
-                prev.map((x) => {
-                  if (x.id !== u.id) return x;
-                  const effectiveTags = mergeUniqueTags(x.userTags ?? [], ai);
-                  return {
-                    ...x,
-                    aiTags: ai,
-                    effectiveTags,
-                    tags: effectiveTags,
-                  };
-                }),
-              );
-
-              try {
-                await refreshUrlMetadata(idNum).catch(() => null);
-                const fresh = await getUrlById(idNum);
-                const next = toUISaved(fresh);
-                setUrls((prev) =>
-                  prev.map((row) =>
-                    row.id === next.id ? { ...row, ...next } : row,
-                  ),
-                );
-              } catch {
-                // optimistic tags are already visible
-              }
-
-              success = true;
-              break;
-            }
-
-            if (data?.state === "FAILURE") {
-              throw new Error(data?.error || "AI tagging failed");
-            }
-
-            await new Promise((r) => setTimeout(r, AI_TAG_JOB_POLL_MS));
-            attempt++;
-          }
-
-          if (bulkAiTagCancelRef.current) break;
-
-          if (!success) {
-            throw new Error("Timed out waiting for AI auto-tagging.");
-          }
-
-          completed += 1;
-          succeeded += 1;
-
-          setBulkAiTagRun((prev) => ({
-            ...prev,
-            completed,
-            succeeded,
-            failed,
-          }));
-        } catch (err: any) {
-          if (bulkAiTagCancelRef.current) break;
-
-          const failure: BulkAiTagFailure = {
-            id: u.id,
-            title: u.title || u.url,
-            message: err?.message || "AI tagging failed",
-          };
-
-          completed += 1;
-          failed += 1;
-
-          setBulkAiTagRun((prev) => ({
-            ...prev,
-            completed,
-            succeeded,
-            failed,
-            failures: [...prev.failures, failure],
-          }));
-        }
-      }
-
-      const cancelled = bulkAiTagCancelRef.current;
-
-      setBulkAiTagRun((prev) => ({
-        ...prev,
-        status: cancelled ? "cancelled" : "completed",
-        completed,
-        succeeded,
-        failed,
-        currentTitle: null,
-        currentUrl: null,
-        finishedAt: Date.now(),
-      }));
-
-      await Promise.all([
-        refreshTaggingSummary(),
-        refreshRowsAndFacetsAndQueue(),
-      ]);
-
-      if (cancelled) {
         notify({
           text:
-            completed === 0
-              ? "Cancelled AI auto-tag before any rows finished."
-              : `Cancelled AI auto-tag after processing ${completed} of ${targets.length} selected rows on this page.`,
-          kind: "warning",
-        });
-        return;
-      }
-
-      if (failed === 0) {
-        notify({
-          text:
-            succeeded === 1
-              ? "AI auto-tag completed for 1 selected row on this page."
-              : `AI auto-tag completed for ${succeeded} selected rows on this page.`,
+            urlIds.length === 1
+              ? "Queued AI auto-tag for 1 selected row."
+              : `Queued AI auto-tag for ${urlIds.length} selected rows.`,
           kind: "success",
         });
-        return;
-      }
-
-      if (succeeded === 0) {
+      } catch (e: any) {
         notify({
-          text:
-            failed === 1
-              ? "AI auto-tag failed for 1 selected row on this page."
-              : `AI auto-tag failed for ${failed} selected rows on this page.`,
+          text: e?.message ?? "Could not queue AI auto-tag operation.",
           kind: "error",
         });
-        return;
       }
-
-      notify({
-        text: `AI auto-tag finished with partial success: ${succeeded} succeeded, ${failed} failed.`,
-        kind: "warning",
-      });
     },
-    [
-      bulkAiTagIsBusy,
-      notify,
-      refreshRowsAndFacetsAndQueue,
-      refreshTaggingSummary,
-      urls,
-    ],
+    [notify, savedUrlOperations.createOperation],
   );
 
   const onAddTag = async (ids: string[], tag: string) => {
@@ -2514,68 +2301,28 @@ const SavedUrlsPage: React.FC = () => {
 
     if (!confirmed) return;
 
-    const backup = urls;
-
-    setUrls((prev) => prev.filter((u) => !ids.includes(u.id)));
-    setSelection(new Set());
-
     try {
-      const result = await deleteUrlsBulk(idsNum);
-
-      const deletedIdSet = new Set(result.deleted.map((id) => String(id)));
-      const failedIds = result.failures.map((failure) => String(failure.id));
-
-      const actuallyDeletedUrls = targetRows
-        .filter((u) => deletedIdSet.has(u.id))
-        .map((u) => u.url);
-
-      // Keep local collections in sync only for URLs that were truly deleted
-      actuallyDeletedUrls.forEach((u) => reconcileUrlCollections(u));
-
-      if (result.failures.length === 0) {
-        await refreshSavedUrlsWorkspace(page);
-
-        notify({
-          text:
-            result.deleted.length === 1
-              ? "Deleted 1 saved URL from the library."
-              : `Deleted ${result.deleted.length} saved URLs from the library.`,
-          kind: "success",
-        });
-        return;
-      }
-
-      // Restore only the rows that failed deletion
-      setUrls(backup.filter((u) => !deletedIdSet.has(u.id)));
-      setSelection(new Set(failedIds));
-
-      await refreshSavedUrlsWorkspace(page);
-
-      const deletedCount = result.deleted.length;
-      const failureCount = result.failures.length;
-
-      const failedPreview = targetRows
-        .filter((u) => failedIds.includes(u.id))
-        .slice(0, 2)
-        .map((u) => u.title || u.url)
-        .join(", ");
-
-      notify({
-        text:
-          deletedCount > 0
-            ? `Deleted ${deletedCount} saved URL${deletedCount === 1 ? "" : "s"} from the library, but ${failureCount} could not be deleted.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`
-            : `No saved URLs were deleted from the library. ${failureCount} delete operation${failureCount === 1 ? "" : "s"} failed.${failedPreview ? ` Failed: ${failedPreview}${failureCount > 2 ? "…" : ""}` : ""}`,
-        kind: deletedCount > 0 ? "warning" : "error",
+      await savedUrlOperations.createOperation.mutateAsync({
+        type: "saved_url_bulk_delete",
+        urlIds: idsNum,
       });
-    } catch (e: any) {
-      setUrls(backup);
-      setSelection(new Set(ids));
+      setSelection(new Set());
       notify({
         text:
-          e?.message ?? "Failed to delete the selected rows from this page.",
+          ids.length === 1
+            ? "Queued deletion for 1 saved URL."
+            : `Queued deletion for ${ids.length} saved URLs.`,
+        kind: "success",
+      });
+      return;
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Could not queue delete operation.",
         kind: "error",
       });
+      return;
     }
+
   };
 
   // -------- Clipboard + Move handlers --------
@@ -2594,52 +2341,29 @@ const SavedUrlsPage: React.FC = () => {
         "selected collection";
 
       try {
-        if (mode === "add") {
-          await Promise.all(
-            items.map((u) =>
-              setUrlCollections(
-                u.url,
-                Array.from(new Set([...(u.collections || []), collectionId])),
-                {
-                  title: u.title,
-                  snippet: u.description || null,
-                },
-              ),
-            ),
-          );
-
-          await refreshSavedUrlsScope();
-
-          notify({
-            text:
-              items.length === 1
-                ? `Added 1 URL to "${targetCollectionName}" without removing its other collections.`
-                : `Added ${items.length} URLs to "${targetCollectionName}" without removing their other collections.`,
-            kind: "success",
-          });
-        } else {
-          await Promise.all(
-            items.map((u) =>
-              setUrlCollections(u.url, [collectionId], {
-                title: u.title,
-                snippet: u.description || null,
-              }),
-            ),
-          );
-
-          await refreshSavedUrlsScope();
-
-          notify({
-            text:
-              items.length === 1
-                ? `Moved 1 URL into "${targetCollectionName}" as its only collection.`
-                : `Moved ${items.length} URLs into "${targetCollectionName}" as their only collection.`,
-            kind: "success",
-          });
-        }
+        await savedUrlOperations.createOperation.mutateAsync({
+          type: "saved_url_collection_assign",
+          urlIds: items
+            .map((item) => Number(item.id))
+            .filter((id) => Number.isFinite(id)),
+          options: {
+            collectionId,
+            collectionMode: mode,
+          },
+        });
 
         setCollPickerOpen(false);
         setMoveIds([]);
+
+        notify({
+          text:
+            items.length === 1
+              ? `Queued collection update for 1 URL into "${targetCollectionName}".`
+              : `Queued collection update for ${items.length} URLs into "${targetCollectionName}".`,
+          kind: "success",
+        });
+        return;
+
       } catch (e: any) {
         notify({
           text: e?.message ?? "Failed to update collection membership.",
@@ -2647,7 +2371,12 @@ const SavedUrlsPage: React.FC = () => {
         });
       }
     },
-    [byIds, collections, notify, refreshSavedUrlsScope],
+    [
+      byIds,
+      collections,
+      notify,
+      savedUrlOperations.createOperation,
+    ],
   );
 
   const handleCopy = useCallback(
@@ -2956,11 +2685,9 @@ const SavedUrlsPage: React.FC = () => {
           </div>
           <div className="page-header-pill">
             <span className="page-header-pill-label">
-              {isLocalReviewQueueActive ? "Page queue matches" : "Matches"}
+              {isReviewQueueActive ? "Review matches" : "Matches"}
             </span>
-            <span className="page-header-pill-value">
-              {isLocalReviewQueueActive ? sorted.length : totalResults}
-            </span>
+            <span className="page-header-pill-value">{totalResults}</span>
           </div>
           {selection.size > 0 && (
             <div className="page-header-pill page-header-pill--accent">
@@ -3106,36 +2833,17 @@ const SavedUrlsPage: React.FC = () => {
                     <span>Stale</span>
                     <strong>{snapshotHealth.staleCount}</strong>
                   </div>
-                  {bulkRunning && (
-                    <>
-                      <div className="saved-urls-status-metric">
-                        <span>Running</span>
-                        <strong>
-                          {bulkDone}/{bulkTotal}
-                        </strong>
-                      </div>
-                      <div className="saved-urls-status-metric saved-urls-status-metric--danger">
-                        <span>Failed</span>
-                        <strong>{bulkFailed}</strong>
-                      </div>
-                    </>
+                  {captureOperationLive && (
+                    <div className="saved-urls-status-metric">
+                      <span>Operation</span>
+                      <strong>Active</strong>
+                    </div>
                   )}
                 </div>
               </div>
 
               <div className="saved-urls-status-card__actions">
-                {bulkRunning ? (
-                  <button
-                    type="button"
-                    className="saved-urls-status-action saved-urls-status-action--primary"
-                    onClick={() => {
-                      bulkAbortRef.current = true;
-                    }}
-                    title="Stop after current in-flight captures finish"
-                  >
-                    Stop after current
-                  </button>
-                ) : snapshotPrimaryAction ? (
+                {snapshotPrimaryAction ? (
                   <button
                     type="button"
                     className="saved-urls-status-action saved-urls-status-action--primary"
@@ -3145,7 +2853,12 @@ const SavedUrlsPage: React.FC = () => {
                         snapshotPrimaryAction.mode,
                       )
                     }
-                    title={snapshotPrimaryAction.title}
+                    disabled={captureOperationLive}
+                    title={
+                      captureOperationLive
+                        ? "A capture operation is already running. Use Operations to cancel or retry."
+                        : snapshotPrimaryAction.title
+                    }
                   >
                     {snapshotPrimaryAction.label}
                   </button>
@@ -3163,7 +2876,6 @@ const SavedUrlsPage: React.FC = () => {
                           snapshotStatus: "missing",
                         }))
                       }
-                      disabled={bulkRunning}
                       title="Filter the full result set to URLs with no active snapshots"
                     >
                       Show missing
@@ -3178,7 +2890,6 @@ const SavedUrlsPage: React.FC = () => {
                           snapshotStatus: "stale",
                         }))
                       }
-                      disabled={bulkRunning}
                       title={`Filter the full result set to URLs with snapshots older than ${SNAPSHOT_STALE_DAYS} days`}
                     >
                       Show stale
@@ -3192,7 +2903,7 @@ const SavedUrlsPage: React.FC = () => {
                           onClick={() =>
                             openBulkSnapshotPicker(snapshotHealth.missing, "pdf")
                           }
-                          disabled={bulkRunning}
+                          disabled={captureOperationLive}
                           title="Capture PDF snapshots for missing URLs currently loaded on this page"
                         >
                           Capture missing PDF
@@ -3203,7 +2914,7 @@ const SavedUrlsPage: React.FC = () => {
                           onClick={() =>
                             openBulkSnapshotPicker(snapshotHealth.missing, "text")
                           }
-                          disabled={bulkRunning}
+                          disabled={captureOperationLive}
                           title="Capture text snapshots for missing URLs currently loaded on this page"
                         >
                           Capture missing text
@@ -3219,7 +2930,7 @@ const SavedUrlsPage: React.FC = () => {
                           onClick={() =>
                             openBulkSnapshotPicker(snapshotHealth.stale, "text")
                           }
-                          disabled={bulkRunning}
+                          disabled={captureOperationLive}
                           title="Refresh text snapshots for stale URLs currently loaded on this page"
                         >
                           Refresh stale text
@@ -3230,7 +2941,7 @@ const SavedUrlsPage: React.FC = () => {
                           onClick={() =>
                             openBulkSnapshotPicker(snapshotHealth.stale, "pdf")
                           }
-                          disabled={bulkRunning}
+                          disabled={captureOperationLive}
                           title="Refresh PDF snapshots for stale URLs currently loaded on this page"
                         >
                           Refresh stale PDF
@@ -3244,6 +2955,36 @@ const SavedUrlsPage: React.FC = () => {
           )}
         </div>
       ) : null}
+
+      <SavedUrlsOperationsPanel
+        operations={savedUrlOperations.data?.items ?? []}
+        loading={savedUrlOperations.isLoading}
+        onCancel={(id) => {
+          savedUrlOperations.cancelOperation.mutate(id, {
+            onSuccess: () => {
+              notify({ text: "Operation cancellation requested.", kind: "info" });
+              void refreshRowsAndQueueSummary();
+            },
+            onError: (e: any) =>
+              notify({
+                text: e?.message ?? "Could not cancel operation.",
+                kind: "error",
+              }),
+          });
+        }}
+        onRetryFailed={(id) => {
+          savedUrlOperations.retryFailedOperation.mutate(id, {
+            onSuccess: () => {
+              notify({ text: "Queued retry for failed operation items.", kind: "success" });
+            },
+            onError: (e: any) =>
+              notify({
+                text: e?.message ?? "Could not retry failed items.",
+                kind: "error",
+              }),
+          });
+        }}
+      />
 
       <div className="saved-urls-panel saved-urls-command-center p-4 sm:p-5">
         <div className="saved-urls-command-head">
@@ -3330,7 +3071,7 @@ const SavedUrlsPage: React.FC = () => {
                 <span className="saved-urls-queue-label">
                   {queue.label}
                   {queue.id === "updated-since-review" && (
-                    <span className="saved-urls-queue-local">Local</span>
+                    <span className="saved-urls-queue-local">Server</span>
                   )}
                 </span>
                 <span className="saved-urls-queue-count">{queue.count}</span>
@@ -3389,25 +3130,6 @@ const SavedUrlsPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {bulkFailures.length > 0 && !bulkRunning && (
-        <div className="saved-urls-panel saved-urls-banner p-3 sm:p-4 border border-rose-200 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-900/10">
-          <div className="text-sm text-rose-950 dark:text-rose-100">
-            <span className="font-semibold">Snapshot failures:</span>{" "}
-            {bulkFailures.length}
-            <div className="mt-2 max-h-40 overflow-auto text-xs space-y-1">
-              {bulkFailures.slice(0, 50).map((f) => (
-                <div key={f.id} className="truncate">
-                  {f.url} — {f.error}
-                </div>
-              ))}
-              {bulkFailures.length > 50 && (
-                <div className="opacity-80">…and more</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Grid inside AppShell content */}
       <section className="grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)] gap-5 xl:gap-6 items-start min-w-0">
@@ -3835,94 +3557,23 @@ const SavedUrlsPage: React.FC = () => {
               </div>
             )}
             {!loading && !error && sorted.length === 0 && (
-              <div className="card p-10 text-center text-gray-600 dark:text-gray-300">
-                {libraryTotalCount === 0 ? (
-                  <div className="space-y-2">
-                    <div className="font-medium text-gray-800 dark:text-gray-100">
-                      No saved URLs yet.
-                    </div>
-                    <div>
-                      Paste a URL above and press Enter to save your first one.
-                    </div>
-                  </div>
-                ) : isLocalReviewQueueActive ? (
-                  <div className="space-y-2">
-                    <div className="font-medium text-gray-800 dark:text-gray-100">
-                      No rows on this page have changed since your local review
-                      stamp.
-                    </div>
-                    <div>
-                      Move to another page, clear the local review queue, or
-                      mark this page as reviewed again after new changes land.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="font-medium text-gray-800 dark:text-gray-100">
-                      No rows on this page match the current filters.
-                    </div>
-                    <div>
-                      Try clearing filters, switching queues, or choosing a
-                      different collection.
-                    </div>
-                  </div>
-                )}
-              </div>
+              <SavedUrlsEmptyState
+                libraryTotalCount={libraryTotalCount}
+                isReviewQueueActive={isReviewQueueActive}
+              />
             )}
 
             {!loading && !error && totalResults > 0 && (
-              <div className="flex flex-col gap-3 rounded-xl border border-black/10 dark:border-white/10 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                <div className="text-sm text-neutral-600 dark:text-neutral-300">
-                  {isLocalReviewQueueActive ? (
-                    <>
-                      Showing{" "}
-                      <span className="font-medium">{sorted.length}</span>{" "}
-                      locally queued URLs on this page. The broader filtered
-                      result set still contains{" "}
-                      <span className="font-medium">{totalResults}</span> URLs
-                      across all pages.
-                    </>
-                  ) : (
-                    <>
-                      Showing{" "}
-                      <span className="font-medium">
-                        {urls.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}
-                      </span>{" "}
-                      –{" "}
-                      <span className="font-medium">
-                        {Math.min(page * PAGE_SIZE, totalResults)}
-                      </span>{" "}
-                      of <span className="font-medium">{totalResults}</span>{" "}
-                      matching URLs across all pages
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page <= 1}
-                  >
-                    Previous
-                  </button>
-
-                  <span className="text-sm text-neutral-600 dark:text-neutral-300">
-                    Page <span className="font-medium">{page}</span> of{" "}
-                    <span className="font-medium">{totalPages}</span>
-                  </span>
-
-                  <button
-                    type="button"
-                    className="rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
+              <SavedUrlsPagination
+                isReviewQueueActive={isReviewQueueActive}
+                page={page}
+                pageSize={PAGE_SIZE}
+                totalPages={totalPages}
+                totalResults={totalResults}
+                visibleCount={sorted.length}
+                onPrevious={() => setPage((p) => Math.max(1, p - 1))}
+                onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
+              />
             )}
 
             {/* Registry / Cards */}

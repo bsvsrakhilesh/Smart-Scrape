@@ -56,10 +56,12 @@ const App: React.FC = () => {
     [],
   );
 
-  const currentPage: Page = workspacePages.includes(routePage as Page)
-    ? (routePage as Page)
+  const currentWorkspacePage: WorkspacePage = workspacePages.includes(
+    routePage as WorkspacePage,
+  )
+    ? (routePage as WorkspacePage)
     : "url-collector";
-  const currentWorkspacePage = currentPage as WorkspacePage;
+  const currentPage: Page = currentWorkspacePage;
 
   const setCurrentPage = (page: Page) => {
     navigate(`/app/${page}`);
@@ -231,7 +233,7 @@ const App: React.FC = () => {
     };
   }, [currentWorkspacePage, paintReadyPages]);
 
-  const isWorkspacePage = workspacePages.includes(currentPage);
+  const isWorkspacePage = workspacePages.includes(currentWorkspacePage);
 
   return (
     <ToastProvider>

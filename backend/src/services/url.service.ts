@@ -13,6 +13,10 @@ import {
   normalizeTagList,
   withSeparatedTagsMeta,
 } from "../utils/tagBuckets";
+import {
+  countUpdatedSinceReview,
+  filterUpdatedSinceReview,
+} from "./savedUrlReview.service";
 
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +63,8 @@ export type GetAllOpts = {
   snapshotStatus?: SnapshotStatusFilter;
   taggingStatus?: TaggingStatus | "all";
   metadataState?: MetadataStateFilter;
+  reviewStatus?: "updated-since-review";
+  ownerId?: string;
 };
 
 export type UrlFacetSummary = {
@@ -73,6 +79,7 @@ export type UrlReviewQueueSummary = {
   staleCapture: number;
   aiFailed: number;
   metadataMissing: number;
+  updatedSinceReview: number;
 };
 
 function buildOrderBy(
@@ -390,12 +397,23 @@ export async function getUrlReviewQueueSummary(
       }),
     ]);
 
+  const updatedSinceReview = opts.ownerId
+    ? await countUpdatedSinceReview(
+        opts.ownerId,
+        await prisma.url.findMany({
+          where: baseWhere,
+          select: { id: true, updatedAt: true },
+        }),
+      )
+    : 0;
+
   return {
     all,
     neverCaptured,
     staleCapture,
     aiFailed,
     metadataMissing,
+    updatedSinceReview,
   };
 }
 
@@ -487,12 +505,17 @@ export async function getAllUrls(opts: GetAllOpts) {
     },
   });
 
+  const filteredUrls =
+    opts.reviewStatus === "updated-since-review" && opts.ownerId
+      ? await filterUpdatedSinceReview(opts.ownerId, urls)
+      : urls;
+
   // Attach latest active URL snapshot and PDF discovery info, if any.
-  const urlIds = urls.map((u) => u.id);
+  const urlIds = filteredUrls.map((u) => u.id);
   const latestByUrl = await getLatestSnapshotsByUrlId(urlIds);
   const discoveryByUrl = await getDiscoverySummariesByUrlId(urlIds);
 
-  return urls.map((u) =>
+  return filteredUrls.map((u) =>
     serializeUrlRow(
       u,
       latestByUrl.get(u.id) ?? null,
@@ -523,6 +546,36 @@ export async function getUrlsPaged(opts: GetPagedUrlsOpts) {
   const pageSize = Math.max(1, Math.min(Number(opts.pageSize ?? 50), 200));
   const page = Math.max(1, Number(opts.page ?? 1));
   const skip = (page - 1) * pageSize;
+
+  if (opts.reviewStatus === "updated-since-review" && opts.ownerId) {
+    const allUrls = await prisma.url.findMany({
+      where,
+      orderBy,
+      include: {
+        collections: {
+          select: { collectionId: true },
+        },
+      },
+    });
+
+    const filtered = await filterUpdatedSinceReview(opts.ownerId, allUrls);
+    const total = filtered.length;
+    const pageRows = filtered.slice(skip, skip + pageSize);
+
+    const urlIds = pageRows.map((u) => u.id);
+    const latestByUrl = await getLatestSnapshotsByUrlId(urlIds);
+    const discoveryByUrl = await getDiscoverySummariesByUrlId(urlIds);
+
+    const items = pageRows.map((u) =>
+      serializeUrlRow(
+        u,
+        latestByUrl.get(u.id) ?? null,
+        discoveryByUrl.get(u.id) ?? null,
+      ),
+    ) as any[];
+
+    return { items, total, page, pageSize };
+  }
 
   const [urls, total] = await Promise.all([
     prisma.url.findMany({

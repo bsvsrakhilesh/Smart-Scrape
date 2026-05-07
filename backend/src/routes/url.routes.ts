@@ -89,6 +89,7 @@ const listUrlsQuery = z.object({
     .enum(["all", "NONE", "PENDING", "RUNNING", "SUCCESS", "FAILED"])
     .optional(),
   metadataState: z.enum(["all", "missing", "complete"]).optional(),
+  reviewStatus: z.enum(["updated-since-review"]).optional(),
   sortKey: z.enum(["createdAt", "updatedAt", "title"]).optional(),
   sortOrder: z.enum(["asc", "desc"]).optional(),
   page: z.coerce.number().int().positive().optional(),

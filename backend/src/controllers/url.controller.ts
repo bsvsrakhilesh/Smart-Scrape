@@ -30,6 +30,7 @@ import {
   discoverDocumentsForUrl,
   listDiscoveredDocumentsForUrl,
 } from "../services/documentDiscovery.service";
+import { ownerIdForRequest } from "../utils/requestOwner";
 
 /* ----------------------- helpers ----------------------- */
 
@@ -211,6 +212,7 @@ export async function getUrlsHandler(
       snapshotStatus,
       taggingStatus,
       metadataState,
+      reviewStatus,
     } = req.query as any;
 
     const tags = parseMultiValueQuery(req.query.tags);
@@ -247,6 +249,11 @@ export async function getUrlsHandler(
         snapshotStatus: parsedSnapshotStatus,
         taggingStatus: parsedTaggingStatus,
         metadataState: parsedMetadataState,
+        reviewStatus:
+          reviewStatus === "updated-since-review"
+            ? "updated-since-review"
+            : undefined,
+        ownerId: ownerIdForRequest(req),
       });
       return res.json(out);
     }
@@ -273,6 +280,11 @@ export async function getUrlsHandler(
       snapshotStatus: parsedSnapshotStatus,
       taggingStatus: parsedTaggingStatus,
       metadataState: parsedMetadataState,
+      reviewStatus:
+        reviewStatus === "updated-since-review"
+          ? "updated-since-review"
+          : undefined,
+      ownerId: ownerIdForRequest(req),
     });
 
     return res.json(data);
@@ -302,6 +314,7 @@ export async function getUrlFacetsHandler(
       snapshotStatus,
       taggingStatus,
       metadataState,
+      reviewStatus,
     } = req.query as any;
 
     const tags = parseMultiValueQuery(req.query.tags);
@@ -331,6 +344,11 @@ export async function getUrlFacetsHandler(
       snapshotStatus: parsedSnapshotStatus,
       taggingStatus: parsedTaggingStatus,
       metadataState: parsedMetadataState,
+      reviewStatus:
+        reviewStatus === "updated-since-review"
+          ? "updated-since-review"
+          : undefined,
+      ownerId: ownerIdForRequest(req),
     });
 
     return res.json(data);
@@ -390,6 +408,7 @@ export async function getUrlReviewQueueSummaryHandler(
       snapshotStatus: parsedSnapshotStatus,
       taggingStatus: parsedTaggingStatus,
       metadataState: parsedMetadataState,
+      ownerId: ownerIdForRequest(req),
     });
 
     return res.json(data);

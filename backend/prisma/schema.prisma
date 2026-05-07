@@ -174,8 +174,18 @@ model Url {
   notebookSources NotebookSource[] @relation("UrlNotebookSources")
   captureEvents   CaptureEvent[]
   collections     CollectionUrl[]
+  reviews         SavedUrlReview[]
 
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([publishedAt])
+  @@index([isFavorited])
+  @@index([visibility])
+  @@index([taggingStatus])
   @@index([normalizedDomain])
+  @@index([normalizedDomain, createdAt])
+  @@index([taggingStatus, updatedAt])
+  @@index([isFavorited, updatedAt])
 }
 
 model Collection {
@@ -220,6 +230,64 @@ model CollectionUrl {
 
   @@id([collectionId, urlId])
   @@index([urlId])
+}
+
+model SavedUrlReview {
+  id         String   @id @default(cuid())
+  ownerId   String
+  urlId     Int
+  reviewedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  url Url @relation(fields: [urlId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, urlId])
+  @@index([urlId])
+  @@index([ownerId, reviewedAt])
+}
+
+model OperationRun {
+  id            String   @id @default(cuid())
+  ownerId       String
+  type          String
+  status        String   @default("queued")
+  total         Int      @default(0)
+  completed     Int      @default(0)
+  failed        Int      @default(0)
+  progressPct   Int      @default(0)
+  stage         String?
+  statusMessage String?
+  error         String?
+  meta          Json?
+  createdAt     DateTime @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  updatedAt     DateTime @updatedAt
+
+  items OperationRunItem[]
+
+  @@index([ownerId, updatedAt])
+  @@index([type, status])
+  @@index([status, updatedAt])
+}
+
+model OperationRunItem {
+  id           String   @id @default(cuid())
+  runId        String
+  resourceType String
+  resourceId   Int
+  status       String   @default("queued")
+  error        String?
+  result       Json?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  run OperationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@index([runId, status])
+  @@index([resourceType, resourceId])
 }
 
 model StoredFile {

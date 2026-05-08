@@ -78,6 +78,20 @@ function isDangerousMimetype(mime: string | undefined): boolean {
   );
 }
 
+function contentDispositionHeader(
+  disposition: "inline" | "attachment",
+  fileName: string,
+) {
+  const fallbackName =
+    sanitizeFilename(fileName)
+      .replace(/[^\x20-\x7E]/g, "_")
+      .replace(/["\\]/g, "_") || "file";
+  const encodedName = encodeURIComponent(fileName).replace(/['()]/g, (ch) =>
+    `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${disposition}; filename="${fallbackName}"; filename*=UTF-8''${encodedName}`;
+}
+
 function parsePdfDate(raw: unknown): Date | null {
   if (!raw) return null;
   const s = String(raw).trim();
@@ -216,7 +230,7 @@ async function streamFileWithRange(opts: {
 
   res.setHeader(
     "Content-Disposition",
-    `${effectiveDisposition}; filename="${encodeURIComponent(fileName)}"`,
+    contentDispositionHeader(effectiveDisposition, fileName),
   );
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
@@ -239,15 +253,39 @@ async function streamFileWithRange(opts: {
   // GET with optional Range
   const range = req.headers.range;
   if (range) {
-    // Example "bytes=0-1023" or "bytes=1024-"
-    const m = /^bytes=(\d+)-(\d*)$/.exec(range);
+    // Examples: "bytes=0-1023", "bytes=1024-", or suffix ranges "bytes=-65536".
+    // Multiple ranges are intentionally rejected; pdf.js only needs one range.
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
     if (!m) {
       res.setHeader("Content-Range", `bytes */${size}`);
       res.status(416).end();
       return;
     }
-    let start = parseInt(m[1], 10);
-    let end = m[2] ? parseInt(m[2], 10) : size - 1;
+
+    let start: number;
+    let end: number;
+    const startRaw = m[1];
+    const endRaw = m[2];
+
+    if (!startRaw && !endRaw) {
+      res.setHeader("Content-Range", `bytes */${size}`);
+      res.status(416).end();
+      return;
+    }
+
+    if (!startRaw) {
+      const suffixLength = parseInt(endRaw, 10);
+      if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+        res.setHeader("Content-Range", `bytes */${size}`);
+        res.status(416).end();
+        return;
+      }
+      start = Math.max(0, size - suffixLength);
+      end = size - 1;
+    } else {
+      start = parseInt(startRaw, 10);
+      end = endRaw ? parseInt(endRaw, 10) : size - 1;
+    }
 
     if (
       Number.isNaN(start) ||

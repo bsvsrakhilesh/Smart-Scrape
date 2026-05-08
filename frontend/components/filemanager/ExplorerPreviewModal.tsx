@@ -1,8 +1,6 @@
 "use client";
 
 import React, {
-  Suspense,
-  lazy,
   useEffect,
   useMemo,
   useRef,
@@ -27,8 +25,6 @@ type Props = {
   onTagUpdate?(id: string, tags: string[]): void;
   autoFocusTags?: boolean;
 };
-
-const PdfCanvas = lazy(() => import("../common/PdfCanvas"));
 
 function getFocusable(root: HTMLElement): HTMLElement[] {
   const nodes = root.querySelectorAll<HTMLElement>(
@@ -79,14 +75,11 @@ export default function ExplorerPreviewModal(props: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const [hadError, setHadError] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string>("");
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string>("");
 
   // image zoom state
   const [fitMode, setFitMode] = useState<"contain" | "actual">("contain");
   const [zoom, setZoom] = useState<number>(1);
-
-  // PDF pagination
-  const [pdfPages, setPdfPages] = useState<number>(0);
-  const [pdfPage, setPdfPage] = useState<number>(1);
 
   const rawMime = useMemo(
     () => (f?.mimeType || "").toLowerCase(),
@@ -100,7 +93,11 @@ export default function ExplorerPreviewModal(props: Props) {
   const previewUrl = f ? apiUrl(`/api/files/${f.id}/preview`) : "";
 
   const isImage = mimeBase.startsWith("image/");
-  const isPDF = mimeBase === "application/pdf";
+  const fileName = String(f?.title || (f as any)?.fileName || "");
+  const isPDF =
+    mimeBase === "application/pdf" ||
+    fileName.toLowerCase().endsWith(".pdf") ||
+    f?.captureType === "URL_PDF";
   const isText =
     mimeBase.startsWith("text/") ||
     mimeBase === "application/json" ||
@@ -284,8 +281,7 @@ export default function ExplorerPreviewModal(props: Props) {
     setFitMode("contain");
     setZoom(1);
     setTextContent("");
-    setPdfPages(0);
-    setPdfPage(1);
+    setPdfObjectUrl("");
   }, [f?.id]);
 
   // If unsupported type, stop loading quickly (prevents "stuck spinner")
@@ -330,6 +326,67 @@ export default function ExplorerPreviewModal(props: Props) {
     return () => controller.abort();
   }, [isOpen, f, isText, previewUrl]);
 
+  // Fetch PDF bytes once and hand them to the browser's native PDF viewer.
+  // This is intentionally not pdf.js: native PDF viewing is more resilient for
+  // captured government PDFs and avoids worker/canvas failure modes.
+  useEffect(() => {
+    if (!isOpen || !f || !isPDF || !previewUrl) return;
+
+    const controller = new AbortController();
+    let objectUrl = "";
+
+    setIsLoading(true);
+    setHadError(null);
+    setPdfObjectUrl("");
+
+    fetch(previewUrl, {
+      credentials: "include",
+      headers: {
+        Accept: "application/pdf, application/octet-stream;q=0.9, */*;q=0.1",
+      },
+      signal: controller.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          let message = `HTTP ${r.status}`;
+          try {
+            const body = await r.clone().json();
+            if (body?.message) message = `${message}: ${body.message}`;
+          } catch {
+            try {
+              const text = await r.clone().text();
+              if (text) message = `${message}: ${text.slice(0, 160)}`;
+            } catch {
+              // keep the HTTP status message
+            }
+          }
+          throw new Error(message);
+        }
+
+        const blob = await r.blob();
+        if (!blob.size) throw new Error("Preview response was empty.");
+
+        objectUrl = URL.createObjectURL(
+          blob.type === "application/pdf"
+            ? blob
+            : new Blob([blob], { type: "application/pdf" }),
+        );
+        setPdfObjectUrl(objectUrl);
+        setIsLoading(false);
+      })
+      .catch((e) => {
+        if (e?.name === "AbortError") return;
+        console.error("PDF preview failed", e);
+        setHadError(e?.message || "PDF preview failed");
+        setIsLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [isOpen, f, isPDF, previewUrl]);
+
   // image style (contain vs actual with zoom)
   const imageStyle: React.CSSProperties =
     fitMode === "contain"
@@ -339,16 +396,6 @@ export default function ExplorerPreviewModal(props: Props) {
           transformOrigin: "top left",
           display: "inline-block",
         };
-
-  const canPaginate = isPDF && !hadError && pdfPages > 1;
-  const goPrev = () => {
-    setIsLoading(true);
-    setPdfPage((p) => Math.max(1, p - 1));
-  };
-  const goNext = () => {
-    setIsLoading(true);
-    setPdfPage((p) => Math.min(pdfPages || p, p + 1));
-  };
 
   if (!isOpen || !f) return null;
 
@@ -386,32 +433,6 @@ export default function ExplorerPreviewModal(props: Props) {
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* PDF pagination in header (compact) */}
-              {isPDF && (
-                <div className="hidden sm:flex items-center gap-2 mr-1">
-                  <button
-                    className="px-2 py-1 rounded border border-app text-xs disabled:opacity-50"
-                    onClick={goPrev}
-                    disabled={!canPaginate || pdfPage <= 1}
-                    title="Previous page"
-                  >
-                    Prev
-                  </button>
-                  <span className="text-xs text-neutral-600 dark:text-neutral-400 tabular-nums min-w-[84px] text-center">
-                    {Math.min(pdfPage, Math.max(1, pdfPages || 1))}/
-                    {pdfPages || "—"}
-                  </span>
-                  <button
-                    className="px-2 py-1 rounded border border-app text-xs disabled:opacity-50"
-                    onClick={goNext}
-                    disabled={!canPaginate || pdfPage >= pdfPages}
-                    title="Next page"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-
               {/* Favorite (uses your shared component) */}
               {onToggleFavorite && (
                 <FavoriteButton
@@ -453,7 +474,13 @@ export default function ExplorerPreviewModal(props: Props) {
               {/* Error */}
               {hadError && (
                 <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300">
-                  Failed to load preview. You can still use “Download”.
+                  Failed to load preview
+                  {hadError === "pdf" ||
+                  hadError === "image" ||
+                  hadError === "text"
+                    ? "."
+                    : `: ${hadError}`}
+                  {" "}You can still use "Download".
                 </div>
               )}
 
@@ -515,59 +542,14 @@ export default function ExplorerPreviewModal(props: Props) {
               {/* PDF */}
               {!hadError && isPDF && (
                 <div className="w-full">
-                  <Suspense
-                    fallback={
-                      <div className="h-[40vh] grid place-items-center">
-                        <div className="w-28 h-2 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
-                          <div className="h-full w-1/2 animate-pulse" />
-                        </div>
-                      </div>
-                    }
-                  >
-                    <PdfCanvas
-                      url={previewUrl}
-                      page={pdfPage}
-                      onReady={(numPages) => {
-                        setPdfPages(numPages);
-                        setPdfPage((p) =>
-                          Math.min(Math.max(1, p), numPages || 1),
-                        );
-                        setIsLoading(false);
-                      }}
-                      onRendered={() => setIsLoading(false)}
-                      onError={(msg) => {
-                        console.error(msg);
-                        setHadError("pdf");
-                        setIsLoading(false);
-                      }}
-                    />
-                  </Suspense>
-
-                  <div className="mt-2 text-sm text-neutral-500">
-                    PDF preview (rendered). Use Download for the original file.
-                  </div>
-
-                  {/* PDF pagination (mobile fallback) */}
-                  {canPaginate && (
-                    <div className="mt-2 flex sm:hidden items-center gap-2">
-                      <button
-                        className="px-2 py-1 rounded border border-app disabled:opacity-50"
-                        onClick={goPrev}
-                        disabled={pdfPage <= 1}
-                      >
-                        Prev
-                      </button>
-                      <span className="text-sm tabular-nums">
-                        Page {Math.min(pdfPage, Math.max(1, pdfPages || 1))} /{" "}
-                        {pdfPages || "—"}
-                      </span>
-                      <button
-                        className="px-2 py-1 rounded border border-app disabled:opacity-50"
-                        onClick={goNext}
-                        disabled={pdfPage >= pdfPages}
-                      >
-                        Next
-                      </button>
+                  {pdfObjectUrl && (
+                    <div className="overflow-hidden rounded-xl border border-app bg-neutral-100 shadow-sm dark:bg-neutral-900">
+                      <iframe
+                        src={`${pdfObjectUrl}#toolbar=1&navpanes=0&view=FitH`}
+                        title={`Preview ${f.title}`}
+                        className="h-[68vh] min-h-[520px] w-full bg-white"
+                        onLoad={() => setIsLoading(false)}
+                      />
                     </div>
                   )}
                 </div>

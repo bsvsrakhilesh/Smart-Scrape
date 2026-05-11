@@ -882,8 +882,16 @@ async function finalizeCapturedFile(
   res: Response,
 ) {
   let shouldRunFileTagger = true;
+  const isDiscoveredDocumentCapture =
+    fileRec?.captureScope === "DISCOVERED_DOCUMENT" ||
+    typeof (req.body as any)?.discoveredDocumentId === "string" ||
+    (req.body as any)?.captureScope === "DISCOVERED_DOCUMENT";
 
-  if (urlId !== undefined && urlId !== null) {
+  if (
+    !isDiscoveredDocumentCapture &&
+    urlId !== undefined &&
+    urlId !== null
+  ) {
     const idNum = typeof urlId === "string" ? parseInt(urlId, 10) : urlId;
     if (!Number.isNaN(idNum)) {
       try {

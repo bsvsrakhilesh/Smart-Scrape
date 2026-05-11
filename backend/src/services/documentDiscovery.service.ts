@@ -745,6 +745,7 @@ function serializeRow(row: any): DiscoveredPdfDocument {
   const activeCapturedFiles = Array.isArray(row.capturedFiles)
     ? row.capturedFiles.filter((f: any) => !f.deletedAt)
     : undefined;
+  const hasActiveCapturedFiles = !!activeCapturedFiles?.length;
 
   return {
     id: row.id,
@@ -764,13 +765,17 @@ function serializeRow(row: any): DiscoveredPdfDocument {
     score: Number(row.score || 0),
     confidence: (row.confidence || "low") as any,
     discoveryMethod: row.discoveryMethod,
-    status: row.status,
+    status: hasActiveCapturedFiles ? row.status : "DISCOVERED",
     firstSeenAt: row.firstSeenAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
-    capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
+    capturedAt: hasActiveCapturedFiles
+      ? row.capturedAt
+        ? row.capturedAt.toISOString()
+        : null
+      : null,
     captureError: row.captureError ?? null,
-    capturedFiles: activeCapturedFiles
-      ? activeCapturedFiles.map((f: any) => ({
+    capturedFiles: hasActiveCapturedFiles
+      ? activeCapturedFiles?.map((f: any) => ({
           id: f.id,
           fileName: f.fileName,
           createdAt: f.createdAt.toISOString(),

@@ -91,11 +91,7 @@ function sleep(ms: number) {
 }
 
 function isCapturedDocument(doc: DiscoveredPdfDocument) {
-  return (
-    doc.status === "CAPTURED" ||
-    !!doc.capturedAt ||
-    !!doc.capturedFiles?.length
-  );
+  return !!doc.capturedFiles?.length;
 }
 
 function confidenceClass(confidence: string) {

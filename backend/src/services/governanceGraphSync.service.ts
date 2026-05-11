@@ -181,23 +181,29 @@ async function getOrCreateGovernancePipelineConfigTx(
 ) {
   const normalized = stableStringify(config);
   const configHash = sha256(normalized);
-
-  return tx.pipelineConfig.upsert({
-    where: {
-      name_version_configHash: {
-        name: GOVERNANCE_PIPELINE_NAME,
-        version: APP_VERSION,
-        configHash,
-      },
-    },
-    update: {},
-    create: {
+  const where = {
+    name_version_configHash: {
       name: GOVERNANCE_PIPELINE_NAME,
       version: APP_VERSION,
-      config: config as Prisma.InputJsonObject,
       configHash,
-      codeSha: CODE_SHA,
     },
+  };
+
+  await tx.pipelineConfig.createMany({
+    data: [
+      {
+        name: GOVERNANCE_PIPELINE_NAME,
+        version: APP_VERSION,
+        config: config as Prisma.InputJsonObject,
+        configHash,
+        codeSha: CODE_SHA,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  return tx.pipelineConfig.findUniqueOrThrow({
+    where,
     select: { id: true },
   });
 }

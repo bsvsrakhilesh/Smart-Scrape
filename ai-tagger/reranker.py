@@ -210,6 +210,10 @@ def _openai_client():
     return client, model
 
 
+def _completion_token_kwargs(limit: int) -> Dict[str, int]:
+    return {"max_completion_tokens": limit}
+
+
 PROMPT = """You are a senior metadata architect for a research-grade AI tagging system.
 Your task is to choose FINAL tags from deterministic candidate terms.
 
@@ -340,7 +344,7 @@ def rerank_with_llm(
             {"role": "user", "content": content},
         ],
         temperature=0.1,
-        max_tokens=700,
+        **_completion_token_kwargs(700),
     )
 
     txt = (resp.choices[0].message.content or "").strip()

@@ -22,23 +22,29 @@ function sha256(s: string) {
 export async function getOrCreatePipelineConfig(name: string, config: any) {
   const normalized = stableStringify(config ?? {});
   const configHash = sha256(normalized);
-
-  return prisma.pipelineConfig.upsert({
-    where: {
-      name_version_configHash: {
-        name,
-        version: PIPELINE_VERSION,
-        configHash,
-      },
-    },
-    update: {},
-    create: {
+  const where = {
+    name_version_configHash: {
       name,
       version: PIPELINE_VERSION,
-      config: config ?? {},
       configHash,
-      codeSha: CODE_SHA,
     },
+  };
+
+  await prisma.pipelineConfig.createMany({
+    data: [
+      {
+        name,
+        version: PIPELINE_VERSION,
+        config: config ?? {},
+        configHash,
+        codeSha: CODE_SHA,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  return prisma.pipelineConfig.findUniqueOrThrow({
+    where,
     select: { id: true, name: true, version: true, configHash: true },
   });
 }

@@ -178,6 +178,10 @@ def _client():
     return OpenAI(api_key=key, base_url=base) if base else OpenAI(api_key=key)
 
 
+def _completion_token_kwargs(limit: int) -> Dict[str, int]:
+    return {"max_completion_tokens": limit}
+
+
 def _enum_or_null(values: Sequence[str]) -> Dict[str, Any]:
     return {
         "anyOf": [
@@ -573,7 +577,7 @@ Document text:
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            max_tokens=1400,
+            **_completion_token_kwargs(1400),
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -656,7 +660,7 @@ Document text:
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            max_tokens=2400,
+            **_completion_token_kwargs(2400),
             response_format={
                 "type": "json_schema",
                 "json_schema": {

@@ -742,6 +742,10 @@ async function prepareCandidate(
 }
 
 function serializeRow(row: any): DiscoveredPdfDocument {
+  const activeCapturedFiles = Array.isArray(row.capturedFiles)
+    ? row.capturedFiles.filter((f: any) => !f.deletedAt)
+    : undefined;
+
   return {
     id: row.id,
     sourceUrlId: row.sourceUrlId,
@@ -765,8 +769,8 @@ function serializeRow(row: any): DiscoveredPdfDocument {
     lastSeenAt: row.lastSeenAt.toISOString(),
     capturedAt: row.capturedAt ? row.capturedAt.toISOString() : null,
     captureError: row.captureError ?? null,
-    capturedFiles: Array.isArray(row.capturedFiles)
-      ? row.capturedFiles.map((f: any) => ({
+    capturedFiles: activeCapturedFiles
+      ? activeCapturedFiles.map((f: any) => ({
           id: f.id,
           fileName: f.fileName,
           createdAt: f.createdAt.toISOString(),
@@ -836,7 +840,14 @@ async function persistVerifiedCandidates(input: {
       },
       include: {
         capturedFiles: {
-          select: { id: true, fileName: true, createdAt: true, sha256: true },
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            fileName: true,
+            createdAt: true,
+            sha256: true,
+            deletedAt: true,
+          },
           orderBy: { createdAt: "desc" },
         },
       },
@@ -936,9 +947,7 @@ export async function discoverDocumentsForUrl(input: {
       candidates: prepared,
     });
 
-    const capturedCount = rows.filter(
-      (r) => r.status === "CAPTURED" || r.capturedAt || r.capturedFiles?.length,
-    ).length;
+    const capturedCount = countRowsWithActiveCapturedFiles(rows);
     await db().urlDiscoveryRun.update({
       where: { id: run.id },
       data: {
@@ -983,7 +992,14 @@ export async function listDiscoveredDocumentsForUrl(sourceUrlId: number) {
     orderBy: [{ score: "desc" }, { lastSeenAt: "desc" }],
     include: {
       capturedFiles: {
-        select: { id: true, fileName: true, createdAt: true, sha256: true },
+        where: { deletedAt: null },
+        select: {
+          id: true,
+          fileName: true,
+          createdAt: true,
+          sha256: true,
+          deletedAt: true,
+        },
         orderBy: { createdAt: "desc" },
       },
     },
@@ -996,6 +1012,16 @@ export async function listDiscoveredDocumentsForUrl(sourceUrlId: number) {
   };
 }
 
+function hasActiveCapturedFile(row: any): boolean {
+  return Array.isArray(row?.capturedFiles)
+    ? row.capturedFiles.some((f: any) => !f?.deletedAt)
+    : false;
+}
+
+function countRowsWithActiveCapturedFiles(rows: any[]): number {
+  return rows.filter(hasActiveCapturedFile).length;
+}
+
 function summarizeRows(rows: any[]): DiscoverySummary {
   let lastDiscoveredAt: string | null = null;
   for (const row of rows) {
@@ -1006,9 +1032,7 @@ function summarizeRows(rows: any[]): DiscoverySummary {
   }
   return {
     discoveredCount: rows.length,
-    capturedCount: rows.filter(
-      (r) => r.status === "CAPTURED" || r.capturedAt || r.capturedFiles?.length,
-    ).length,
+    capturedCount: countRowsWithActiveCapturedFiles(rows),
     verifiedCount: rows.filter((r) => r.verified).length,
     lastDiscoveredAt,
   };
@@ -1035,10 +1059,12 @@ export async function getDiscoverySummariesByUrlId(
     where: { sourceUrlId: { in: ids } },
     select: {
       sourceUrlId: true,
-      status: true,
       verified: true,
       lastSeenAt: true,
-      capturedAt: true,
+      capturedFiles: {
+        where: { deletedAt: null },
+        select: { id: true },
+      },
     },
   });
 
@@ -1053,7 +1079,7 @@ export async function getDiscoverySummariesByUrlId(
       } satisfies DiscoverySummary);
     summary.discoveredCount += 1;
     if (row.verified) summary.verifiedCount += 1;
-    if (row.status === "CAPTURED" || row.capturedAt) {
+    if (row.capturedFiles.length > 0) {
       summary.capturedCount += 1;
     }
     const iso = row.lastSeenAt?.toISOString?.() ?? null;

@@ -23,6 +23,8 @@ import {
 } from "../controllers/url.controller";
 import { z } from "zod";
 import { validate } from "../middlewares/validate";
+import { createDiscoveredPdfCaptureOperation } from "../services/savedUrlOperation.service";
+import { ownerIdForRequest } from "../utils/requestOwner";
 const r = Router();
 
 const createUrlsBody = z.object({
@@ -71,6 +73,13 @@ const discoverDocumentsBody = z
     useBrowserFallback: z.boolean().optional().nullable(),
   })
   .default({});
+
+const discoveredPdfCaptureRunBody = z.object({
+  discoveredDocumentIds: z.array(z.string().min(1)).min(1).max(1000),
+  folderId: z.string().min(1).nullable().optional(),
+  accessMode: z.enum(["public", "institutional"]).optional(),
+  force: z.boolean().optional(),
+});
 
 const listUrlsQuery = z.object({
   q: z.string().optional(),
@@ -129,6 +138,27 @@ r.get(
   getUrlRevisionsHandler,
 );
 r.get("/urls/:id/discovered-documents", getUrlDiscoveredDocumentsHandler);
+r.post(
+  "/urls/:id/discovered-documents/capture-run",
+  validate({ body: discoveredPdfCaptureRunBody }),
+  async (req, res, next) => {
+    try {
+      const run = await createDiscoveredPdfCaptureOperation({
+        ownerId: ownerIdForRequest(req),
+        sourceUrlId: Number(req.params.id),
+        discoveredDocumentIds: req.body.discoveredDocumentIds,
+        options: {
+          folderId: req.body.folderId ?? undefined,
+          accessMode: req.body.accessMode ?? "public",
+          force: Boolean(req.body.force),
+        },
+      });
+      res.status(201).json(run);
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 r.post(
   "/urls/:id/discover-documents",
   validate({ body: discoverDocumentsBody }),

@@ -29,6 +29,7 @@ const STATUS_LABEL: Record<SavedUrlOperationStatus, string> = {
 const TYPE_LABEL: Record<string, string> = {
   saved_url_bulk_capture_text: "Bulk text capture",
   saved_url_bulk_capture_pdf: "Bulk PDF capture",
+  saved_url_discovered_pdf_capture: "Discovered PDF capture",
   saved_url_bulk_ai_tag: "Bulk AI tagging",
   saved_url_metadata_refresh: "Metadata refresh",
   saved_url_bulk_delete: "Bulk delete",

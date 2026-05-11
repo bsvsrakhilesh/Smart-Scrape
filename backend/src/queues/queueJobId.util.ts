@@ -20,3 +20,9 @@ export function buildAiTagUrlQueueJobId(urlId: number) {
 
   return `ai-tag-url__${safeUrlId}`;
 }
+
+export function buildAiTagFileQueueJobId(fileId: string) {
+  const safeFileId = sanitizeBullMqJobIdPart(fileId);
+
+  return `ai-tag-file__${safeFileId}`;
+}

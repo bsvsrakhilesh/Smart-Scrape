@@ -10,6 +10,7 @@ import { recordCaptureEvent } from "./provenance.service";
 export const SAVED_URL_OPERATION_TYPES = [
   "saved_url_bulk_capture_text",
   "saved_url_bulk_capture_pdf",
+  "saved_url_discovered_pdf_capture",
   "saved_url_bulk_ai_tag",
   "saved_url_metadata_refresh",
   "saved_url_bulk_delete",
@@ -29,7 +30,13 @@ export type SavedUrlOperationOptions = {
   collectionId?: string;
   collectionMode?: "add" | "move";
   accessMode?: "public" | "institutional";
+  force?: boolean;
 };
+
+const DISCOVERED_PDF_MAX_ATTEMPTS = Math.max(
+  1,
+  Number(process.env.DISCOVERED_PDF_CAPTURE_MAX_ATTEMPTS || 3),
+);
 
 function asError(message: string, status = 400) {
   return Object.assign(new Error(message), { status });
@@ -69,9 +76,11 @@ export function serializeOperationRun(run: any) {
           runId: item.runId,
           resourceType: item.resourceType,
           resourceId: item.resourceId,
+          resourceKey: item.resourceKey ?? null,
           status: item.status,
           error: item.error ?? null,
           result: item.result ?? null,
+          attemptCount: item.attemptCount ?? 0,
           createdAt: item.createdAt?.toISOString?.() ?? item.createdAt,
           startedAt: item.startedAt?.toISOString?.() ?? item.startedAt ?? null,
           finishedAt:
@@ -108,6 +117,12 @@ export async function createSavedUrlOperation(args: {
   urlIds: number[];
   options?: SavedUrlOperationOptions;
 }) {
+  if (args.type === "saved_url_discovered_pdf_capture") {
+    throw asError(
+      "Use /api/urls/:id/discovered-documents/capture-run for discovered PDF capture.",
+    );
+  }
+
   const urlIds = cleanUrlIds(args.urlIds);
   if (!urlIds.length) throw asError("At least one URL id is required.");
   if (urlIds.length > 1000) throw asError("At most 1000 URL ids are allowed.");
@@ -176,6 +191,100 @@ export async function createSavedUrlOperation(args: {
   return getSavedUrlOperation(args.ownerId, run.id);
 }
 
+function cleanStringIds(ids: string[]) {
+  return Array.from(
+    new Set(
+      (ids || [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+export async function createDiscoveredPdfCaptureOperation(args: {
+  ownerId: string;
+  sourceUrlId: number;
+  discoveredDocumentIds: string[];
+  options?: Pick<SavedUrlOperationOptions, "folderId" | "accessMode" | "force">;
+}) {
+  const sourceUrlId = Number(args.sourceUrlId);
+  if (!Number.isFinite(sourceUrlId)) throw asError("Invalid source URL id.");
+
+  const ids = cleanStringIds(args.discoveredDocumentIds);
+  if (!ids.length) {
+    throw asError("At least one discovered PDF id is required.");
+  }
+  if (ids.length > 1000) {
+    throw asError("At most 1000 discovered PDFs are allowed.");
+  }
+
+  const source = await prisma.url.findUnique({
+    where: { id: sourceUrlId },
+    select: { id: true },
+  });
+  if (!source) throw asError("Saved URL not found.", 404);
+
+  const rows = await prisma.urlDiscoveredDocument.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, sourceUrlId: true },
+  });
+
+  const foundIds = new Set(rows.map((row) => row.id));
+  const missing = ids.filter((id) => !foundIds.has(id));
+  if (missing.length) {
+    throw asError(
+      `Unknown discovered PDF id(s): ${missing.slice(0, 10).join(", ")}`,
+      404,
+    );
+  }
+
+  const crossSource = rows.filter((row) => row.sourceUrlId !== sourceUrlId);
+  if (crossSource.length) {
+    throw asError("All discovered PDFs must belong to the requested source URL.");
+  }
+
+  const run = await prisma.operationRun.create({
+    data: {
+      ownerId: args.ownerId,
+      type: "saved_url_discovered_pdf_capture",
+      status: "queued",
+      total: ids.length,
+      completed: 0,
+      failed: 0,
+      progressPct: 0,
+      stage: "queued",
+      statusMessage: "Queued discovered PDF capture",
+      meta: {
+        sourceUrlId,
+        options: args.options ?? {},
+      },
+      items: {
+        create: ids.map((id) => ({
+          resourceType: "url_discovered_document",
+          resourceKey: id,
+          resourceId: null,
+          status: "queued",
+        })),
+      },
+    },
+    include: { items: { orderBy: { createdAt: "asc" } } },
+  });
+
+  const queue = await enqueueSavedUrlOperation(run.id);
+  await prisma.operationRun.update({
+    where: { id: run.id },
+    data: {
+      meta: {
+        sourceUrlId,
+        options: args.options ?? {},
+        queueJobId: queue.queueJobId,
+      },
+    },
+  });
+
+  return getSavedUrlOperation(args.ownerId, run.id);
+}
+
 export async function cancelSavedUrlOperation(ownerId: string, runId: string) {
   const run = await prisma.operationRun.findFirst({
     where: { id: runId, ownerId },
@@ -224,15 +333,35 @@ export async function retryFailedSavedUrlOperation(
   });
   if (!run) throw asError("Operation run not found.", 404);
 
-  const failedIds = run.items
-    .filter((item) => item.status === "failed")
-    .map((item) => item.resourceId);
+  const failedItems = run.items.filter((item) => item.status === "failed");
 
-  if (!failedIds.length) {
+  if (!failedItems.length) {
     throw asError("This operation has no failed items to retry.");
   }
 
   const options = ((run.meta as any)?.options ?? {}) as SavedUrlOperationOptions;
+  if (run.type === "saved_url_discovered_pdf_capture") {
+    const sourceUrlId = Number((run.meta as any)?.sourceUrlId);
+    const discoveredDocumentIds = failedItems
+      .map((item) => item.resourceKey)
+      .filter((id): id is string => Boolean(id));
+
+    return createDiscoveredPdfCaptureOperation({
+      ownerId,
+      sourceUrlId,
+      discoveredDocumentIds,
+      options,
+    });
+  }
+
+  const failedIds = failedItems
+    .map((item) => item.resourceId)
+    .filter((id): id is number => Number.isFinite(id));
+
+  if (!failedIds.length) {
+    throw asError("This operation has no retryable failed items.");
+  }
+
   return createSavedUrlOperation({
     ownerId,
     type: run.type as SavedUrlOperationType,
@@ -375,11 +504,19 @@ async function assignUrlToCollection(
 
 async function processOperationItem(args: {
   type: SavedUrlOperationType;
-  urlId: number;
+  item: any;
   options: SavedUrlOperationOptions;
 }) {
+  const urlId = Number(args.item.resourceId);
+  if (args.type === "saved_url_discovered_pdf_capture") {
+    return processDiscoveredPdfCaptureItem({
+      discoveredDocumentId: String(args.item.resourceKey || ""),
+      options: args.options,
+    });
+  }
+
   const row = await prisma.url.findUnique({
-    where: { id: args.urlId },
+    where: { id: urlId },
     select: { id: true, url: true, title: true },
   });
   if (!row) throw new Error("URL not found.");
@@ -430,6 +567,97 @@ async function processOperationItem(args: {
   }
 
   throw new Error(`Unsupported operation type: ${args.type}`);
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function processDiscoveredPdfCaptureItem(args: {
+  discoveredDocumentId: string;
+  options: SavedUrlOperationOptions;
+}) {
+  const id = String(args.discoveredDocumentId || "").trim();
+  if (!id) throw new Error("Missing discovered PDF id.");
+
+  const doc = await prisma.urlDiscoveredDocument.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      sourceUrlId: true,
+      url: true,
+      title: true,
+      fileNameHint: true,
+      capturedFiles: {
+        where: { deletedAt: null },
+        select: { id: true },
+        take: 1,
+      },
+      sourceUrl: {
+        select: { url: true },
+      },
+    },
+  });
+
+  if (!doc) throw new Error("Discovered PDF not found.");
+
+  if (!args.options.force && doc.capturedFiles.length > 0) {
+    return {
+      skipped: true,
+      reason: "already_captured",
+      discoveredDocumentId: doc.id,
+      fileId: doc.capturedFiles[0].id,
+    };
+  }
+
+  const fileName =
+    doc.fileNameHint ||
+    doc.title ||
+    doc.url.split(/[/?#]/).filter(Boolean).pop() ||
+    "document.pdf";
+
+  return invokeCrawlHandler(crawlPdfHandler, {
+    url: doc.url,
+    folderId: args.options.folderId ?? undefined,
+    fileName,
+    fullPage: true,
+    reader: true,
+    urlId: doc.sourceUrlId,
+    accessMode: args.options.accessMode ?? "public",
+    discoveredDocumentId: doc.id,
+    captureScope: "DISCOVERED_DOCUMENT",
+    sourcePageUrl: doc.sourceUrl.url,
+    originalSearchQuery: null,
+  });
+}
+
+async function processOperationItemWithRetries(args: {
+  type: SavedUrlOperationType;
+  item: any;
+  options: SavedUrlOperationOptions;
+}) {
+  const maxAttempts =
+    args.type === "saved_url_discovered_pdf_capture"
+      ? DISCOVERED_PDF_MAX_ATTEMPTS
+      : 1;
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await prisma.operationRunItem.update({
+      where: { id: args.item.id },
+      data: { attemptCount: attempt },
+    });
+
+    try {
+      return await processOperationItem(args);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts) break;
+      await sleep(Math.min(30_000, 1000 * 2 ** (attempt - 1)));
+    }
+  }
+
+  throw lastError;
 }
 
 async function summarizeRun(runId: string) {
@@ -492,9 +720,9 @@ export async function processSavedUrlOperationRun(runId: string) {
     });
 
     try {
-      const result = await processOperationItem({
+      const result = await processOperationItemWithRetries({
         type: run.type as SavedUrlOperationType,
-        urlId: item.resourceId,
+        item,
         options,
       });
 

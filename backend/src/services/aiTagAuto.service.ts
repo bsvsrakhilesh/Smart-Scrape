@@ -4,6 +4,7 @@ import { createJobFromFile } from "./pyTaggerClient";
 import { startOrReuseAiTagJobForFile } from "./aiTagJobStart.service";
 import { finalizeAiTagJobForFile } from "./aiTagJobFinalize.service";
 import { persistAiTagFailureForFile } from "./aiTagPersistence.service";
+import { enqueueAiTagFile } from "../queues/aiTagFile.queue";
 import {
   getAiTaggingUnavailableMessage,
   getFileCapability,
@@ -126,36 +127,20 @@ export function scheduleAiTagForFile(
   fileId: string,
   opts?: { force?: boolean },
 ) {
-  setImmediate(async () => {
+  void enqueueAiTagFile(String(fileId), opts).catch(async (e: any) => {
+    const msg = String(e?.message || e || "Unknown error").slice(0, 500);
+
     try {
       await prisma.storedFile.update({
         where: { id: String(fileId) },
         data: {
-          taggingStatus: TaggingStatus.PENDING,
+          taggingStatus: TaggingStatus.FAILED,
           taggingJobId: null,
-          taggingError: null,
+          taggingError: msg,
         },
       });
+    } catch {}
 
-      await runAiTagForFile(String(fileId), {
-        ...(opts || {}),
-        throwOnTerminalFailure: false,
-      });
-    } catch (e: any) {
-      const msg = String(e?.message || e || "Unknown error").slice(0, 500);
-
-      try {
-        await prisma.storedFile.update({
-          where: { id: String(fileId) },
-          data: {
-            taggingStatus: TaggingStatus.FAILED,
-            taggingJobId: null,
-            taggingError: msg,
-          },
-        });
-      } catch {}
-
-      console.error("[aiTagAuto] scheduleAiTagForFile failed", { fileId }, e);
-    }
+    console.error("[aiTagAuto] scheduleAiTagForFile failed", { fileId }, e);
   });
 }

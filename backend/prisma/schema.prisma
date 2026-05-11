@@ -276,10 +276,12 @@ model OperationRunItem {
   id           String   @id @default(cuid())
   runId        String
   resourceType String
-  resourceId   Int
+  resourceId   Int?
+  resourceKey  String?
   status       String   @default("queued")
   error        String?
   result       Json?
+  attemptCount Int      @default(0)
   startedAt    DateTime?
   finishedAt   DateTime?
   createdAt    DateTime @default(now())
@@ -288,6 +290,7 @@ model OperationRunItem {
   run OperationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   @@index([runId, status])
   @@index([resourceType, resourceId])
+  @@index([resourceType, resourceKey])
 }
 
 model StoredFile {

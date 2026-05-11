@@ -929,6 +929,7 @@ export type SavedUrlOperationStatus =
 export type SavedUrlOperationType =
   | "saved_url_bulk_capture_text"
   | "saved_url_bulk_capture_pdf"
+  | "saved_url_discovered_pdf_capture"
   | "saved_url_bulk_ai_tag"
   | "saved_url_metadata_refresh"
   | "saved_url_bulk_delete"
@@ -938,10 +939,12 @@ export type SavedUrlOperationItem = {
   id: string;
   runId: string;
   resourceType: string;
-  resourceId: number;
+  resourceId?: number | null;
+  resourceKey?: string | null;
   status: SavedUrlOperationStatus;
   error?: string | null;
   result?: unknown;
+  attemptCount?: number;
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
@@ -999,6 +1002,22 @@ export async function createSavedUrlOperation(
   body: CreateSavedUrlOperationInput,
 ): Promise<SavedUrlOperationRun> {
   const res = await api.post("/api/saved-url-operations", body);
+  return res.data as SavedUrlOperationRun;
+}
+
+export async function createDiscoveredPdfCaptureRun(
+  sourceUrlId: number,
+  body: {
+    discoveredDocumentIds: string[];
+    folderId?: string | null;
+    accessMode?: "public" | "institutional";
+    force?: boolean;
+  },
+): Promise<SavedUrlOperationRun> {
+  const res = await api.post(
+    `/api/urls/${encodeURIComponent(String(sourceUrlId))}/discovered-documents/capture-run`,
+    body,
+  );
   return res.data as SavedUrlOperationRun;
 }
 

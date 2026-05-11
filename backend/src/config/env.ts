@@ -28,6 +28,7 @@ const EnvSchema = z.object({
   EMBEDDING_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
   INGESTION_QUEUE_CONCURRENCY: z.coerce.number().optional().default(2),
   AI_TAG_URL_QUEUE_CONCURRENCY: z.coerce.number().optional().default(1),
+  AI_TAG_FILE_QUEUE_CONCURRENCY: z.coerce.number().optional().default(1),
   SAVED_URL_OPERATION_QUEUE_CONCURRENCY: z.coerce
     .number()
     .optional()

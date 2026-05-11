@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  cancelSavedUrlOperation,
+  createDiscoveredPdfCaptureRun,
   crawlSavePdf,
   discoverPdfDocuments,
   fetchDiscoveredPdfDocuments,
+  fetchSavedUrlOperation,
   type DiscoveredPdfDocument,
   type PdfDiscoverySummary,
+  type SavedUrlOperationRun,
 } from "../../lib/api";
 import FolderPickerModal from "./FolderPickerModal";
 import CloseIcon from "../icons/CloseIcon";
@@ -82,14 +86,8 @@ function isAbortLike(error: any) {
   );
 }
 
-function suggestedFileName(doc: DiscoveredPdfDocument) {
-  return sanitizePdfName(
-    doc.fileNameHint ||
-      doc.title ||
-      doc.anchorText ||
-      doc.url.split(/[/?#]/).filter(Boolean).pop() ||
-      "document",
-  );
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function isCapturedDocument(doc: DiscoveredPdfDocument) {
@@ -383,6 +381,7 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
 
     const targets = [...captureTargets];
     const controller = new AbortController();
+    let operationId: string | null = null;
     const jobId = jobs?.startJob({
       kind: "pdf_capture",
       title: "Capture discovered PDFs",
@@ -396,7 +395,10 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
         setCaptureTargets(targets);
         void runCapture(opts);
       },
-      onCancel: () => controller.abort(),
+      onCancel: () => {
+        controller.abort();
+        if (operationId) void cancelSavedUrlOperation(operationId).catch(() => {});
+      },
       meta: {
         sourceUrlId,
         sourceUrl,
@@ -404,72 +406,84 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
       },
     });
 
-    const failures: Array<{ id: string; title: string; error: string }> = [];
-    let completedCount = 0;
-    for (let index = 0; index < targets.length; index += 1) {
-      if (controller.signal.aborted) break;
+    const titleById = new Map(targets.map((doc) => [doc.id, doc.title]));
+    const failuresFromRun = (run: SavedUrlOperationRun) =>
+      (run.items ?? [])
+        .filter((item) => item.status === "failed")
+        .map((item) => ({
+          id: item.resourceKey || String(item.resourceId || item.id),
+          title:
+            (item.resourceKey ? titleById.get(item.resourceKey) : null) ||
+            "Discovered PDF",
+          error: item.error || "Capture failed",
+        }));
 
-      const doc = targets[index];
+    try {
       jobs?.updateJob(jobId || "", {
         status: "running",
-        stage: "capturing",
-        message: `Capturing ${index + 1}/${targets.length}: ${doc.title}`,
-        progressPct: Math.max(8, Math.round((index / targets.length) * 88)),
+        stage: "queued",
+        message: `Queued ${targets.length} discovered PDF capture${targets.length === 1 ? "" : "s"}`,
+        progressPct: 8,
         startedAt: new Date().toISOString(),
       });
 
-      try {
-        await crawlSavePdf(
-          doc.url,
-          opts.folderId ?? undefined,
-          suggestedFileName(doc),
-          true,
-          true,
-          sourceUrlId,
-          opts.accessMode || "public",
-          {
-            discoveredDocumentId: doc.id,
-            captureScope: "DISCOVERED_DOCUMENT",
-            sourcePageUrl: sourceUrl,
-            originalSearchQuery: query || null,
-          },
-          { signal: controller.signal },
-        );
-      } catch (error: any) {
-        if (isAbortLike(error)) {
-          break;
-        } else {
-          failures.push({
-            id: doc.id,
-            title: doc.title,
-            error: error?.message || "Capture failed",
-          });
-        }
-      } finally {
-        completedCount += 1;
-        setCaptureDone((n) => n + 1);
+      let run = await createDiscoveredPdfCaptureRun(sourceUrlId, {
+        discoveredDocumentIds: targets.map((doc) => doc.id),
+        folderId: opts.folderId ?? undefined,
+        accessMode: opts.accessMode || "public",
+      });
+      operationId = run.id;
+
+      while (
+        !controller.signal.aborted &&
+        (run.status === "queued" || run.status === "running")
+      ) {
+        setCaptureDone(run.completed || 0);
+        setCaptureFailures(failuresFromRun(run));
+        jobs?.updateJob(jobId || "", {
+          status: "running",
+          stage: run.stage || "capturing",
+          message:
+            run.statusMessage ||
+            `Capturing ${run.completed || 0}/${run.total || targets.length} PDFs`,
+          progressPct: Math.max(8, Math.min(99, run.progressPct || 8)),
+          meta: { sourceUrlId, sourceUrl, operationRunId: run.id },
+        });
+
+        await sleep(2000);
+        run = await fetchSavedUrlOperation(run.id);
       }
-    }
 
-    setCaptureFailures(failures);
-    setCapturing(false);
-    await load(false);
-    await onAfterCapture?.();
+      if (controller.signal.aborted) {
+        if (operationId) await cancelSavedUrlOperation(operationId).catch(() => {});
+      }
 
-    const succeeded = targets.length - failures.length;
-    setNotice({
-      type: controller.signal.aborted
-        ? "info"
-        : failures.length
-          ? "error"
-          : "success",
-      text: controller.signal.aborted
-        ? `Canceled after ${completedCount} of ${targets.length} PDFs.`
-        : failures.length
-          ? `Captured ${succeeded} of ${targets.length} PDFs.`
-        : `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}.`,
-    });
-    if (jobId) {
+      const finalRun = operationId
+        ? await fetchSavedUrlOperation(operationId).catch(() => run)
+        : run;
+      const failures = failuresFromRun(finalRun);
+      const succeeded =
+        (finalRun.items ?? []).filter((item) => item.status === "success").length ||
+        Math.max(0, (finalRun.completed || 0) - (finalRun.failed || 0));
+
+      setCaptureDone(finalRun.completed || 0);
+      setCaptureFailures(failures);
+      await load(false);
+      await onAfterCapture?.();
+
+      setNotice({
+        type: controller.signal.aborted
+          ? "info"
+          : failures.length
+            ? "error"
+            : "success",
+        text: controller.signal.aborted
+          ? `Canceled after ${finalRun.completed || 0} of ${targets.length} PDFs.`
+          : failures.length
+            ? `Captured ${succeeded} of ${targets.length} PDFs.`
+            : `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}.`,
+      });
+
       if (controller.signal.aborted) {
         jobs?.cancelJob(jobId, "PDF capture canceled");
       } else if (failures.length) {
@@ -480,7 +494,13 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
             stage: "partial-failure",
             message: "Some PDF captures failed",
             progressPct: 100,
-            meta: { sourceUrlId, sourceUrl, succeeded, failed: failures.length },
+            meta: {
+              sourceUrlId,
+              sourceUrl,
+              operationRunId: finalRun.id,
+              succeeded,
+              failed: failures.length,
+            },
           },
         );
       } else {
@@ -488,12 +508,30 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
           jobId,
           `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}`,
           {
-            meta: { sourceUrlId, sourceUrl, succeeded },
+            meta: { sourceUrlId, sourceUrl, operationRunId: finalRun.id, succeeded },
           },
         );
       }
+    } catch (error: any) {
+      if (isAbortLike(error) || controller.signal.aborted) {
+        if (operationId) await cancelSavedUrlOperation(operationId).catch(() => {});
+        if (jobId) jobs?.cancelJob(jobId, "PDF capture canceled");
+        setNotice({ type: "info", text: "PDF capture canceled." });
+      } else {
+        setNotice({
+          type: "error",
+          text: error?.message || "PDF capture failed.",
+        });
+        if (jobId) {
+          jobs?.failJob(jobId, error, {
+            message: "PDF capture failed",
+          });
+        }
+      }
+    } finally {
+      setCapturing(false);
+      setCaptureTargets([]);
     }
-    setCaptureTargets([]);
   };
 
   const runPageSnapshotCapture = async (opts: {

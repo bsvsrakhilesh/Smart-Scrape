@@ -727,7 +727,8 @@ const SavedUrlsPage: React.FC = () => {
         (operation) =>
           (operation.status === "queued" || operation.status === "running") &&
           (operation.type === "saved_url_bulk_capture_text" ||
-            operation.type === "saved_url_bulk_capture_pdf"),
+            operation.type === "saved_url_bulk_capture_pdf" ||
+            operation.type === "saved_url_discovered_pdf_capture"),
       ),
     [savedUrlOperations.data?.items],
   );

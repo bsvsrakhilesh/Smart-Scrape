@@ -14,7 +14,12 @@ Output schema (v1):
       "programs": [...],
       "pollutants": [...]
   },
-  "grap": {"mentioned": bool, "stage": "I"|"II"|"III"|"IV"|null, "evidence": "..."},
+  "grap": {
+      "mentioned": bool,
+      "stage": "I"|"II"|"III"|"IV"|null,
+      "stages": [{"value": "I"|"II"|"III"|"IV", "score": 0..1, "evidence": "..."}],
+      "evidence": "..."
+  },
   "entities": {
       "directionNumbers": ["..."] ,
       "orderNumbers": ["..."],
@@ -67,7 +72,10 @@ _RE_DATE_WORD = re.compile(
 )
 
 # GRAP stage
-_RE_GRAP_STAGE = re.compile(r"\bStage\s*[-:]?\s*(I{1,3}|IV|1|2|3|4)\b", re.IGNORECASE)
+_RE_GRAP_STAGE = re.compile(
+    r"\b(?:GRAP\s*)?Stages?\s*[-:]?\s*((?:IV|III|II|I|[1-4])(?:\s*(?:,|/|&|and|to|-)\s*(?:IV|III|II|I|[1-4]))*)\b|\bGRAP\s*[-:]?\s*(IV|III|II|I|[1-4])\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_text_for_scan(text: str, limit: int = 140000) -> str:
@@ -260,18 +268,25 @@ def _extract_grap(text: str) -> Dict[str, Any]:
     mentioned = "grap" in t_low or "graded response action plan" in t_low
     stage = None
     ev = ""
+    stages: List[Dict[str, Any]] = []
+    seen_stages = set()
 
-    m = _RE_GRAP_STAGE.search(t)
-    if m:
-        raw = m.group(1).upper()
-        if raw in ("1", "2", "3", "4"):
-            stage = {"1": "I", "2": "II", "3": "III", "4": "IV"}.get(raw)
-        else:
-            stage = raw
-        ev = _snippet(t, m.start(), m.end())
+    for m in _RE_GRAP_STAGE.finditer(t):
+        raw_group = (m.group(1) or m.group(2) or "").upper()
+        for raw in re.findall(r"\b(?:IV|III|II|I|[1-4])\b", raw_group, flags=re.IGNORECASE):
+            raw = raw.upper()
+            value = {"1": "I", "2": "II", "3": "III", "4": "IV"}.get(raw, raw)
+            if value in seen_stages:
+                continue
+            seen_stages.add(value)
+            evidence = _snippet(t, m.start(), m.end())
+            stages.append({"value": value, "score": 0.85, "evidence": evidence})
+            if stage is None:
+                stage = value
+                ev = evidence
         mentioned = True
 
-    return {"mentioned": bool(mentioned), "stage": stage, "evidence": ev}
+    return {"mentioned": bool(mentioned), "stage": stage, "stages": stages, "evidence": ev}
 
 
 def classify_structured(

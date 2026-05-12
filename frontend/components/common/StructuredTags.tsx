@@ -23,6 +23,7 @@ type SmartTagEvidence = {
   quote?: string | null;
   page?: number | null;
   section?: string | null;
+  locator?: Record<string, any> | null;
 };
 
 type SmartTag = {
@@ -83,10 +84,59 @@ type Structured = {
   };
 };
 
+type IntelligenceItem = {
+  id?: string | null;
+  label?: string | null;
+  type?: string | null;
+  category?: string | null;
+  normalizedValue?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+  evidence?: SmartTagEvidence[] | string | null;
+  locator?: Record<string, any> | null;
+  status?: string | null;
+};
+
+type StructuredIntelligence = {
+  profile?: string;
+  version?: number;
+  domain?: string;
+  topics?: IntelligenceItem[];
+  agencies?: IntelligenceItem[];
+  programs?: IntelligenceItem[];
+  programStages?: IntelligenceItem[];
+  legalReferences?: IntelligenceItem[];
+  actionsDecisions?: IntelligenceItem[];
+  requirements?: IntelligenceItem[];
+  restrictions?: IntelligenceItem[];
+  locations?: IntelligenceItem[];
+  sectors?: IntelligenceItem[];
+  pollutantsMeasurements?: IntelligenceItem[];
+  datesDeadlines?: IntelligenceItem[];
+  claims?: IntelligenceItem[];
+  items?: IntelligenceItem[];
+};
+
+type IntelligenceSectionKey =
+  | "topics"
+  | "agencies"
+  | "programs"
+  | "programStages"
+  | "legalReferences"
+  | "actionsDecisions"
+  | "requirements"
+  | "restrictions"
+  | "locations"
+  | "sectors"
+  | "pollutantsMeasurements"
+  | "datesDeadlines"
+  | "claims";
+
 type Props = {
   structured: Structured | null | undefined;
   tagDetails?: AiTagDetail[] | null;
   smartTags?: SmartTags | null;
+  structuredIntelligence?: StructuredIntelligence | null;
   compact?: boolean;
   className?: string;
 };
@@ -193,7 +243,9 @@ function cleanSmartEvidence(input: SmartTag["evidence"]): SmartTagEvidence[] {
           ? raw.page
           : null;
       const section = raw.section ? String(raw.section).trim() : null;
-      return { quote, page, section };
+      const locator =
+        raw.locator && typeof raw.locator === "object" ? raw.locator : null;
+      return { quote, page, section, locator };
     })
     .filter(Boolean) as SmartTagEvidence[];
 }
@@ -282,6 +334,112 @@ function cleanSmartTags(input?: SmartTags | null): SmartTags | null {
   ];
 
   return out.items.length ? out : null;
+}
+
+const INTELLIGENCE_SECTIONS: {
+  key: IntelligenceSectionKey;
+  title: string;
+}[] = [
+  { key: "topics", title: "Topics" },
+  { key: "agencies", title: "Agencies" },
+  { key: "programs", title: "Programs" },
+  { key: "programStages", title: "Programs / Stages" },
+  { key: "legalReferences", title: "Legal References" },
+  { key: "actionsDecisions", title: "Actions / Decisions" },
+  { key: "requirements", title: "Requirements" },
+  { key: "restrictions", title: "Restrictions" },
+  { key: "locations", title: "Locations" },
+  { key: "sectors", title: "Sectors" },
+  { key: "pollutantsMeasurements", title: "Pollutants / Measurements" },
+  { key: "datesDeadlines", title: "Dates / Deadlines" },
+  { key: "claims", title: "Claims" },
+];
+
+function cleanIntelligenceArray(input?: IntelligenceItem[] | null) {
+  if (!Array.isArray(input)) return [];
+  const out: IntelligenceItem[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of input) {
+    const label = String(raw?.label ?? "").trim();
+    if (!label) continue;
+    const category = String(raw?.category ?? "").trim();
+    const type = String(raw?.type ?? "intelligence_item").trim();
+    const evidence = cleanSmartEvidence(raw?.evidence);
+    if (!category || !type || evidence.length === 0) continue;
+
+    const normalizedValue = String(
+      raw?.normalizedValue ?? label.toLowerCase(),
+    ).trim();
+    const key = `${category}:${type}:${normalizedValue.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      ...raw,
+      label,
+      category,
+      type,
+      normalizedValue,
+      source: String(raw?.source ?? "structured_intelligence").trim(),
+      status: String(raw?.status ?? "matched").trim(),
+      confidence:
+        typeof raw?.confidence === "number"
+          ? Math.max(0, Math.min(1, raw.confidence))
+          : null,
+      evidence,
+      locator:
+        raw?.locator && typeof raw.locator === "object" ? raw.locator : null,
+    });
+  }
+
+  return out.slice(0, 80);
+}
+
+function cleanStructuredIntelligence(
+  input?: StructuredIntelligence | null,
+): StructuredIntelligence | null {
+  if (!input || typeof input !== "object") return null;
+  const out: StructuredIntelligence = {
+    profile: input.profile ?? "structured_intelligence",
+    version: input.version ?? 1,
+    domain: input.domain ?? "air_quality_governance",
+  };
+
+  for (const section of INTELLIGENCE_SECTIONS) {
+    out[section.key] = cleanIntelligenceArray(
+      input[section.key] as IntelligenceItem[] | undefined,
+    );
+  }
+
+  const flattened = INTELLIGENCE_SECTIONS.flatMap(
+    (section) => (out[section.key] as IntelligenceItem[] | undefined) ?? [],
+  );
+  const fromItems = cleanIntelligenceArray(input.items);
+  out.items = (fromItems.length ? fromItems : flattened).slice(0, 240);
+
+  return out.items.length ? out : null;
+}
+
+function intelligenceToSmartTag(item: IntelligenceItem): SmartTag {
+  return {
+    value: item.label,
+    category: item.category,
+    type: item.type,
+    source: item.source,
+    confidence: item.confidence,
+    confidenceBand:
+      typeof item.confidence === "number"
+        ? item.confidence >= 0.85
+          ? "high"
+          : item.confidence >= 0.6
+            ? "medium"
+            : "low"
+        : null,
+    matchedTaxonomy: item.normalizedValue,
+    status: item.status,
+    evidence: item.evidence,
+  };
 }
 
 function TagDetailRow({
@@ -503,6 +661,7 @@ export default function StructuredTags({
   structured,
   tagDetails,
   smartTags,
+  structuredIntelligence,
   compact = false,
   className,
 }: Props) {
@@ -524,7 +683,13 @@ export default function StructuredTags({
   const entities = structured?.entities ?? {};
   const safeTagDetails = useMemo(() => cleanTagDetails(tagDetails), [tagDetails]);
   const safeSmartTags = useMemo(() => cleanSmartTags(smartTags), [smartTags]);
+  const safeStructuredIntelligence = useMemo(
+    () => cleanStructuredIntelligence(structuredIntelligence),
+    [structuredIntelligence],
+  );
+  const intelligenceItems = safeStructuredIntelligence?.items ?? [];
   const smartCount = safeSmartTags?.items?.length ?? 0;
+  const intelligenceCount = intelligenceItems.length;
   const entityLines = useMemo(() => {
     const out: { k: string; v: string }[] = [];
     const push = (k: string, arr?: string[]) => {
@@ -552,9 +717,11 @@ export default function StructuredTags({
       pollutants.length ||
       grap?.mentioned ||
       entityLines.length);
-  const hasAnything = hasStructuredSignals || safeTagDetails.length > 0;
+  const hasAnything =
+    hasStructuredSignals || safeTagDetails.length > 0 || intelligenceCount > 0;
   const hasRenderableContent = hasAnything || smartCount > 0;
-  const showLegacyStructured = !safeSmartTags && hasStructuredSignals;
+  const showLegacyStructured =
+    !safeStructuredIntelligence && !safeSmartTags && hasStructuredSignals;
   const primarySmartTags = safeSmartTags
     ? [
         ...(safeSmartTags.taxonomyTags ?? []),
@@ -575,7 +742,12 @@ export default function StructuredTags({
         ...(safeSmartTags.entities?.datesDeadlines ?? []),
       ]
     : [];
-  const evidenceAnchorCount = safeSmartTags
+  const evidenceAnchorCount = safeStructuredIntelligence
+    ? intelligenceItems.reduce(
+        (sum, item) => sum + cleanSmartEvidence(item.evidence).length,
+        0,
+      )
+    : safeSmartTags
     ? smartEvidenceCount(safeSmartTags.items ?? [])
     : safeTagDetails.filter((tag) => tag.evidence).length;
 
@@ -590,10 +762,21 @@ export default function StructuredTags({
           )}
           onClick={async (e) => {
             e.stopPropagation();
-            if (!structured && !safeTagDetails.length && !safeSmartTags) return;
+            if (
+              !structured &&
+              !safeTagDetails.length &&
+              !safeSmartTags &&
+              !safeStructuredIntelligence
+            )
+              return;
             const ok = await copyToClipboard(
               JSON.stringify(
-                { smartTags: safeSmartTags, structured, tagDetails: safeTagDetails },
+                {
+                  structuredIntelligence: safeStructuredIntelligence,
+                  smartTags: safeSmartTags,
+                  structured,
+                  tagDetails: safeTagDetails,
+                },
                 null,
                 2,
               ),
@@ -647,10 +830,20 @@ export default function StructuredTags({
               Document intelligence
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-              <span>{smartCount || safeTagDetails.length} tags</span>
+              <span>{intelligenceCount || smartCount || safeTagDetails.length} tags</span>
               <span>-</span>
               <span>{evidenceAnchorCount} evidence anchors</span>
-              {safeSmartTags?.profile ? (
+              {safeStructuredIntelligence?.profile ? (
+                <>
+                  <span>-</span>
+                  <span>
+                    {safeStructuredIntelligence.profile}
+                    {safeStructuredIntelligence.version
+                      ? ` v${safeStructuredIntelligence.version}`
+                      : ""}
+                  </span>
+                </>
+              ) : safeSmartTags?.profile ? (
                 <>
                   <span>-</span>
                   <span>
@@ -680,7 +873,9 @@ export default function StructuredTags({
         </div>
       ) : !expanded ? (
         <div className="px-1 py-3 text-[12px] text-slate-500">
-          {smartCount
+          {intelligenceCount
+            ? `${intelligenceCount} evidence-backed intelligence items`
+            : smartCount
             ? `${primarySmartTags.length} review tags and ${entitySmartTags.length} entities`
             : safeTagDetails.length
             ? `${safeTagDetails.length} evidence-backed tags`
@@ -706,7 +901,62 @@ export default function StructuredTags({
             </div>
           ) : null}
 
-          {safeSmartTags ? (
+          {safeStructuredIntelligence ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Intelligence items
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {intelligenceCount}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Sections
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {
+                      INTELLIGENCE_SECTIONS.filter(
+                        (section) =>
+                          (
+                            safeStructuredIntelligence[
+                              section.key
+                            ] as IntelligenceItem[] | undefined
+                          )?.length,
+                      ).length
+                    }
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    Evidence
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {evidenceAnchorCount}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {INTELLIGENCE_SECTIONS.map((section) => {
+                  const items =
+                    (safeStructuredIntelligence[
+                      section.key
+                    ] as IntelligenceItem[] | undefined) ?? [];
+                  return (
+                    <SmartTagSection
+                      key={section.key}
+                      title={section.title}
+                      items={items.map(intelligenceToSmartTag)}
+                      showEvidence={showEvidence}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ) : safeSmartTags ? (
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-3 py-2">

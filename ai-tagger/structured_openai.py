@@ -67,6 +67,13 @@ _POLLUTANTS = [
     "co",
 ]
 
+_GRAP_STAGES = [
+    "I",
+    "II",
+    "III",
+    "IV",
+]
+
 _AGENCY_CATEGORIES = [
     "regulator",
     "judiciary",
@@ -259,9 +266,13 @@ _SCHEMA: Dict[str, Any] = {
                         {"type": "null"},
                     ]
                 },
+                "stages": {
+                    "type": "array",
+                    "items": _label_item_schema(_GRAP_STAGES),
+                },
                 "evidence": {"type": "string"},
             },
-            "required": ["mentioned", "stage", "evidence"],
+            "required": ["mentioned", "stage", "stages", "evidence"],
         },
         "entities": {
             "type": "object",
@@ -577,7 +588,7 @@ Document text:
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            **_completion_token_kwargs(1400),
+            max_completion_tokens=1400,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -660,7 +671,7 @@ Document text:
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            **_completion_token_kwargs(2400),
+            max_completion_tokens=2400,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -726,6 +737,7 @@ def _empty_structured() -> Dict[str, Any]:
         "grap": {
             "mentioned": False,
             "stage": None,
+            "stages": [],
             "evidence": "",
         },
         "entities": {
@@ -797,6 +809,38 @@ def _merge_items(
                 return out
 
     return out
+
+
+def _merge_grap_stages(
+    preferred: Dict[str, Any],
+    fallback: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    stages = _merge_items(
+        preferred.get("stages"),
+        fallback.get("stages"),
+        limit=8,
+    )
+    single_stage = preferred.get("stage") or fallback.get("stage")
+    if not single_stage:
+        return stages
+
+    single_key = str(single_stage).strip().casefold()
+    if any(
+        str(item.get("value") or "").strip().casefold() == single_key
+        for item in stages
+    ):
+        return stages
+
+    stages.append(
+        {
+            "value": single_stage,
+            "score": 0.85,
+            "evidence": str(
+                preferred.get("evidence") or fallback.get("evidence") or ""
+            ),
+        }
+    )
+    return stages
 
 
 def _pick_single(preferred: Any, fallback: Any) -> Dict[str, Any]:
@@ -876,10 +920,12 @@ def merge_structured(
 
     p_grap: Dict[str, Any] = _as_obj(p.get("grap"))
     f_grap: Dict[str, Any] = _as_obj(f.get("grap"))
+    single_stage = p_grap.get("stage") or f_grap.get("stage") or None
 
     out["grap"] = {
         "mentioned": bool(p_grap.get("mentioned") or f_grap.get("mentioned")),
-        "stage": p_grap.get("stage") or f_grap.get("stage") or None,
+        "stage": single_stage,
+        "stages": _merge_grap_stages(p_grap, f_grap),
         "evidence": str(p_grap.get("evidence") or f_grap.get("evidence") or ""),
     }
 

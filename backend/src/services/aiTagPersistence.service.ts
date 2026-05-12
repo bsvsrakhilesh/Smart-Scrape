@@ -1,5 +1,6 @@
 import prisma from "../config/database";
 import { TaggingStatus } from "../generated/prisma/client";
+import { z } from "zod";
 import {
   syncGovernanceForStoredFileTx,
   syncGovernanceForUrlTx,
@@ -44,6 +45,68 @@ const SMART_TAG_ENTITY_KEYS = [
   "schemesPrograms",
   "datesDeadlines",
 ] as const;
+
+const STRUCTURED_INTELLIGENCE_CATEGORY_KEYS = [
+  "topics",
+  "agencies",
+  "programs",
+  "programStages",
+  "legalReferences",
+  "actionsDecisions",
+  "requirements",
+  "restrictions",
+  "locations",
+  "sectors",
+  "pollutantsMeasurements",
+  "datesDeadlines",
+  "claims",
+] as const;
+
+const structuredEvidenceSchema = z
+  .object({
+    quote: z.string().trim().min(1).max(1200),
+    page: z.number().int().optional(),
+    section: z.string().trim().max(180).optional(),
+    locator: z.record(z.any()).optional(),
+  })
+  .strict();
+
+const structuredIntelligenceItemSchema = z
+  .object({
+    id: z.string().trim().min(1).max(100),
+    label: z.string().trim().min(1).max(180),
+    type: z.string().trim().min(1).max(80),
+    category: z.enum(STRUCTURED_INTELLIGENCE_CATEGORY_KEYS),
+    normalizedValue: z.string().trim().min(1).max(180),
+    confidence: z.number().min(0).max(1).nullable(),
+    source: z.string().trim().min(1).max(80),
+    evidence: z.array(structuredEvidenceSchema).min(1).max(5),
+    locator: z.record(z.any()).nullable().optional(),
+    status: z.string().trim().min(1).max(80),
+  })
+  .strict();
+
+const structuredIntelligenceSchema = z
+  .object({
+    profile: z.literal("structured_intelligence"),
+    version: z.literal(1),
+    domain: z.literal("air_quality_governance"),
+    topics: z.array(structuredIntelligenceItemSchema).default([]),
+    agencies: z.array(structuredIntelligenceItemSchema).default([]),
+    programs: z.array(structuredIntelligenceItemSchema).default([]),
+    programStages: z.array(structuredIntelligenceItemSchema).default([]),
+    legalReferences: z.array(structuredIntelligenceItemSchema).default([]),
+    actionsDecisions: z.array(structuredIntelligenceItemSchema).default([]),
+    requirements: z.array(structuredIntelligenceItemSchema).default([]),
+    restrictions: z.array(structuredIntelligenceItemSchema).default([]),
+    locations: z.array(structuredIntelligenceItemSchema).default([]),
+    sectors: z.array(structuredIntelligenceItemSchema).default([]),
+    pollutantsMeasurements: z.array(structuredIntelligenceItemSchema).default([]),
+    datesDeadlines: z.array(structuredIntelligenceItemSchema).default([]),
+    claims: z.array(structuredIntelligenceItemSchema).default([]),
+    items: z.array(structuredIntelligenceItemSchema).default([]),
+  })
+  .strict();
 
 function cleanString(value: unknown, max = 500): string | null {
   const text = String(value ?? "")
@@ -276,6 +339,117 @@ function normalizeSmartTags(data: any, userTags: string[]) {
   return out;
 }
 
+function normalizeStructuredIntelligenceEvidence(value: unknown) {
+  const arr = Array.isArray(value) ? value : value ? [value] : [];
+
+  return arr
+    .map((raw) => {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        const quote = cleanString((raw as any).quote ?? (raw as any).evidence, 1200);
+        if (!quote) return null;
+        const pageRaw = Number((raw as any).page);
+        const section = cleanString((raw as any).section, 180);
+        return {
+          quote,
+          ...(Number.isFinite(pageRaw) ? { page: pageRaw } : {}),
+          ...(section ? { section } : {}),
+          ...((raw as any).locator && typeof (raw as any).locator === "object"
+            ? { locator: (raw as any).locator }
+            : {}),
+        };
+      }
+
+      const quote = cleanString(raw, 1200);
+      return quote ? { quote } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function normalizeStructuredIntelligenceItem(raw: any) {
+  const label = cleanString(raw?.label ?? raw?.value, 180);
+  const category = cleanString(raw?.category, 80);
+  const type = cleanString(raw?.type, 80) ?? "intelligence_item";
+  const evidence = normalizeStructuredIntelligenceEvidence(raw?.evidence);
+  if (!label || !category || evidence.length === 0) return null;
+  if (!STRUCTURED_INTELLIGENCE_CATEGORY_KEYS.includes(category as any)) return null;
+
+  const fallbackNormalizedValue =
+    label
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || label.toLowerCase();
+  const normalizedValue =
+    cleanString(raw?.normalizedValue, 180) ?? fallbackNormalizedValue;
+  const id =
+    cleanString(raw?.id, 100) ??
+    `${category}:${type}:${normalizedValue}`.slice(0, 100);
+
+  const item = {
+    id,
+    label,
+    type,
+    category,
+    normalizedValue,
+    confidence: cleanConfidence(raw?.confidence),
+    source: cleanString(raw?.source, 80) ?? "tagger",
+    evidence,
+    locator:
+      raw?.locator && typeof raw.locator === "object" && !Array.isArray(raw.locator)
+        ? raw.locator
+        : null,
+    status: cleanString(raw?.status, 80) ?? "matched",
+  };
+
+  const parsed = structuredIntelligenceItemSchema.safeParse(item);
+  return parsed.success ? parsed.data : null;
+}
+
+function normalizeStructuredIntelligence(data: any) {
+  const raw =
+    data?.structured_intelligence_v1 ??
+    data?.structuredIntelligenceV1 ??
+    data?.structuredIntelligence ??
+    null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const seen = new Set<string>();
+  const grouped: Record<string, any[]> = {};
+  STRUCTURED_INTELLIGENCE_CATEGORY_KEYS.forEach((key) => {
+    grouped[key] = [];
+  });
+
+  const add = (candidate: any) => {
+    const item = normalizeStructuredIntelligenceItem(candidate);
+    if (!item) return;
+    const key = `${item.category}:${item.type}:${item.normalizedValue.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    grouped[item.category].push(item);
+  };
+
+  STRUCTURED_INTELLIGENCE_CATEGORY_KEYS.forEach((key) => {
+    const arr = Array.isArray(raw[key]) ? raw[key] : [];
+    arr.forEach(add);
+  });
+  (Array.isArray(raw.items) ? raw.items : []).forEach(add);
+
+  const items = STRUCTURED_INTELLIGENCE_CATEGORY_KEYS.flatMap((key) => grouped[key]);
+  if (items.length === 0) return null;
+
+  const payload = {
+    profile: "structured_intelligence" as const,
+    version: 1 as const,
+    domain: "air_quality_governance" as const,
+    ...grouped,
+    items: items.slice(0, 240),
+  };
+
+  const parsed = structuredIntelligenceSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
 function parseStructuredDate(value: unknown): Date | null {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -347,6 +521,7 @@ function buildUnifiedTagsMeta(
   const hash = data?.hash ?? null;
   const aiTagObjects = normalizeAiTagObjects(data, args.aiTags);
   const smartTags = normalizeSmartTags(data, args.userTags);
+  const structuredIntelligenceV1 = normalizeStructuredIntelligence(data);
 
   return {
     ...p,
@@ -358,6 +533,7 @@ function buildUnifiedTagsMeta(
       aiTags: args.aiTags,
       aiTagObjects,
       smartTags,
+      structuredIntelligenceV1,
       structured,
       governance,
       extraction,
@@ -378,6 +554,7 @@ function buildUnifiedTagsMeta(
       tags: args.aiTags,
       tagObjects: aiTagObjects,
       smartTags,
+      structuredIntelligenceV1,
       phrases,
       unigrams,
       structured,

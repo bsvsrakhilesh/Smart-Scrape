@@ -15,6 +15,11 @@ import os
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
+try:
+    from openai_compat import chat_completion_kwargs  # type: ignore
+except ImportError:  # pragma: no cover - package import fallback
+    from .openai_compat import chat_completion_kwargs  # type: ignore
+
 CandidateInput = Union[str, Mapping[str, Any]]
 
 _HIGH_SIGNAL_SOURCES = {
@@ -343,8 +348,11 @@ def rerank_with_llm(
             {"role": "system", "content": "Return only valid JSON. No prose."},
             {"role": "user", "content": content},
         ],
-        temperature=0.1,
-        max_completion_tokens=700,
+        **chat_completion_kwargs(
+            model=model,
+            temperature=0.1,
+            max_completion_tokens=700,
+        ),
     )
 
     txt = (resp.choices[0].message.content or "").strip()

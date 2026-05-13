@@ -9,6 +9,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
+try:
+    from openai_compat import chat_completion_kwargs  # type: ignore
+except ImportError:  # pragma: no cover - package import fallback
+    from .openai_compat import chat_completion_kwargs  # type: ignore
+
 log = logging.getLogger("structured_intelligence")
 
 
@@ -853,8 +858,11 @@ Document text:
     try:
         resp = _client().chat.completions.create(
             model=STRUCTURED_INTELLIGENCE_LLM_MODEL,
-            temperature=0,
-            max_tokens=2600,
+            **chat_completion_kwargs(
+                model=STRUCTURED_INTELLIGENCE_LLM_MODEL,
+                temperature=0,
+                max_completion_tokens=2600,
+            ),
             response_format={
                 "type": "json_schema",
                 "json_schema": {

@@ -5,6 +5,11 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
+try:
+    from openai_compat import chat_completion_kwargs  # type: ignore
+except ImportError:  # pragma: no cover - package import fallback
+    from .openai_compat import chat_completion_kwargs  # type: ignore
+
 log = logging.getLogger("structured_openai")
 
 STRUCTURED_LLM_ENABLED = os.getenv("STRUCTURED_LLM_ENABLED", "true").lower() in (
@@ -587,8 +592,11 @@ Document text:
     try:
         resp = client.chat.completions.create(
             model=model,
-            temperature=0,
-            max_completion_tokens=1400,
+            **chat_completion_kwargs(
+                model=model,
+                temperature=0,
+                max_completion_tokens=1400,
+            ),
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -670,8 +678,11 @@ Document text:
     try:
         resp = client.chat.completions.create(
             model=model,
-            temperature=0,
-            max_completion_tokens=2400,
+            **chat_completion_kwargs(
+                model=model,
+                temperature=0,
+                max_completion_tokens=2400,
+            ),
             response_format={
                 "type": "json_schema",
                 "json_schema": {

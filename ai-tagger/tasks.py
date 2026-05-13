@@ -29,6 +29,7 @@ JOB_HARD_LIMIT = int(os.getenv("JOB_HARD_LIMIT", "60"))  # seconds
 JOB_MAX_RETRIES = int(os.getenv("JOB_MAX_RETRIES", "3"))
 CACHE_TTL = int(os.getenv("TAGGER_CACHE_TTL", "86400"))  # seconds (24h)
 CACHE_NAMESPACE = os.getenv("TAGGER_CACHE_NS", "tagger:v2-smart-tags")
+CACHE_ALGORITHM_VERSION = os.getenv("TAGGER_CACHE_ALGORITHM_VERSION", "2026-05-13-noise-filter-v1")
 
 CELERY = Celery("ai_tagger", broker=BROKER_URL, backend=BACKEND_URL)
 log = logging.getLogger("ai_tagger.tasks")
@@ -106,6 +107,9 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
     t = (payload.get("input_type") or "").strip()
     topk = str(payload.get("topk", ""))
     use_llm = str(payload.get("use_llm", ""))
+    llm_model = os.getenv("LLM_MODEL", "")
+    structured_model = os.getenv("STRUCTURED_LLM_MODEL", "")
+    tagger_version = os.getenv("TAGGER_VERSION", "")
     ocr_options = json.dumps(payload.get("ocr_options") or {}, sort_keys=True)
     if t == "text":
         base = _normalize_ws(payload.get("text") or "")
@@ -125,7 +129,11 @@ def _fingerprint_payload(payload: Dict[str, Any]) -> str:
         # Fallback: bounded JSON dump
         base = json.dumps(payload, sort_keys=True)[:2048]
 
-    raw = f"{t}|k={topk}|llm={use_llm}|ocr={ocr_options}|{base}"
+    raw = (
+        f"algo={CACHE_ALGORITHM_VERSION}|tagger={tagger_version}|"
+        f"llm_model={llm_model}|structured_model={structured_model}|"
+        f"{t}|k={topk}|llm={use_llm}|ocr={ocr_options}|{base}"
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

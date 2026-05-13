@@ -23,13 +23,16 @@ except ImportError:  # pragma: no cover - package import fallback
 CandidateInput = Union[str, Mapping[str, Any]]
 
 _HIGH_SIGNAL_SOURCES = {
-    "signal",
     "structured",
     "taxonomy",
-    "semantic_candidate",
     "filename",
     "url_title",
 }
+
+_PROTECTED_SIGNAL_RE = re.compile(
+    r"\b(?:CAQM|CPCB|DPCC|SPCB|IMD|NGT|MoEFCC|GRAP|AQI|PM\s*2\.?5|PM\s*10|NO2|O3|CO|Direction\s+No\.?|Order\s+No\.?|Reference\s+No\.?)\b",
+    re.IGNORECASE,
+)
 
 
 def has_llm_key() -> bool:
@@ -82,6 +85,19 @@ def _candidate_reason(candidate: CandidateInput) -> str:
     return _clean_text(candidate.get("reason") or candidate.get("evidence"), 220)
 
 
+def _is_protected_candidate(
+    *,
+    value: str,
+    source: str,
+    confidence: Optional[float],
+) -> bool:
+    if source in _HIGH_SIGNAL_SOURCES:
+        return True
+    if _PROTECTED_SIGNAL_RE.search(value):
+        return True
+    return confidence is not None and confidence >= 0.8
+
+
 def _dedupe_candidates(candidates: Sequence[CandidateInput]) -> List[Dict[str, Any]]:
     """
     Normalize string/dict candidates into compact records.
@@ -112,8 +128,11 @@ def _dedupe_candidates(candidates: Sequence[CandidateInput]) -> List[Dict[str, A
             "value": value,
             "source": source,
             "rank": idx,
-            "protected": source in _HIGH_SIGNAL_SOURCES
-            or (confidence is not None and confidence >= 0.72),
+            "protected": _is_protected_candidate(
+                value=value,
+                source=source,
+                confidence=confidence,
+            ),
         }
 
         if confidence is not None:

@@ -2919,6 +2919,123 @@ export async function getAuditLogs(params?: {
   );
 }
 
+
+export type GovernanceAnswerCitation = {
+  evidenceId: string;
+  quote: string;
+  sourceKind: string | null;
+  sourceLabel: string | null;
+  sourceUrl: string | null;
+  fileId: string | null;
+  fileName: string | null;
+  chunkId: string | null;
+  sourceId: string | null;
+  sourceRevisionId: string | null;
+  documentRevisionId: string | null;
+  pipelineConfigId: string | null;
+  documentId: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
+  charStart: number | null;
+  charEnd: number | null;
+};
+
+export type GovernanceAnswerClaimCitation = {
+  claim: string;
+  citations: GovernanceAnswerCitation[];
+};
+
+export type GovernanceAnswerEvidenceCard = {
+  evidenceId: string;
+  title: string;
+  summary: string;
+  citations: GovernanceAnswerCitation[];
+};
+
+export type GovernanceAnswerCaveat = {
+  kind: "limitation" | "inference" | "suggestion" | string;
+  text: string;
+  citations?: GovernanceAnswerCitation[];
+};
+
+export type GovernanceAnswerRun = {
+  id: string;
+  sessionId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  status: string;
+  question: string;
+  answer: string | null;
+  claimCitations?: GovernanceAnswerClaimCitation[];
+  citations: GovernanceAnswerCitation[];
+  evidence: GovernanceAnswerEvidenceCard[];
+  caveats: GovernanceAnswerCaveat[];
+  openQuestions: string[];
+  suggestedFollowUps: string[];
+  model: string | null;
+  assistModel?: string | null;
+  openaiResponseId?: string | null;
+  previousRunId?: string | null;
+  groundingStatus: string | null;
+  validation: any;
+  candidateDocumentIds: string[];
+  finalEvidenceChunkIds: string[];
+  retrievalMetadata: any;
+  latencyMs: number | null;
+  error?: string | null;
+};
+
+export type GovernanceAnswerSession = {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string | null;
+  question: string | null;
+  anchorDocumentIds: string[];
+  anchorUrlIds: number[];
+  sourceScope: string | null;
+  requestedWorkflowMode: string | null;
+  resolvedWorkflowMode: string | null;
+  selectedIssueId: string | null;
+  selectedAgencyId: string | null;
+  metadata: any;
+  runs: GovernanceAnswerRun[];
+};
+
+export type GovernanceAnswerPayload = {
+  question: string;
+  sessionId?: string | null;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  previousRunId?: string | null;
+  previousResponseId?: string | null;
+  anchorDocumentIds?: string[];
+  anchorUrlIds?: number[];
+  sourceScope?: "all" | "files" | "urls" | "mixed";
+  workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
+  limit?: number;
+  selectedIssueId?: string | null;
+  selectedAgencyId?: string | null;
+  deepReview?: boolean;
+};
+
+export type GovernanceAnswerResponse = {
+  sessionId: string;
+  run: GovernanceAnswerRun;
+};
+
+export type GovernanceAnswerStreamEvent =
+  | { event: "run"; data: { type: "run"; runId: string; sessionId: string } }
+  | { event: "status"; data: { type: "status"; message: string } }
+  | { event: "delta"; data: { type: "delta"; text: string } }
+  | { event: "final"; data: GovernanceAnswerResponse }
+  | { event: "error"; data: { message?: string } };
+
+function stripNullishGovernanceAnswerPayload<T extends Record<string, any>>(payload: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== null && value !== undefined),
+  ) as Partial<T>;
+}
+
 export async function queryGovernanceWorkspaceEvidence(payload: {
   question?: string;
   anchorDocumentIds?: string[];
@@ -2938,6 +3055,110 @@ export async function queryGovernanceWorkspaceEvidence(payload: {
     return res.data;
   } catch (err: any) {
     normalizeApiError(err, "Governance workspace evidence retrieval failed");
+  }
+}
+
+
+export async function createGovernanceAnswerSession(payload: Partial<GovernanceAnswerPayload> & { sessionId?: string | null }) {
+  try {
+    const res = await api.post<GovernanceAnswerSession>(
+      "/api/governance/workspace/answer-sessions",
+      stripNullishGovernanceAnswerPayload(payload),
+      { headers: { Accept: "application/json" } },
+    );
+    return res.data;
+  } catch (err: any) {
+    normalizeApiError(err, "Governance answer session request failed");
+  }
+}
+
+export async function getGovernanceAnswerSession(sessionId: string) {
+  return apiGet<GovernanceAnswerSession>(
+    `/api/governance/workspace/answer-sessions/${encodeURIComponent(sessionId)}`,
+  );
+}
+
+export async function runGovernanceWorkspaceAnswer(payload: GovernanceAnswerPayload) {
+  try {
+    const res = await api.post<GovernanceAnswerResponse>(
+      "/api/governance/workspace/answer",
+      stripNullishGovernanceAnswerPayload(payload),
+      { headers: { Accept: "application/json" } },
+    );
+    return res.data;
+  } catch (err: any) {
+    normalizeApiError(err, "Governance answer generation failed");
+  }
+}
+
+function parseSseBlock(block: string): { event: string; data: any } | null {
+  const lines = block.split(/\r?\n/g);
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+
+  if (!dataLines.length) return null;
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) };
+  } catch {
+    return null;
+  }
+}
+
+export async function streamGovernanceWorkspaceAnswer(
+  payload: GovernanceAnswerPayload,
+  onEvent: (event: GovernanceAnswerStreamEvent) => void,
+  signal?: AbortSignal,
+) {
+  const res = await fetch(apiUrl("/api/governance/workspace/answer/stream"), {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(stripNullishGovernanceAnswerPayload(payload)),
+    signal,
+  });
+
+  if (!res.ok || !res.body) {
+    let message = "Governance answer stream failed";
+    try {
+      const body = await res.json();
+      message = body?.message || message;
+    } catch {
+      // keep fallback
+    }
+    throw new Error(`${message}${res.status ? ` (HTTP ${res.status})` : ""}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx = buffer.indexOf("\n\n");
+    while (idx >= 0) {
+      const block = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 2);
+      const parsed = parseSseBlock(block);
+      if (parsed) onEvent(parsed as GovernanceAnswerStreamEvent);
+      idx = buffer.indexOf("\n\n");
+    }
+  }
+
+  const tail = buffer.trim();
+  if (tail) {
+    const parsed = parseSseBlock(tail);
+    if (parsed) onEvent(parsed as GovernanceAnswerStreamEvent);
   }
 }
 

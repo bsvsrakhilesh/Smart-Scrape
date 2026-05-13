@@ -16,6 +16,11 @@ const EnvSchema = z.object({
   OPENAI_MODEL: z.string().optional().default("gpt-5.2"),
   OPENAI_TIMEOUT_MS: z.coerce.number().optional().default(30_000),
 
+  // Governance Workspace answer models
+  GOVERNANCE_ANSWER_MODEL: z.string().optional().default("gpt-5.5"),
+  GOVERNANCE_ASSIST_MODEL: z.string().optional().default("gpt-5.4-mini"),
+  GOVERNANCE_DEEP_REVIEW_MODEL: z.string().optional().default("gpt-5.5-pro"),
+
   // Embeddings. Current SourceChunk.embedding column is vector(1536).
   EMBEDDING_MODEL: z.string().optional().default("text-embedding-3-small"),
   EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().optional().default(1536),

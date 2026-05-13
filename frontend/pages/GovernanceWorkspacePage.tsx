@@ -31,14 +31,19 @@ import {
   getGovernanceIssueTimeline,
   getUrlRevisions,
   queryGovernanceWorkspaceEvidence,
+  streamGovernanceWorkspaceAnswer,
   type AuditLogRow,
   type GovernanceAgency,
   type GovernanceIssue,
   type GovernanceProvenance,
   type GovernanceRelationType,
+  type GovernanceAnswerCitation,
+  type GovernanceAnswerRun,
 } from "../lib/api";
 import NotebookTemplateModal from "../components/governance/NotebookTemplateModal";
+import { notebookClient } from "../lib/notebookClient";
 import type { NotebookTemplateKey } from "../lib/notebookClient";
+import { openNotebookWithTarget } from "../lib/notebookLaunch";
 import {
   consumeGovernanceWorkspaceIntent,
   type GovernanceWorkspaceIntent,
@@ -659,6 +664,318 @@ function SectionHeader({
   );
 }
 
+
+function formatCaveatKind(value: string) {
+  return humanizeEnumValue(value, "Caveat");
+}
+
+function openGovernanceCitation(citation: GovernanceAnswerCitation) {
+  if (citation.sourceUrl) {
+    window.open(citation.sourceUrl, "_blank", "noopener");
+    return;
+  }
+
+  if (citation.fileId) {
+    window.open(apiUrl(`/api/files/${citation.fileId}/preview`), "_blank", "noopener");
+  }
+}
+
+function buildGovernanceAnswerNoteContent(run: GovernanceAnswerRun) {
+  const citationLines = (run.citations ?? [])
+    .slice(0, 40)
+    .map((citation, index) => {
+      const label = citation.sourceLabel || citation.fileName || citation.sourceUrl || citation.evidenceId;
+      const where = [
+        citation.pageStart != null ? `p. ${citation.pageStart}` : null,
+        citation.charStart != null ? `chars ${citation.charStart}-${citation.charEnd ?? "?"}` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      return `${index + 1}. ${label}${where ? ` (${where})` : ""} — “${citation.quote}”`;
+    });
+
+  const evidenceLines = (run.evidence ?? [])
+    .slice(0, 12)
+    .map((item) => `- **${item.title}**: ${item.summary}`);
+
+  const caveatLines = (run.caveats ?? [])
+    .slice(0, 8)
+    .map((item) => `- **${formatCaveatKind(item.kind)}:** ${item.text}`);
+
+  return [
+    `# Governance answer — ${run.question}`,
+    "",
+    "## Answer",
+    run.answer || "",
+    "",
+    evidenceLines.length ? "## Evidence cards" : "",
+    evidenceLines.join("\n"),
+    "",
+    caveatLines.length ? "## Caveats / suggestions" : "",
+    caveatLines.join("\n"),
+    "",
+    run.openQuestions?.length ? "## Open checks" : "",
+    (run.openQuestions ?? []).slice(0, 8).map((item) => `- ${item}`).join("\n"),
+    "",
+    citationLines.length ? "## Preserved citations" : "",
+    citationLines.join("\n"),
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
+}
+
+function GovernanceAnswerPanel({
+  run,
+  draftText,
+  status,
+  loading,
+  error,
+  followUpQuestion,
+  setFollowUpQuestion,
+  onSubmitFollowUp,
+  onRegenerate,
+  onDeepReview,
+  onCopy,
+  onExport,
+  exporting,
+}: {
+  run: GovernanceAnswerRun | null;
+  draftText: string;
+  status: string | null;
+  loading: boolean;
+  error: string | null;
+  followUpQuestion: string;
+  setFollowUpQuestion: (value: string) => void;
+  onSubmitFollowUp: () => void;
+  onRegenerate: () => void;
+  onDeepReview: () => void;
+  onCopy: () => void;
+  onExport: () => void;
+  exporting: boolean;
+}) {
+  const answerText = run?.answer || draftText;
+  const citations = run?.citations ?? [];
+  const hasAnswer = Boolean(answerText.trim()) || Boolean(run);
+
+  return (
+    <div className="rounded-[26px] border border-indigo-100 bg-white/90 p-4 shadow-[0_18px_44px_rgba(79,70,229,0.10)] backdrop-blur-sm">
+      <SectionHeader
+        icon={<Sparkles className="h-4 w-4" />}
+        title="Inline cited answer"
+        subtitle="Persisted Governance Workspace Q&A with strict evidence citations."
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {run?.model ? (
+              <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                {run.model}
+              </span>
+            ) : null}
+            {run?.groundingStatus ? (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                {humanizeEnumValue(run.groundingStatus, "Grounding")}
+              </span>
+            ) : null}
+          </div>
+        }
+      />
+
+      <div className="mt-4 space-y-4">
+        {loading || status ? (
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            <span>{status ?? "Answer ready"}</span>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm leading-6 text-rose-800">
+            {error}
+          </div>
+        ) : null}
+
+        {hasAnswer ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+            <div className="whitespace-pre-wrap text-sm leading-7 text-slate-800">
+              {answerText}
+            </div>
+          </div>
+        ) : (
+          <EmptyPanel
+            title="No synthesized answer yet"
+            body="Run a governance question; the answer layer will start after evidence retrieval succeeds."
+          />
+        )}
+
+        {citations.length ? (
+          <div className="space-y-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Citation chips
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {citations.slice(0, 12).map((citation, index) => (
+                <button
+                  key={`${citation.evidenceId}-${index}`}
+                  type="button"
+                  onClick={() => openGovernanceCitation(citation)}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-indigo-200 hover:text-indigo-700"
+                  title={citation.quote}
+                >
+                  <span className="max-w-[14rem] truncate">
+                    {citation.sourceLabel || citation.evidenceId}
+                  </span>
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {run?.evidence?.length ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {run.evidence.slice(0, 6).map((item) => (
+              <div
+                key={item.evidenceId}
+                className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+              >
+                <div className="text-sm font-semibold text-slate-900">
+                  {item.title}
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {item.summary}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {item.citations.slice(0, 3).map((citation, index) => (
+                    <button
+                      key={`${item.evidenceId}-cite-${index}`}
+                      type="button"
+                      onClick={() => openGovernanceCitation(citation)}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-white"
+                      title={citation.quote}
+                    >
+                      Evidence {index + 1}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {run?.caveats?.length || run?.openQuestions?.length ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {run.caveats?.length ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+                <div className="text-sm font-semibold text-amber-950">
+                  Caveats and suggestions
+                </div>
+                <ul className="mt-2 space-y-2 text-sm leading-6 text-amber-900">
+                  {run.caveats.slice(0, 6).map((item, index) => (
+                    <li key={`${item.kind}-${index}`}>
+                      <span className="font-semibold">{formatCaveatKind(item.kind)}:</span>{" "}
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {run.openQuestions?.length ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="text-sm font-semibold text-slate-900">
+                  Open checks
+                </div>
+                <ul className="mt-2 space-y-2 text-sm leading-6 text-slate-600">
+                  {run.openQuestions.slice(0, 6).map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {run?.suggestedFollowUps?.length ? (
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Suggested follow-ups
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {run.suggestedFollowUps.slice(0, 6).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setFollowUpQuestion(item)}
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-white"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr),auto]">
+          <input
+            value={followUpQuestion}
+            onChange={(event) => setFollowUpQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                onSubmitFollowUp();
+              }
+            }}
+            placeholder="Ask a follow-up in the same answer session"
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+          />
+          <button
+            type="button"
+            onClick={onSubmitFollowUp}
+            disabled={!followUpQuestion.trim() || loading}
+            className="inline-flex h-11 items-center justify-center rounded-2xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-lg shadow-indigo-900/10 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Ask follow-up
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={loading}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            Regenerate
+          </button>
+          <button
+            type="button"
+            onClick={onDeepReview}
+            disabled={loading}
+            className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-white disabled:opacity-50"
+          >
+            Deep review
+          </button>
+          <button
+            type="button"
+            onClick={onCopy}
+            disabled={!answerText.trim()}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            Copy answer
+          </button>
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={!run || exporting}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {exporting ? "Exporting…" : "Export to Notebook"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-6 text-sm text-slate-600">
@@ -690,6 +1007,16 @@ export default function GovernanceWorkspacePage() {
   const [templatePreset, setTemplatePreset] =
     useState<NotebookTemplateKey>("governance_brief");
   const [workspaceQueryRunKey, setWorkspaceQueryRunKey] = useState(0);
+  const [answerSessionId, setAnswerSessionId] = useState<string | null>(null);
+  const [answerRun, setAnswerRun] = useState<GovernanceAnswerRun | null>(null);
+  const [answerDraft, setAnswerDraft] = useState("");
+  const [answerStatus, setAnswerStatus] = useState<string | null>(null);
+  const [answerLoading, setAnswerLoading] = useState(false);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const [answerExporting, setAnswerExporting] = useState(false);
+  const [followUpQuestion, setFollowUpQuestion] = useState("");
+  const answerAbortRef = useRef<AbortController | null>(null);
+  const lastAutoAnswerKeyRef = useRef("");
 
   const [issueSearch, setIssueSearch] = useState("");
   const [issueKindFilter, setIssueKindFilter] = useState("");
@@ -1052,6 +1379,206 @@ export default function GovernanceWorkspacePage() {
   const hasAdvancedFiltersApplied =
     exactLookupId.length > 0 || hasPinnedAnchors || sourceScope !== "all";
   const evidenceCandidates = workspaceEvidenceQuery.data?.candidates ?? [];
+
+  const startGovernanceAnswer = React.useCallback(
+    async (question: string, options?: { deepReview?: boolean; previousRunId?: string | null }) => {
+      const trimmedQuestion = question.trim();
+      if (!trimmedQuestion) return;
+
+      answerAbortRef.current?.abort();
+      const controller = new AbortController();
+      answerAbortRef.current = controller;
+
+      setAnswerLoading(true);
+      setAnswerError(null);
+      setAnswerStatus("Retrieving evidence");
+      setAnswerDraft("");
+
+      let finalSeen = false;
+
+      const previousRunId =
+        options && Object.prototype.hasOwnProperty.call(options, "previousRunId")
+          ? options.previousRunId ?? null
+          : answerRun?.id ?? null;
+      const includeHistory = Boolean(previousRunId && answerRun?.answer);
+
+      try {
+        await streamGovernanceWorkspaceAnswer(
+          {
+            question: trimmedQuestion,
+            sessionId: answerSessionId,
+            previousRunId,
+            history: includeHistory
+              ? [
+                  { role: "user", content: answerRun!.question },
+                  { role: "assistant", content: answerRun!.answer || "" },
+                ]
+              : undefined,
+            anchorDocumentIds: launchIntent?.anchorDocumentIds ?? [],
+            anchorUrlIds: launchIntent?.anchorUrlIds ?? [],
+            sourceScope,
+            workflowMode: workspaceIntentMode,
+            selectedIssueId,
+            selectedAgencyId,
+            limit: 12,
+            deepReview: options?.deepReview === true,
+          },
+          (event) => {
+            switch (event.event) {
+              case "run":
+                setAnswerSessionId(event.data.sessionId);
+                setAnswerStatus("Answer run started");
+                break;
+              case "status":
+                setAnswerStatus(event.data.message);
+                break;
+              case "delta":
+                setAnswerDraft((current) => current + event.data.text);
+                break;
+              case "final":
+                finalSeen = true;
+                setAnswerSessionId(event.data.sessionId);
+                setAnswerRun(event.data.run);
+                setAnswerDraft(event.data.run.answer ?? "");
+                setAnswerStatus("Answer saved");
+                break;
+              case "error":
+                setAnswerError(event.data.message || "Governance answer generation failed.");
+                break;
+              default:
+                break;
+            }
+          },
+          controller.signal,
+        );
+      } catch (err: any) {
+        if (err?.name !== "AbortError") {
+          setAnswerError(err?.message || "Governance answer generation failed.");
+        }
+      } finally {
+        if (answerAbortRef.current === controller) {
+          answerAbortRef.current = null;
+        }
+        setAnswerLoading(false);
+        if (!finalSeen) {
+          setAnswerStatus(null);
+        }
+      }
+    },
+    [
+      answerRun,
+      answerSessionId,
+      launchIntent?.anchorDocumentIds,
+      launchIntent?.anchorUrlIds,
+      selectedAgencyId,
+      selectedIssueId,
+      sourceScope,
+      workspaceIntentMode,
+    ],
+  );
+
+  useEffect(() => {
+    return () => {
+      answerAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceEvidenceQuery.data || workspaceEvidenceQuery.isLoading) return;
+    const question = workspaceQuestion.trim();
+    if (!question) return;
+
+    const key = [
+      workspaceQueryRunKey,
+      question,
+      workspaceIntentMode,
+      sourceScope,
+      launchIntent?.anchorDocumentIds?.join("|") ?? "",
+      launchIntent?.anchorUrlIds?.join("|") ?? "",
+    ].join("::");
+
+    if (lastAutoAnswerKeyRef.current === key) return;
+    lastAutoAnswerKeyRef.current = key;
+    void startGovernanceAnswer(question, { previousRunId: null });
+  }, [
+    launchIntent?.anchorDocumentIds,
+    launchIntent?.anchorUrlIds,
+    sourceScope,
+    startGovernanceAnswer,
+    workspaceEvidenceQuery.data,
+    workspaceEvidenceQuery.isLoading,
+    workspaceIntentMode,
+    workspaceQueryRunKey,
+    workspaceQuestion,
+  ]);
+
+  const submitFollowUpAnswer = React.useCallback(() => {
+    const question = followUpQuestion.trim();
+    if (!question) return;
+    setFollowUpQuestion("");
+    void startGovernanceAnswer(question, { previousRunId: answerRun?.id ?? null });
+  }, [answerRun?.id, followUpQuestion, startGovernanceAnswer]);
+
+  const regenerateAnswer = React.useCallback(() => {
+    const question = answerRun?.question || workspaceQuestion.trim();
+    if (!question) return;
+    void startGovernanceAnswer(question, { previousRunId: answerRun?.previousRunId ?? null });
+  }, [answerRun?.previousRunId, answerRun?.question, startGovernanceAnswer, workspaceQuestion]);
+
+  const deepReviewAnswer = React.useCallback(() => {
+    const question = answerRun?.question || workspaceQuestion.trim();
+    if (!question) return;
+    void startGovernanceAnswer(question, {
+      deepReview: true,
+      previousRunId: answerRun?.id ?? null,
+    });
+  }, [answerRun?.id, answerRun?.question, startGovernanceAnswer, workspaceQuestion]);
+
+  const copyAnswer = React.useCallback(() => {
+    const text = answerRun?.answer || answerDraft;
+    if (!text.trim()) return;
+    void navigator.clipboard?.writeText(text);
+  }, [answerDraft, answerRun?.answer]);
+
+  const exportAnswerToNotebook = React.useCallback(async () => {
+    if (!answerRun?.answer) return;
+    setAnswerExporting(true);
+    setAnswerError(null);
+    try {
+      const notebooks = await notebookClient.listNotebooks();
+      let notebook = notebooks.find((item) => item.title === "Governance Answer Sessions");
+      if (!notebook) {
+        notebook = await notebookClient.createNotebook({
+          title: "Governance Answer Sessions",
+          description: "Persisted Governance Workspace answer sessions with citation provenance.",
+        });
+      }
+
+      const note = await notebookClient.createNote(notebook.id, {
+        title: `Answer — ${answerRun.question.slice(0, 120)}`,
+        content: buildGovernanceAnswerNoteContent(answerRun),
+        citations: {
+          version: "note-provenance-v1",
+          artifacts: [
+            {
+              kind: "chat-answer",
+              createdAt: new Date().toISOString(),
+              answer: answerRun.answer,
+              citations: answerRun.citations ?? [],
+              evidence: answerRun.evidence ?? [],
+              claimLinks: answerRun.claimCitations ?? [],
+            },
+          ],
+        },
+      });
+
+      openNotebookWithTarget({ notebookId: notebook.id, noteId: note.id });
+    } catch (err: any) {
+      setAnswerError(err?.message || "Could not export the governance answer to Notebook.");
+    } finally {
+      setAnswerExporting(false);
+    }
+  }, [answerRun]);
 
   const workflowPlan = useMemo(() => {
     const fromResponse = workspaceEvidenceQuery.data?.workflow;
@@ -2067,6 +2594,24 @@ export default function GovernanceWorkspacePage() {
             </span>
           )}
         </div>
+
+        {workspaceQueryRunKey > 0 || answerRun || answerLoading || answerError ? (
+          <GovernanceAnswerPanel
+            run={answerRun}
+            draftText={answerDraft}
+            status={answerStatus}
+            loading={answerLoading}
+            error={answerError}
+            followUpQuestion={followUpQuestion}
+            setFollowUpQuestion={setFollowUpQuestion}
+            onSubmitFollowUp={submitFollowUpAnswer}
+            onRegenerate={regenerateAnswer}
+            onDeepReview={deepReviewAnswer}
+            onCopy={copyAnswer}
+            onExport={() => void exportAnswerToNotebook()}
+            exporting={answerExporting}
+          />
+        ) : null}
 
         {workspaceQueryRunKey > 0 ? (
           <div className="rounded-[26px] border border-white/70 bg-white/80 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] backdrop-blur-sm">

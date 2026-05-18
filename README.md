@@ -272,38 +272,44 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## Repository structure
 
+```text
 smart-scrape/
-├── README.md                    # Project overview, installation, usage, and JOSS-facing documentation
-├── docker-compose.dev.yml        # Local development stack: frontend, backend, database, Redis, AI tagger
-├── docker-compose.prod.yml       # Production-oriented Docker Compose configuration
-├── package.json                  # Root workspace scripts for frontend/backend development
-├── frontend/                     # React/Vite web interface
-│   ├── components/               # UI components for URL collection, files, notebooks, governance workspace
-│   ├── pages/                    # Main application pages
-│   ├── hooks/                    # Frontend data-fetching and state hooks
-│   ├── lib/                      # API clients and shared frontend logic
-│   ├── utils/                    # URL, CSV, collection, and file helper utilities
-│   └── tests/                    # Frontend unit tests
-├── backend/                      # Node.js/Express API and worker services
-│   ├── src/routes/               # HTTP API route definitions
-│   ├── src/controllers/          # Request handlers
-│   ├── src/services/             # Core application, governance, notebook, tagging, and search logic
-│   ├── src/workers/              # Background workers for ingestion, embeddings, tagging, and saved URL operations
-│   ├── src/queues/               # Job queue definitions and helpers
-│   ├── src/__tests__/            # Backend automated tests
-│   └── prisma/                   # Database schema and migrations
-├── ai-tagger/                    # Python AI tagging, extraction, OCR, and structured metadata service
-│   ├── app.py                    # FastAPI entry point for tagging jobs
-│   ├── tasks.py                  # Celery task execution
-│   ├── extractors.py             # Text extraction from URLs, PDFs, documents, and images
-│   ├── pipeline.py               # Tagging pipeline orchestration
-│   ├── taxonomies/               # Domain taxonomies, including the CAQM example taxonomy
-│   └── tests/                    # Python tests for tagging, OCR, and structured extraction
-├── icn/                          # Institutional Capture Node for authenticated browser-based captures
-├── docs/                         # User documentation and manuals
-└── paper/                        # JOSS paper source files
-    ├── paper.md
-    └── paper.bib
+|-- README.md                    # Project overview, installation, usage, and JOSS-facing documentation
+|-- docker-compose.dev.yml        # Local development stack: frontend, backend, database, Redis, AI tagger
+|-- docker-compose.prod.yml       # Production-oriented Docker Compose configuration
+|-- package.json                  # Root workspace scripts for frontend/backend development
+|-- frontend/                     # React/Vite web interface
+|   |-- components/               # UI components for URL collection, files, notebooks, governance workspace
+|   |-- pages/                    # Main application pages
+|   |-- hooks/                    # Frontend data-fetching and state hooks
+|   |-- lib/                      # API clients and shared frontend logic
+|   |-- utils/                    # URL, CSV, collection, and file helper utilities
+|   `-- tests/                    # Frontend unit tests
+|-- backend/                      # Node.js/Express API and worker services
+|   |-- src/routes/               # HTTP API route definitions
+|   |-- src/controllers/          # Request handlers
+|   |-- src/services/             # Core application, governance, notebook, tagging, and search logic
+|   |-- src/workers/              # Background workers for ingestion, embeddings, tagging, and saved URL operations
+|   |-- src/queues/               # Job queue definitions and helpers
+|   |-- src/__tests__/            # Backend automated tests
+|   `-- prisma/                   # Database schema and migrations
+|-- ai-tagger/                    # Python AI tagging, extraction, OCR, and structured metadata service
+|   |-- app.py                    # FastAPI entry point for tagging jobs
+|   |-- tasks.py                  # Celery task execution
+|   |-- extractors.py             # Text extraction from URLs, PDFs, documents, and images
+|   |-- pipeline.py               # Tagging pipeline orchestration
+|   |-- taxonomies/               # Domain taxonomies, including the CAQM example taxonomy
+|   `-- tests/                    # Python tests for tagging, OCR, and structured extraction
+|-- icn/                          # Institutional Capture Node for authenticated browser-based captures
+|-- docs/                         # User documentation and manuals
+`-- paper/                        # JOSS paper source files
+    |-- paper.md
+    `-- paper.bib
+```
+
+Generated and local-only files such as `.env`, `node_modules/`, local storage
+volumes, caches, and virtual environments are excluded from the source
+distribution and should not be edited directly.
 
 ## Documentation
 

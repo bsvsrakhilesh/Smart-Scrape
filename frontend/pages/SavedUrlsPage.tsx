@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { SavedUrl as UISavedUrl, Collection } from "../lib/types";
 import SearchFilterUrls, {
   UrlFilterState,
@@ -39,6 +40,9 @@ import {
   createSavedUrlSearchPreset,
   updateSavedUrlSearchPreset,
   deleteSavedUrlSearchPreset,
+  getCollectorPurpose,
+  listCollectorPurposes,
+  type CollectorPurpose,
 } from "../lib/api";
 import { useSavedUrlOperationsQuery } from "../hooks/useSavedUrlOperations";
 import { useSavedUrlReviewState } from "../hooks/useSavedUrlReviewState";
@@ -66,6 +70,7 @@ import { StaggerList, StaggerItem } from "../components/motion/StaggerList";
 import TextEntryModal from "../components/common/TextEntryModal";
 import { useToast } from "../components/providers/Toast";
 import { useConfirm } from "../components/providers/Confirm";
+import { openGovernanceWorkspace } from "../lib/governanceWorkspace";
 
 type SortKey = "createdAt" | "updatedAt" | "title";
 type SortOrder = "asc" | "desc";
@@ -472,10 +477,35 @@ function loadLegacySavedUrlSearchPresets(): SavedUrlSearchPreset[] {
 const SavedUrlsPage: React.FC = () => {
   const { notify } = useToast();
   const { confirm } = useConfirm();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const purposeFromUrl =
+    new URLSearchParams(location.search).get("collectorPurposeId") ?? "";
+  const [collectorPurposes, setCollectorPurposes] = useState<CollectorPurpose[]>([]);
+  const [activePurposeId, setActivePurposeId] = useState(purposeFromUrl);
+  const [activePurpose, setActivePurpose] = useState<CollectorPurpose | null>(null);
   // Data
   const [urls, setUrls] = useState<UISavedUrl[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActivePurposeId(purposeFromUrl);
+  }, [purposeFromUrl]);
+
+  useEffect(() => {
+    void listCollectorPurposes().then(setCollectorPurposes).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!activePurposeId) {
+      setActivePurpose(null);
+      return;
+    }
+    void getCollectorPurpose(activePurposeId)
+      .then(setActivePurpose)
+      .catch(() => setActivePurpose(null));
+  }, [activePurposeId]);
 
   // Tagging health banner
   const [tagSummary, setTagSummary] = useState<UrlTaggingSummary | null>(null);
@@ -596,6 +626,7 @@ const SavedUrlsPage: React.FC = () => {
       tags: filter.tags.length ? filter.tags : undefined,
       domains: filter.domains.length ? filter.domains : undefined,
       collectionId: selectedCollectionId || undefined,
+      collectorPurposeId: activePurposeId || undefined,
       favoritesOnly: filter.favoritesOnly || undefined,
       visibility: filter.visibility !== "all" ? filter.visibility : undefined,
       dateFrom: serverDateFrom,
@@ -623,6 +654,7 @@ const SavedUrlsPage: React.FC = () => {
     filter.tags,
     filter.visibility,
     selectedCollectionId,
+    activePurposeId,
     serverDateFrom,
     serverDateTo,
     serverPublishedFrom,
@@ -660,6 +692,7 @@ const SavedUrlsPage: React.FC = () => {
       tags: filter.tags.length ? filter.tags : undefined,
       domains: filter.domains.length ? filter.domains : undefined,
       collectionId: selectedCollectionId || undefined,
+      collectorPurposeId: activePurposeId || undefined,
       favoritesOnly: filter.favoritesOnly || undefined,
       visibility: filter.visibility !== "all" ? filter.visibility : undefined,
       dateFrom: serverDateFrom,
@@ -693,6 +726,7 @@ const SavedUrlsPage: React.FC = () => {
     filter.tags,
     filter.visibility,
     selectedCollectionId,
+    activePurposeId,
     serverDateFrom,
     serverDateTo,
     serverPublishedFrom,
@@ -2698,6 +2732,81 @@ const SavedUrlsPage: React.FC = () => {
           )}
         </div>
       </header>
+
+      <section className="card flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-[240px]">
+          <label htmlFor="saved-url-purpose-filter" className="text-xs font-semibold text-gray-600">
+            Purpose intake
+          </label>
+          <select
+            id="saved-url-purpose-filter"
+            className="input mt-2 w-full max-w-sm"
+            value={activePurposeId}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              const params = new URLSearchParams(location.search);
+              if (nextId) params.set("collectorPurposeId", nextId);
+              else params.delete("collectorPurposeId");
+              navigate({ search: params.toString() ? `?${params.toString()}` : "" });
+              setPage(1);
+            }}
+          >
+            <option value="">All saved URLs</option>
+            {collectorPurposes.map((purpose) => (
+              <option key={purpose.id} value={purpose.id}>
+                {purpose.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {activePurpose && (
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+            <span className="rounded-full border border-gray-200 px-3 py-2 text-xs font-medium">
+              {activePurpose.summary.savedUrlCount} saved sources
+            </span>
+            <span className="rounded-full border border-gray-200 px-3 py-2 text-xs font-medium">
+              {activePurpose.summary.capturedEvidenceCount} captured artifacts
+            </span>
+            <span className="rounded-full border border-gray-200 px-3 py-2 text-xs font-medium">
+              {activePurpose.summary.governanceReadyDocumentCount} ready documents
+            </span>
+            <button
+              type="button"
+              className="btn-ghost px-4 py-2"
+              onClick={() =>
+                navigate(
+                  `/app/file-manager?collectorPurposeId=${encodeURIComponent(activePurpose.id)}`,
+                )
+              }
+            >
+              View captured evidence
+            </button>
+            <button
+              type="button"
+              className="btn-primary px-4 py-2 disabled:opacity-50"
+              disabled={activePurpose.summary.governanceReadyDocumentCount === 0}
+              title={
+                activePurpose.summary.governanceReadyDocumentCount === 0
+                  ? "Capture text or PDF evidence from a saved source first"
+                  : "Ask questions using captured evidence from this purpose only"
+              }
+              onClick={() =>
+                openGovernanceWorkspace({
+                  origin: "collector-purpose",
+                  collectorPurposeId: activePurpose.id,
+                  collectorPurposeTitle: activePurpose.title,
+                  title: activePurpose.title,
+                  question: activePurpose.researchQuestion,
+                  sourceScope: "all",
+                })
+              }
+            >
+              Ask in Governance Workspace
+            </button>
+          </div>
+        )}
+      </section>
 
       {(tagSummary && (tagSummary.inProgress > 0 || tagSummary.failed > 0)) ||
       snapshotHealth.missingCount > 0 ||

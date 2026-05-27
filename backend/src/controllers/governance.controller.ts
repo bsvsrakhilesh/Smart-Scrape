@@ -22,6 +22,7 @@ import {
   buildAuditActorFields,
 } from "../services/requestActor.service";
 import type { AuditResourceType } from "../generated/prisma/client";
+import { ownerIdForRequest } from "../utils/requestOwner";
 
 function requireStringId(req: Request): string {
   const id = String(req.params.id || "").trim();
@@ -341,6 +342,11 @@ export async function postGovernanceWorkspaceQueryHandler(
       workflowMode:
         typeof body.workflowMode === "string" ? body.workflowMode : undefined,
       limit: typeof body.limit === "number" ? body.limit : undefined,
+      collectorPurposeId:
+        typeof body.collectorPurposeId === "string"
+          ? body.collectorPurposeId
+          : undefined,
+      ownerId: ownerIdForRequest(req),
     });
 
     await logGovernanceAudit(req, {
@@ -357,6 +363,8 @@ export async function postGovernanceWorkspaceQueryHandler(
         tokenCount: out.query.tokens.length,
         totalCandidates: out.totalCandidates,
         selectedDocumentId: out.selectedDocumentId,
+        collectorPurposeId: out.query.collectorPurposeId,
+        allowedDocumentIds: out.evidenceScope?.allowedDocumentIds ?? null,
       },
     });
 
@@ -391,6 +399,7 @@ function userSafeGovernanceAnswerError(error: unknown) {
   }
   if (status === 400) return String(anyError?.message || "Invalid answer request.");
   if (status === 404) return "Governance answer session not found.";
+  if (status === 409) return String(anyError?.message || "Capture evidence before asking a question.");
   if (status === 503) return String(anyError?.message || "Answer generation is disabled.");
   if (status === 429) return "Answer generation is busy. Try again in a moment.";
   return "Governance answer generation failed. Please try again.";
@@ -419,6 +428,11 @@ function buildAnswerInput(req: Request) {
     selectedAgencyId:
       typeof body.selectedAgencyId === "string" ? body.selectedAgencyId : undefined,
     deepReview: body.deepReview === true,
+    collectorPurposeId:
+      typeof body.collectorPurposeId === "string"
+        ? body.collectorPurposeId
+        : undefined,
+    ownerId: ownerIdForRequest(req),
     requestId: (req as any).requestId ?? null,
     createdBy: null,
   };
@@ -447,6 +461,10 @@ export async function postGovernanceAnswerSessionHandler(
         typeof body.selectedIssueId === "string" ? body.selectedIssueId : undefined,
       selectedAgencyId:
         typeof body.selectedAgencyId === "string" ? body.selectedAgencyId : undefined,
+      collectorPurposeId:
+        typeof body.collectorPurposeId === "string"
+          ? body.collectorPurposeId
+          : undefined,
       requestId: (req as any).requestId ?? null,
       createdBy: null,
     });

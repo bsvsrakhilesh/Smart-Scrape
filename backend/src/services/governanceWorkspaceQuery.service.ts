@@ -7,6 +7,7 @@ import {
 } from "../generated/prisma/client";
 import { analyzeRelation } from "./contradictionAlignment.service";
 import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
+import { resolveCollectorPurposeEvidenceScope } from "./collectorPurposeEvidence.service";
 
 type GovernanceWorkspaceSourceScope = "all" | "files" | "urls" | "mixed";
 type GovernanceWorkspaceWorkflowMode =
@@ -26,6 +27,8 @@ type GovernanceWorkspaceQueryInput = {
   sourceScope?: GovernanceWorkspaceSourceScope;
   workflowMode?: GovernanceWorkspaceWorkflowMode;
   limit?: number;
+  collectorPurposeId?: string | null;
+  ownerId?: string | null;
 };
 
 type GovernanceWorkspaceRetrievalLane =
@@ -696,6 +699,8 @@ function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
   sourceScope: GovernanceWorkspaceSourceScope;
   workflowMode: GovernanceWorkspaceWorkflowMode;
   limit: number;
+  collectorPurposeId: string | null;
+  ownerId: string;
 } {
   return {
     question: String(input.question || "").trim(),
@@ -704,6 +709,8 @@ function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
     sourceScope: normalizeScope(input.sourceScope),
     workflowMode: normalizeWorkflowMode(input.workflowMode),
     limit: clampLimit(input.limit),
+    collectorPurposeId: String(input.collectorPurposeId || "").trim() || null,
+    ownerId: String(input.ownerId || "local").trim() || "local",
   };
 }
 
@@ -1195,9 +1202,11 @@ function addCandidate(
     issueTitle?: string | null;
     agencyNames?: Array<string | null | undefined>;
     summary?: string | null;
+    allowedDocumentIds?: Set<string> | null;
   },
 ) {
   if (!documentAllowed(args.doc.kind, args.scope)) return;
+  if (args.allowedDocumentIds && !args.allowedDocumentIds.has(args.doc.id)) return;
 
   const descriptor = documentDescriptor(args.doc);
   const existing = map.get(args.doc.id) ?? {
@@ -3371,10 +3380,22 @@ function buildContainsOr(tokens: string[], fields: string[]) {
   );
 }
 
-function chunkScopeSql(scope: GovernanceWorkspaceSourceScope) {
-  if (scope === "files") return Prisma.sql`AND d."kind" = 'FILE'`;
-  if (scope === "urls") return Prisma.sql`AND d."kind" = 'URL'`;
-  return Prisma.empty;
+function chunkScopeSql(
+  scope: GovernanceWorkspaceSourceScope,
+  allowedDocumentIds?: string[] | null,
+) {
+  const typeSql =
+    scope === "files"
+      ? Prisma.sql`AND d."kind" = 'FILE'`
+      : scope === "urls"
+        ? Prisma.sql`AND d."kind" = 'URL'`
+        : Prisma.empty;
+  const allowedSql = allowedDocumentIds
+    ? allowedDocumentIds.length
+      ? Prisma.sql`AND d."id" IN (${Prisma.join(allowedDocumentIds)})`
+      : Prisma.sql`AND false`
+    : Prisma.empty;
+  return Prisma.sql`${typeSql} ${allowedSql}`;
 }
 
 function deriveChunkTerms(question: string, tokens: string[]) {
@@ -3429,11 +3450,12 @@ async function retrieveKeywordChunkHits(args: {
   tokens: string[];
   scope: GovernanceWorkspaceSourceScope;
   limit: number;
+  allowedDocumentIds?: string[] | null;
 }): Promise<ChunkRetrievalHit[]> {
   const q = String(args.question || "").trim();
   if (!q) return [];
 
-  const scopeSql = chunkScopeSql(args.scope);
+  const scopeSql = chunkScopeSql(args.scope, args.allowedDocumentIds);
   const terms = deriveChunkTerms(args.question, args.tokens);
 
   try {
@@ -3521,6 +3543,7 @@ async function retrieveSemanticChunkHits(args: {
   tokens: string[];
   scope: GovernanceWorkspaceSourceScope;
   limit: number;
+  allowedDocumentIds?: string[] | null;
 }): Promise<ChunkRetrievalHit[]> {
   const q = String(args.question || "").trim();
   if (!q) return [];
@@ -3529,7 +3552,7 @@ async function retrieveSemanticChunkHits(args: {
   if (!qEmbedding?.length) return [];
 
   const qVec = toPgVectorLiteral(qEmbedding);
-  const scopeSql = chunkScopeSql(args.scope);
+  const scopeSql = chunkScopeSql(args.scope, args.allowedDocumentIds);
   const terms = deriveChunkTerms(args.question, args.tokens);
   const maxDist = env.RETRIEVAL_MAX_COSINE_DISTANCE ?? 0.42;
 
@@ -3576,11 +3599,22 @@ async function addHybridChunkCandidates(
     tokens: string[];
     scope: GovernanceWorkspaceSourceScope;
     limit: number;
+    allowedDocumentIds?: Set<string> | null;
   },
 ) {
   const [keywordHits, semanticHits] = await Promise.all([
-    retrieveKeywordChunkHits(args),
-    retrieveSemanticChunkHits(args),
+    retrieveKeywordChunkHits({
+      ...args,
+      allowedDocumentIds: args.allowedDocumentIds
+        ? Array.from(args.allowedDocumentIds)
+        : null,
+    }),
+    retrieveSemanticChunkHits({
+      ...args,
+      allowedDocumentIds: args.allowedDocumentIds
+        ? Array.from(args.allowedDocumentIds)
+        : null,
+    }),
   ]);
 
   const allHits = [...keywordHits, ...semanticHits];
@@ -3638,6 +3672,7 @@ async function addHybridChunkCandidates(
       signalScore: merged.best.signalScore + laneBonus,
       lanes: Array.from(merged.lanes),
       summary: merged.best.summary,
+      allowedDocumentIds: args.allowedDocumentIds,
     });
   }
 }
@@ -3739,6 +3774,12 @@ export async function queryGovernanceWorkspaceEvidence(
   rawInput: GovernanceWorkspaceQueryInput,
 ) {
   const input = normalizeInput(rawInput);
+  const evidenceScope = input.collectorPurposeId
+    ? await resolveCollectorPurposeEvidenceScope(input.ownerId, input.collectorPurposeId)
+    : null;
+  const allowedDocumentIds = evidenceScope
+    ? new Set(evidenceScope.allowedDocumentIds)
+    : null;
   const tokens = tokenizeQuestion(input.question);
   const workflow = resolveWorkflowPlan({
     requestedMode: input.workflowMode,
@@ -3779,6 +3820,7 @@ export async function queryGovernanceWorkspaceEvidence(
       signalScore: 0,
       lane: "anchor",
       anchorScore: 100,
+      allowedDocumentIds,
     });
   }
 
@@ -3788,6 +3830,7 @@ export async function queryGovernanceWorkspaceEvidence(
       tokens,
       scope: input.sourceScope,
       limit: Math.max(input.limit * 3, 18),
+      allowedDocumentIds,
     });
   }
 
@@ -3848,6 +3891,7 @@ export async function queryGovernanceWorkspaceEvidence(
           : "Document title or source metadata matches the question",
         signalScore: 28 + hits.length * 4,
         lane: "metadata",
+        allowedDocumentIds,
       });
     }
 
@@ -3884,6 +3928,7 @@ export async function queryGovernanceWorkspaceEvidence(
         lane: "issue_graph",
         issueTitle: row.title,
         summary: row.summary,
+        allowedDocumentIds,
       });
     }
 
@@ -3928,6 +3973,7 @@ export async function queryGovernanceWorkspaceEvidence(
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.subjectAgency?.name],
         summary: row.claimSummary ?? row.claimText,
+        allowedDocumentIds,
       });
     }
 
@@ -3964,6 +4010,7 @@ export async function queryGovernanceWorkspaceEvidence(
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.actorAgency?.name],
         summary: row.summary ?? row.title,
+        allowedDocumentIds,
       });
     }
 
@@ -4001,6 +4048,7 @@ export async function queryGovernanceWorkspaceEvidence(
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.primaryAgency?.name, row.secondaryAgency?.name],
         summary: row.summary,
+        allowedDocumentIds,
       });
     }
 
@@ -4038,6 +4086,7 @@ export async function queryGovernanceWorkspaceEvidence(
         issueTitle: row.issue?.title ?? null,
         agencyNames: [row.fromAgency?.name, row.toAgency?.name],
         summary: row.rationale,
+        allowedDocumentIds,
       });
     }
   }
@@ -4186,7 +4235,9 @@ export async function queryGovernanceWorkspaceEvidence(
       anchorDocumentIds: input.anchorDocumentIds,
       anchorUrlIds: input.anchorUrlIds,
       limit: input.limit,
+      collectorPurposeId: input.collectorPurposeId,
     },
+    evidenceScope,
     workflow,
     queryUnderstanding,
     temporalControl,

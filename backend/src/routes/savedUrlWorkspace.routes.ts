@@ -20,6 +20,7 @@ const workspaceQuery = z.object({
   domains: z.union([z.string(), z.array(z.string())]).optional(),
   visibility: z.enum(["all", "public", "private"]).optional(),
   collectionId: z.string().min(1).optional(),
+  collectorPurposeId: z.string().min(1).optional(),
   favoritesOnly: z.coerce.boolean().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
@@ -80,6 +81,10 @@ function buildOpts(query: any, ownerId: string): GetPagedUrlsOpts {
     collectionId:
       typeof query.collectionId === "string" && query.collectionId.trim()
         ? query.collectionId
+        : undefined,
+    collectorPurposeId:
+      typeof query.collectorPurposeId === "string" && query.collectorPurposeId.trim()
+        ? query.collectorPurposeId
         : undefined,
     favoritesOnly: query.favoritesOnly === true || query.favoritesOnly === "true",
     visibility: query.visibility,

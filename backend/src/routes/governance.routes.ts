@@ -124,6 +124,7 @@ const workspaceAnswerSessionBody = z.object({
     .optional(),
   selectedIssueId: nullableOptionalString(),
   selectedAgencyId: nullableOptionalString(),
+  collectorPurposeId: nullableOptionalString(),
 });
 
 const workspaceAnswerBody = workspaceAnswerSessionBody.extend({
@@ -144,6 +145,7 @@ const workspaceQueryBody = z.object({
     .enum(["auto", "landscape", "case_trace", "question_review"])
     .optional(),
   limit: z.coerce.number().int().positive().max(12).optional(),
+  collectorPurposeId: nullableOptionalString(),
 });
 
 

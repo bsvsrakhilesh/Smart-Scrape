@@ -33,6 +33,7 @@ import governanceRoutes from "./routes/governance.routes";
 import auditRoutes from "./routes/audit.routes";
 import authRoutes from "./routes/auth.routes";
 import systemRoutes from "./routes/system.routes";
+import collectorPurposeRoutes from "./routes/collectorPurpose.routes";
 import { authContext } from "./middlewares/authContext";
 
 dotenv.config();
@@ -230,6 +231,7 @@ app.use("/api", savedUrlSearchRoutes);
 app.use("/api", savedUrlOperationRoutes);
 app.use("/api", savedUrlReviewRoutes);
 app.use("/api", savedUrlWorkspaceRoutes);
+app.use("/api", collectorPurposeRoutes);
 app.use("/api/search", searchLimiter, searchRoutes);
 
 app.use("/api", fileRoutes);

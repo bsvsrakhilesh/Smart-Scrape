@@ -17,6 +17,7 @@ import {
   countUpdatedSinceReview,
   filterUpdatedSinceReview,
 } from "./savedUrlReview.service";
+import { extractUrlMetadata } from "./extract.service";
 
 const SNAPSHOT_STALE_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -34,6 +35,50 @@ export type CreateUrlInput = {
   authors?: string[] | null;
   tagsMeta?: any | null;
 };
+
+export async function enrichUrlCreateRows(
+  rows: CreateUrlInput[],
+): Promise<CreateUrlInput[]> {
+  const enriched: CreateUrlInput[] = [];
+
+  for (const row of rows) {
+    const needsMetadata =
+      !row.snippet ||
+      !String(row.snippet).trim() ||
+      !row.title ||
+      row.title.trim() === row.url.trim();
+
+    if (!needsMetadata) {
+      enriched.push(row);
+      continue;
+    }
+
+    try {
+      const metadata = await extractUrlMetadata(row.url);
+      enriched.push({
+        ...row,
+        title:
+          row.title?.trim() && row.title.trim() !== row.url.trim()
+            ? row.title
+            : metadata.title,
+        snippet:
+          row.snippet && String(row.snippet).trim()
+            ? row.snippet
+            : metadata.snippet,
+        authors: metadata.authors,
+        publishedAt: metadata.publishedAt,
+        tagsMeta: {
+          ...(row.tagsMeta ?? {}),
+          publishedAtMeta: metadata.publishedAtMeta,
+        },
+      });
+    } catch {
+      enriched.push(row);
+    }
+  }
+
+  return enriched;
+}
 
 /** Update payload */
 export type UpdateUrlInput = Partial<
@@ -54,6 +99,7 @@ export type GetAllOpts = {
   domains?: string[];
   q?: string;
   collectionId?: string;
+  collectorPurposeId?: string;
   favoritesOnly?: boolean;
   visibility?: "all" | UrlVisibility;
   dateFrom?: string;
@@ -187,6 +233,17 @@ function buildListWhere(opts: GetAllOpts): Prisma.UrlWhereInput {
     and.push({
       collections: {
         some: { collectionId: opts.collectionId },
+      },
+    });
+  }
+
+  if (opts.collectorPurposeId) {
+    and.push({
+      collectorPurposeLinks: {
+        some: {
+          purposeId: opts.collectorPurposeId,
+          ...(opts.ownerId ? { purpose: { ownerId: opts.ownerId } } : {}),
+        },
       },
     });
   }

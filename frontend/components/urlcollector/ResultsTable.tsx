@@ -1,44 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import CollectionPickerModal from "../savedurls/CollectionPickerModal";
-import {
-  addUrlToCollection,
-  createCollection,
-  getCollections,
-  getUrlCollections,
-  removeUrlFromCollection,
-  reconcileUrlCollections,
-  hydrateCollectionsFromBackend,
-} from "../../utils/collections";
+import { useNavigate } from "react-router-dom";
+import { getUrlCollections } from "../../utils/collections";
 import { SearchResult } from "../../lib/types";
 import {
   apiUrl,
-  fetchSavedUrls,
   urlsExists,
-  saveUrls,
-  deleteUrlsBulk,
+  saveCollectorPurposeSelection,
   type SaveUrlsRequestRow,
-  type SaveUrlsResponse,
-  crawlSavePdf,
-  crawlSaveText,
 } from "../../lib/api";
 import DownloadIcon from "../icons/DownloadIcon";
-import FolderPickerModal from "./FolderPickerModal";
-import PdfDiscoveryDrawer from "./PdfDiscoveryDrawer";
 import { StaggerList, StaggerItem } from "../motion/StaggerList";
-import {
-  canonicalize as canonicalizeSaved,
-  removeSaved,
-  SAVED_KEY,
-} from "../../utils/saved";
-import { useConfirm } from "../providers/Confirm";
-import {
-  getCollectorCaptureMeta,
-  inferPreferredCollectorCapture,
-  isDirectPdfSearchResult,
-  suggestCollectorCaptureName,
-  type CaptureMode,
-} from "../../utils/urlCollector";
-import type { CollectorJobActions } from "../../hooks/useCollectorJobs";
+import { canonicalize as canonicalizeSaved, SAVED_KEY } from "../../utils/saved";
 
 interface ResultsTableProps {
   results: SearchResult[];
@@ -51,8 +23,9 @@ interface ResultsTableProps {
   onClear?: () => void;
   sortKey?: "original" | "title" | "domain" | "year";
   onSortChange?: (k: "original" | "title" | "domain" | "year") => void;
-  searchQuery?: string;
-  jobs?: CollectorJobActions;
+  collectorPurposeId: string;
+  collectorPurposeTitle: string;
+  collectorSearchId?: string | null;
 }
 
 /* ---------------- helpers ---------------- */
@@ -78,14 +51,6 @@ const nicePath = (url: string) => {
 
 const favicon = (url: string) =>
   apiUrl(`/api/favicon?url=${encodeURIComponent(url)}`);
-
-function isAbortLike(error: any) {
-  return (
-    error?.name === "AbortError" ||
-    error?.name === "CanceledError" ||
-    error?.code === "ERR_CANCELED"
-  );
-}
 
 const YEAR_RE = /\b(19|20)\d{2}\b/g;
 
@@ -187,9 +152,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   onClear,
   sortKey: sortKeyProp,
   onSortChange,
-  searchQuery = "",
-  jobs,
+  collectorPurposeId,
+  collectorPurposeTitle,
+  collectorSearchId,
 }) => {
+  const navigate = useNavigate();
   // local selection if parent doesn't control it
   const [localSelected, setLocalSelected] = useState<Set<string>>(selectedUrls);
   const selected =
@@ -200,36 +167,14 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [rowSaving, setRowSaving] = useState<string | null>(null);
   const [rowSaved, setRowSaved] = useState<Record<string, boolean>>({});
+  const [purposeStatus, setPurposeStatus] = useState<
+    Record<string, "saved_to_purpose" | "added_to_purpose" | "already_in_purpose">
+  >({});
 
   const [sortKeyLocal, setSortKeyLocal] = useState<SortKey>("original");
   const sortKey = (sortKeyProp ?? sortKeyLocal) as SortKey;
   const setSortKey = onSortChange ?? setSortKeyLocal;
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-
-  // Collection picker state (Save)
-  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
-  const [collections, setCollections] = useState(getCollections());
-  const [pendingRows, setPendingRows] = useState<SaveUrlsRequestRow[] | null>(
-    null,
-  );
-
-  // Remove-from-collection picker state
-  const [removePickerOpen, setRemovePickerOpen] = useState(false);
-  const [removeTargetUrl, setRemoveTargetUrl] = useState<string | null>(null);
-
-  // capture modal state
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerMode, setPickerMode] = useState<"text" | "pdf">("text");
-  const [pickerTarget, setPickerTarget] = useState<{
-    url: string;
-    title: string;
-  }>({ url: "", title: "" });
-  const [pdfDiscoveryTarget, setPdfDiscoveryTarget] = useState<{
-    urlId: number;
-    url: string;
-    title: string;
-  } | null>(null);
-  const [captureBusy, setCaptureBusy] = useState<string | null>(null);
 
   // Dedupe toggle
   const [hideDuplicates, setHideDuplicates] = useState(true);
@@ -246,8 +191,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     message: string;
   } | null>(null);
   const noticeTimer = useRef<number | null>(null);
-  const { confirm } = useConfirm();
-
   const pushNotice = (type: "success" | "error" | "info", message: string) => {
     setNotice({ type, message });
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
@@ -591,87 +534,61 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     setLocalSelected(next);
   };
 
-  const saveSelected = async () => {
-    if (selectedFilteredCount === 0) return;
-
-    const rows: SaveUrlsRequestRow[] = selectedFilteredRows.map((r) => ({
-        url: r.url,
-        title: r.title ?? r.url,
-        snippet: r.snippet ?? "",
-      }));
-
-    if (rows.length === 0) {
-      pushNotice("info", "No selected rows match current filters.");
-      return;
-    }
-
-    await hydrateCollectionsFromBackend();
-    setPendingRows(rows);
-    setCollections(getCollections());
-    setCollectionPickerOpen(true);
-  };
-
-  const saveSingle = async (r: SearchResult) => {
-    if (rowSaved[r.url]) return;
-
-    const rows: SaveUrlsRequestRow[] = [
-      { url: r.url, title: r.title ?? r.url, snippet: r.snippet ?? "" },
-    ];
-
-    await hydrateCollectionsFromBackend();
-    setPendingRows(rows);
-    setCollections(getCollections());
-    setCollectionPickerOpen(true);
-  };
-
-  const onPickCancel = () => {
-    setCollectionPickerOpen(false);
-    setPendingRows(null);
-  };
-
-  const onPickConfirm = async (collectionId: string) => {
-    if (!pendingRows) return;
-    setCollectionPickerOpen(false);
-
-    const isSingle = pendingRows.length === 1;
-    if (isSingle) setRowSaving(pendingRows[0].url);
+  const saveRowsToPurpose = async (rows: SaveUrlsRequestRow[]) => {
+    if (!rows.length) return;
     setIsSaving(true);
+    if (rows.length === 1) setRowSaving(rows[0].url);
 
     try {
-      const res: SaveUrlsResponse = await saveUrls(pendingRows);
-
-      await Promise.all(
-        pendingRows.map((r) =>
-          addUrlToCollection(collectionId, r.url, {
-            title: r.title,
-            snippet: r.snippet,
-          }),
-        ),
+      const response = await saveCollectorPurposeSelection(
+        collectorPurposeId,
+        rows,
+        collectorSearchId,
       );
-
-      setRowSaved((prev) => {
-        const next = { ...prev };
-        pendingRows.forEach((r) => (next[r.url] = true));
+      const statuses = { ...purposeStatus };
+      response.rows.forEach((row) => {
+        const source = rows.find((candidate) => candidate.url === row.url);
+        statuses[source?.url ?? row.url] = row.status;
+      });
+      setPurposeStatus(statuses);
+      setRowSaved((previous) => {
+        const next = { ...previous };
+        rows.forEach((row) => {
+          next[row.url] = true;
+        });
         return next;
       });
-
-      pushNotice(
-        "success",
-        `Saved ${res.added} URL${res.added === 1 ? "" : "s"} (skipped ${res.skipped}).`,
-      );
-
-      await refreshBackendSavedIndex(results);
-      setCollections(getCollections());
-    } catch (e: any) {
-      pushNotice(
-        "error",
-        `Failed to save URLs: ${e?.message ?? "Unknown error"}`,
-      );
+      const newCount = response.rows.filter((row) => row.status === "saved_to_purpose").length;
+      const linkedCount = response.rows.filter((row) => row.status === "added_to_purpose").length;
+      const alreadyCount = response.rows.length - newCount - linkedCount;
+      const detail = [
+        newCount ? `${newCount} saved` : "",
+        linkedCount ? `${linkedCount} added from library` : "",
+        alreadyCount ? `${alreadyCount} already in purpose` : "",
+      ].filter(Boolean).join(", ");
+      pushNotice("success", `${collectorPurposeTitle}: ${detail}.`);
+    } catch (error: any) {
+      pushNotice("error", `Could not save to purpose: ${error?.message ?? "Unknown error"}`);
     } finally {
-      setRowSaving(null);
       setIsSaving(false);
-      setPendingRows(null);
+      setRowSaving(null);
     }
+  };
+
+  const saveSelected = async () => {
+    await saveRowsToPurpose(
+      selectedFilteredRows.map((row) => ({
+        url: row.url,
+        title: row.title ?? row.url,
+        snippet: row.snippet ?? "",
+      })),
+    );
+  };
+
+  const saveSingle = async (row: SearchResult) => {
+    await saveRowsToPurpose([
+      { url: row.url, title: row.title ?? row.url, snippet: row.snippet ?? "" },
+    ]);
   };
 
   const exportSelected = () => {
@@ -698,6 +615,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     }
   };
 
+  /*
+   * Library removal and capture operations now belong to Saved URLs.
+   * Retained below temporarily as implementation history while the purpose flow stabilizes.
+   *
   function describeDeleteTarget(result: SearchResult, collectionCount: number) {
     const label =
       result.title && result.title.trim() && result.title.trim() !== result.url
@@ -1061,6 +982,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     });
   };
 
+  */
   const padY = "py-4";
   const titleSize = "text-[16px]";
 
@@ -1076,12 +998,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
     setSavedFilter("all");
     setSelectedOnly(false);
   };
-
-  const removeCollectionsForTarget = useMemo(() => {
-    if (!removeTargetUrl) return [];
-    const ids = new Set(getUrlCollections(removeTargetUrl));
-    return getCollections().filter((c) => ids.has(c.id));
-  }, [removeTargetUrl]);
 
   return (
     <div className="w-full">
@@ -1372,15 +1288,15 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                 selectedFilteredCount > 0
                   ? `Save ${selectedFilteredCount} selected row${
                       selectedFilteredCount === 1 ? "" : "s"
-                    } from the current view`
+                    } to ${collectorPurposeTitle}`
                   : selectedHiddenCount > 0
                     ? "Selected rows exist, but they are outside the current filters"
-                    : "Select rows to save"
+                    : "Select rows to save to this purpose"
               }
             >
               {isSaving
                 ? "Saving…"
-                : `Save selected (${selectedFilteredCount || 0})`}
+                : `Save to purpose (${selectedFilteredCount || 0})`}
             </button>
           )}
 
@@ -1461,32 +1377,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           const dupN = dupCountByUrl[r.url] ?? 0;
           const collectionCount = getUrlCollections(r.url).length;
           const detectedYear = getResultYear(r);
-          const directPdf = isDirectPdfSearchResult(r);
-
-          const preferredCapture = inferPreferredCollectorCapture(r);
-          const secondaryCapture: CaptureMode =
-            preferredCapture === "pdf" ? "text" : "pdf";
-
-          const preferredMeta = getCollectorCaptureMeta(preferredCapture);
-          const secondaryMeta = getCollectorCaptureMeta(secondaryCapture);
-
-          const recommendationText =
-            preferredCapture === "pdf" && !directPdf
-              ? "Recommended capture: Find PDFs"
-              : preferredCapture === "pdf"
-              ? "Recommended capture: PDF"
-              : "Recommended capture: Text";
-
-          const preferredLongLabel =
-            preferredCapture === "pdf" && !directPdf
-              ? "Find PDFs"
-              : preferredMeta.longLabel;
-
-          const preferredTitle =
-            preferredCapture === "pdf" && !directPdf
-              ? "Find and capture PDFs linked from this page"
-              : preferredMeta.title;
-
+          const savedToPurpose = purposeStatus[r.url];
           return (
             <StaggerItem
               as="li"
@@ -1630,7 +1521,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                 </div>
 
                 <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
-                  {!isSaved ? (
+                  {!savedToPurpose ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1638,14 +1529,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                       }}
                       disabled={rowSaving === r.url}
                       className="btn-primary px-3 py-1.5 rounded-full"
-                      title="Save URL"
+                      title={`Save to ${collectorPurposeTitle}`}
                     >
                       {rowSaving === r.url ? (
                         "Saving…"
                       ) : (
                         <>
                           <SaveIcon className="h-4 w-4" />
-                          <span className="hidden sm:inline">Save</span>
+                          <span className="hidden sm:inline">
+                            {isSaved ? "Add to purpose" : "Save to purpose"}
+                          </span>
                         </>
                       )}
                     </button>
@@ -1656,10 +1549,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 text-green-700"
                       >
                         <CheckIcon className="h-4 w-4" />
-                        <span className="hidden sm:inline">Saved</span>
+                        <span className="hidden sm:inline">
+                          {savedToPurpose === "added_to_purpose"
+                            ? "Added to purpose"
+                            : savedToPurpose === "already_in_purpose"
+                              ? "Already in purpose"
+                              : "Saved to purpose"}
+                        </span>
                       </span>
 
-                      {collectionCount > 0 && (
+                      {/*
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1690,11 +1589,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                           <TrashIcon className="h-4 w-4" />
                         )}
                         <span className="hidden sm:inline">Delete</span>
-                      </button>
+                      </button>*/}
                     </div>
                   )}
 
-                  <div className="flex flex-col items-end gap-1">
+                  {/*
                     <span className="text-[11px] font-medium text-gray-500">
                       {recommendationText}
                     </span>
@@ -1750,7 +1649,22 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                         </span>
                       )}
                     </div>
-                  </div>
+                  </div>*/}
+
+                  {isSaved && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(
+                          `/app/saved-urls?collectorPurposeId=${encodeURIComponent(collectorPurposeId)}`,
+                        );
+                      }}
+                      className="btn-ghost px-3 py-1.5"
+                    >
+                      Open in Saved URLs
+                    </button>
+                  )}
 
                   <button
                     onClick={(e) => {
@@ -1788,23 +1702,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         )}
       </StaggerList>
 
-      {/* Save-to-collection modal */}
-      <CollectionPickerModal
-        isOpen={collectionPickerOpen}
-        title="Save to collection"
-        collections={collections}
-        onCancel={onPickCancel}
-        onConfirm={onPickConfirm}
-        onCreateCollection={async (name) => {
-          const created = await createCollection(name);
-          await hydrateCollectionsFromBackend();
-          setCollections(getCollections());
-          pushNotice("success", `Created collection "${created.name}".`);
-          return { id: created.id, name: created.name };
-        }}
-      />
-
-      {/* Remove-from-collection modal */}
+      {/*
       <CollectionPickerModal
         isOpen={removePickerOpen}
         title="Remove from collection"
@@ -1837,6 +1735,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
         jobs={jobs}
         onClose={() => setPdfDiscoveryTarget(null)}
       />
+      */}
     </div>
   );
 };
@@ -1889,61 +1788,12 @@ function CopyIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function TrashIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
-      <path
-        fill="currentColor"
-        d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Z"
-      />
-    </svg>
-  );
-}
-
-function TagOffIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
-      <path
-        fill="currentColor"
-        d="M21 10.41V6a2 2 0 0 0-2-2h-4.41l-1.83-1.83A2 2 0 0 0 11.34 2H6a2 2 0 0 0-2 2v5.34a2 2 0 0 0 .59 1.42l9.24 9.24a2 2 0 0 0 2.83 0l3.34-3.34-1.41-1.41-3.34 3.34L6 9.34V4h5.34l1.83 1.83H19v4.17l2 2Zm-6.5-3.91a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0Z"
-      />
-      <path fill="currentColor" d="M3 3l18 18-1.41 1.41L1.59 4.41 3 3Z" />
-    </svg>
-  );
-}
-
 function ListFilterIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
       <path
         fill="currentColor"
         d="M10 18v-2h10v2H10Zm-6-5v-2h16v2H4Zm3-5V6h13v2H7Z"
-      />
-    </svg>
-  );
-}
-
-function SpinnerMini() {
-  return (
-    <svg
-      className="h-4 w-4 animate-spin"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-        fill="none"
-        opacity=".2"
-      />
-      <path
-        d="M22 12a10 10 0 0 1-10 10"
-        stroke="currentColor"
-        strokeWidth="4"
-        fill="none"
       />
     </svg>
   );

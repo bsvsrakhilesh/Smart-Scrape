@@ -49,6 +49,7 @@ import {
   type GovernanceWorkspaceIntent,
   type GovernanceWorkspaceSourceScope,
 } from "../lib/governanceWorkspace";
+import { navigateWithinApp } from "../lib/navigation";
 
 type RelationFilter = "all" | GovernanceRelationType;
 
@@ -1017,6 +1018,9 @@ export default function GovernanceWorkspacePage() {
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const answerAbortRef = useRef<AbortController | null>(null);
   const lastAutoAnswerKeyRef = useRef("");
+  const constrainedPurposeId = launchIntent?.collectorPurposeId ?? null;
+  const constrainedPurposeTitle =
+    launchIntent?.collectorPurposeTitle ?? launchIntent?.title ?? "Selected purpose";
 
   const [issueSearch, setIssueSearch] = useState("");
   const [issueKindFilter, setIssueKindFilter] = useState("");
@@ -1146,6 +1150,7 @@ export default function GovernanceWorkspacePage() {
       sourceScope,
       launchIntent?.anchorDocumentIds?.join("|") ?? "",
       launchIntent?.anchorUrlIds?.join("|") ?? "",
+      constrainedPurposeId ?? "",
     ],
     enabled:
       workspaceQueryRunKey > 0 &&
@@ -1160,6 +1165,7 @@ export default function GovernanceWorkspacePage() {
         anchorUrlIds: launchIntent?.anchorUrlIds ?? [],
         sourceScope,
         limit: 8,
+        collectorPurposeId: constrainedPurposeId,
       }),
   });
 
@@ -1420,6 +1426,7 @@ export default function GovernanceWorkspacePage() {
             workflowMode: workspaceIntentMode,
             selectedIssueId,
             selectedAgencyId,
+            collectorPurposeId: constrainedPurposeId,
             limit: 12,
             deepReview: options?.deepReview === true,
           },
@@ -1474,6 +1481,7 @@ export default function GovernanceWorkspacePage() {
       selectedIssueId,
       sourceScope,
       workspaceIntentMode,
+      constrainedPurposeId,
     ],
   );
 
@@ -1485,6 +1493,12 @@ export default function GovernanceWorkspacePage() {
 
   useEffect(() => {
     if (!workspaceEvidenceQuery.data || workspaceEvidenceQuery.isLoading) return;
+    if (
+      constrainedPurposeId &&
+      (workspaceEvidenceQuery.data.evidenceScope?.allowedDocumentIds.length ?? 0) === 0
+    ) {
+      return;
+    }
     const question = workspaceQuestion.trim();
     if (!question) return;
 
@@ -1495,6 +1509,7 @@ export default function GovernanceWorkspacePage() {
       sourceScope,
       launchIntent?.anchorDocumentIds?.join("|") ?? "",
       launchIntent?.anchorUrlIds?.join("|") ?? "",
+      constrainedPurposeId ?? "",
     ].join("::");
 
     if (lastAutoAnswerKeyRef.current === key) return;
@@ -1503,6 +1518,7 @@ export default function GovernanceWorkspacePage() {
   }, [
     launchIntent?.anchorDocumentIds,
     launchIntent?.anchorUrlIds,
+    constrainedPurposeId,
     sourceScope,
     startGovernanceAnswer,
     workspaceEvidenceQuery.data,
@@ -2306,6 +2322,63 @@ export default function GovernanceWorkspacePage() {
             </div>
 
             <div className="space-y-3">
+              {constrainedPurposeId && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+                  <div>
+                    <span className="font-semibold text-emerald-950">
+                      Purpose: {constrainedPurposeTitle}
+                    </span>
+                    <span className="ml-2 text-emerald-800">
+                      | Captured evidence only
+                    </span>
+                    {workspaceEvidenceQuery.data?.evidenceScope && (
+                      <span className="ml-2 text-emerald-700">
+                        ({workspaceEvidenceQuery.data.evidenceScope.allowedDocumentIds.length} documents)
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-md border border-emerald-300 bg-white px-3 py-1.5 font-medium text-emerald-900"
+                    onClick={() => {
+                      setLaunchIntent((current) =>
+                        current
+                          ? {
+                              ...current,
+                              collectorPurposeId: null,
+                              collectorPurposeTitle: null,
+                            }
+                          : current,
+                      );
+                      setWorkspaceQueryRunKey((current) => current + 1);
+                    }}
+                  >
+                    Expand to all workspace evidence
+                  </button>
+                </div>
+              )}
+
+              {constrainedPurposeId &&
+                workspaceEvidenceQuery.data?.evidenceScope &&
+                workspaceEvidenceQuery.data.evidenceScope.allowedDocumentIds.length === 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <div className="font-semibold">No captured evidence for this purpose yet</div>
+                    <p className="mt-1 text-amber-800">
+                      Save and capture text or PDF evidence before generating a governed answer.
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 font-medium"
+                      onClick={() =>
+                        navigateWithinApp(
+                          `/app/saved-urls?collectorPurposeId=${encodeURIComponent(constrainedPurposeId)}`,
+                        )
+                      }
+                    >
+                      Return to Saved URLs capture
+                    </button>
+                  </div>
+                )}
               <div className="flex flex-wrap gap-2">
                 {sourceScopeOptions.map((option) => {
                   const active = option.value === sourceScope;

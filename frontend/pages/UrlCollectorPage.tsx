@@ -4,9 +4,14 @@ import ResultsTable from "../components/urlcollector/ResultsTable";
 import Spinner from "../components/urlcollector/Spinner";
 import { SearchResult } from "../lib/types";
 import {
+  createCollectorPurpose,
+  listCollectorPurposes,
+  planPurposeSearch,
   planCollectorQuery,
   rerankSearchResults,
   searchWeb,
+  type CollectorPurpose,
+  type CollectorPurposeLane,
   type SearchWebOptions,
 } from "../lib/api";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -137,6 +142,7 @@ const UrlCollectorPage: React.FC = () => {
   const urlJurisdiction = params.get("jurisdiction") ?? "";
   const urlRegion = params.get("region") ?? "";
   const urlFormat = (params.get("format") ?? "any") as CollectorScope["format"];
+  const urlPurposeId = params.get("purposeId") ?? "";
 
   const hasUrlParams =
     !!urlSite ||
@@ -149,6 +155,34 @@ const UrlCollectorPage: React.FC = () => {
 
   const [website, setWebsite] = useState(urlSite);
   const [keywords, setKeywords] = useState(urlKeywords);
+  const [purposes, setPurposes] = useState<CollectorPurpose[]>([]);
+  const [activePurposeId, setActivePurposeId] = useState(urlPurposeId);
+  const [purposeBusy, setPurposeBusy] = useState(false);
+  const [purposeLanes, setPurposeLanes] = useState<CollectorPurposeLane[]>([]);
+  const [activeLaneKey, setActiveLaneKey] = useState("");
+  const [collectorSearchId, setCollectorSearchId] = useState<string | null>(null);
+  const [purposeDraft, setPurposeDraft] = useState({
+    title: "",
+    researchQuestion: "",
+    jurisdiction: "",
+    region: "",
+    outputGoal: "",
+  });
+  const activePurpose = purposes.find((purpose) => purpose.id === activePurposeId) ?? null;
+
+  useEffect(() => {
+    let live = true;
+    void listCollectorPurposes()
+      .then((rows) => {
+        if (live) setPurposes(rows);
+      })
+      .catch((reason) => {
+        if (live) setError(reason?.message ?? "Could not load research purposes.");
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const [scope, setScope] = useState<CollectorScope>({
     yearFrom: urlYearFrom,
@@ -326,6 +360,7 @@ const UrlCollectorPage: React.FC = () => {
     if (sc.jurisdiction.trim()) sp.set("jurisdiction", sc.jurisdiction.trim());
     if (sc.region.trim()) sp.set("region", sc.region.trim());
     if (sc.format !== "any") sp.set("format", sc.format);
+    if (activePurposeId) sp.set("purposeId", activePurposeId);
 
     navigate(
       { search: sp.toString() ? `?${sp.toString()}` : "" },
@@ -346,6 +381,8 @@ const UrlCollectorPage: React.FC = () => {
       fileType:
         sc.format === "pdfOnly" ? "pdf" : undefined,
       excludeFileType: sc.format === "excludePdf" ? "pdf" : undefined,
+      collectorPurposeId: activePurposeId || undefined,
+      laneKey: activeLaneKey || undefined,
     };
   }
 
@@ -405,6 +442,11 @@ const UrlCollectorPage: React.FC = () => {
   /* ---------- Search handler (working fetch + abort) ---------- */
   const handleSearch = useCallback(
     async (siteArg?: string, kwArg?: string) => {
+      if (!activePurpose) {
+        setError("Select or create a purpose before searching.");
+        setHasSearched(false);
+        return;
+      }
       const site = (siteArg ?? website).trim();
       const kws = normalizeCollectorKeywords(kwArg ?? keywords);
 
@@ -489,6 +531,7 @@ const UrlCollectorPage: React.FC = () => {
 
         // Fetch page 1 immediately
         const p1 = await fetchPage(1);
+        setCollectorSearchId(p1.collectorSearchId);
         collectorJobActions.updateJob(jobId, {
           stage: "page-1",
           message: `Loaded first ${p1.rows.length} result${p1.rows.length === 1 ? "" : "s"}`,
@@ -646,7 +689,17 @@ const UrlCollectorPage: React.FC = () => {
         setPrefetchCount(0);
       }
     },
-    [navigate, website, keywords, scope, collectorJobActions, applyMergedRerank],
+    [
+      navigate,
+      website,
+      keywords,
+      scope,
+      collectorJobActions,
+      applyMergedRerank,
+      activePurpose,
+      activePurposeId,
+      activeLaneKey,
+    ],
   );
 
   useEffect(() => {
@@ -888,6 +941,80 @@ const UrlCollectorPage: React.FC = () => {
     navigate({ search: "" }, { replace: true });
   }, [navigate]);
 
+  const selectPurpose = useCallback(
+    (purposeId: string) => {
+      setActivePurposeId(purposeId);
+      setPurposeLanes([]);
+      setActiveLaneKey("");
+      const next = new URLSearchParams(loc.search);
+      if (purposeId) next.set("purposeId", purposeId);
+      else next.delete("purposeId");
+      navigate({ search: next.toString() ? `?${next.toString()}` : "" }, { replace: true });
+    },
+    [loc.search, navigate],
+  );
+
+  const createPurpose = useCallback(async () => {
+    if (!purposeDraft.title.trim() || !purposeDraft.researchQuestion.trim()) {
+      setError("Give the purpose a title and research question first.");
+      return;
+    }
+    setPurposeBusy(true);
+    setError(null);
+    try {
+      const created = await createCollectorPurpose({
+        title: purposeDraft.title,
+        researchQuestion: purposeDraft.researchQuestion,
+        jurisdiction: purposeDraft.jurisdiction || null,
+        region: purposeDraft.region || null,
+        outputGoal: purposeDraft.outputGoal || null,
+      });
+      setPurposes((current) => [created, ...current]);
+      selectPurpose(created.id);
+      setPurposeDraft({
+        title: "",
+        researchQuestion: "",
+        jurisdiction: "",
+        region: "",
+        outputGoal: "",
+      });
+      const plan = await planPurposeSearch(created.id);
+      setPurposeLanes(plan.lanes);
+    } catch (reason: any) {
+      setError(reason?.message ?? "Could not create the purpose.");
+    } finally {
+      setPurposeBusy(false);
+    }
+  }, [purposeDraft, selectPurpose]);
+
+  const generatePurposeLanes = useCallback(async () => {
+    if (!activePurposeId) return;
+    setPurposeBusy(true);
+    setError(null);
+    try {
+      const plan = await planPurposeSearch(activePurposeId);
+      setPurposeLanes(plan.lanes);
+    } catch (reason: any) {
+      setError(reason?.message ?? "Could not create search lanes.");
+    } finally {
+      setPurposeBusy(false);
+    }
+  }, [activePurposeId]);
+
+  const applyPurposeLane = useCallback((lane: CollectorPurposeLane) => {
+    setActiveLaneKey(lane.key);
+    setWebsite(lane.website);
+    setKeywords(lane.keywords);
+    setScope({
+      jurisdiction: lane.jurisdiction,
+      region: lane.region,
+      yearFrom: lane.yearFrom,
+      yearTo: lane.yearTo,
+      format: lane.format,
+    });
+    setAiAssistRationale(lane.rationale);
+  }, []);
+
   return (
     <main className="uc-page space-y-6 pt-6 md:pt-8 pb-8">
       {/* Top loading bar (micro-feedback) */}
@@ -932,6 +1059,142 @@ const UrlCollectorPage: React.FC = () => {
         </div>
       </header>
 
+      <SmartCard as="section" className="uc-panel p-4 sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-[240px] flex-1">
+            <label className="uc-filter-label" htmlFor="collector-purpose">
+              Research purpose
+            </label>
+            <select
+              id="collector-purpose"
+              className="input mt-2 w-full"
+              value={activePurposeId}
+              onChange={(event) => selectPurpose(event.target.value)}
+            >
+              <option value="">Select a purpose before searching</option>
+              {purposes.map((purpose) => (
+                <option key={purpose.id} value={purpose.id}>
+                  {purpose.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          {activePurpose && (
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full border border-gray-200 px-3 py-2">
+                {activePurpose.summary.savedUrlCount} saved URLs
+              </span>
+              <span className="rounded-full border border-gray-200 px-3 py-2">
+                {activePurpose.summary.capturedEvidenceCount} captures
+              </span>
+              <button
+                type="button"
+                className="btn-ghost px-3 py-2"
+                onClick={() => navigate(`/app/saved-urls?collectorPurposeId=${encodeURIComponent(activePurpose.id)}`)}
+              >
+                Open Saved URLs
+              </button>
+            </div>
+          )}
+        </div>
+
+        {!activePurpose && (
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <input
+              className="input w-full"
+              placeholder="Purpose title"
+              value={purposeDraft.title}
+              onChange={(event) =>
+                setPurposeDraft((current) => ({ ...current, title: event.target.value }))
+              }
+            />
+            <input
+              className="input w-full"
+              placeholder="Jurisdiction or area"
+              value={purposeDraft.jurisdiction}
+              onChange={(event) =>
+                setPurposeDraft((current) => ({
+                  ...current,
+                  jurisdiction: event.target.value,
+                }))
+              }
+            />
+            <textarea
+              className="input min-h-[88px] w-full md:col-span-2"
+              placeholder="What question are you collecting evidence to answer?"
+              value={purposeDraft.researchQuestion}
+              onChange={(event) =>
+                setPurposeDraft((current) => ({
+                  ...current,
+                  researchQuestion: event.target.value,
+                }))
+              }
+            />
+            <input
+              className="input w-full md:col-span-2"
+              placeholder="Desired output, decision, or governance review"
+              value={purposeDraft.outputGoal}
+              onChange={(event) =>
+                setPurposeDraft((current) => ({
+                  ...current,
+                  outputGoal: event.target.value,
+                }))
+              }
+            />
+            <button
+              type="button"
+              onClick={() => void createPurpose()}
+              disabled={purposeBusy}
+              className="btn-primary w-fit px-4 py-2"
+            >
+              {purposeBusy ? "Creating..." : "Create purpose"}
+            </button>
+          </div>
+        )}
+
+        {activePurpose && (
+          <div className="mt-5 border-t border-gray-100 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-medium text-gray-900">{activePurpose.researchQuestion}</div>
+                {(activePurpose.jurisdiction || activePurpose.outputGoal) && (
+                  <div className="mt-1 text-sm text-gray-600">
+                    {[activePurpose.jurisdiction, activePurpose.outputGoal].filter(Boolean).join(" | ")}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                className="btn-ghost px-4 py-2"
+                disabled={purposeBusy}
+                onClick={() => void generatePurposeLanes()}
+              >
+                {purposeBusy ? "Generating..." : "Generate search lanes"}
+              </button>
+            </div>
+            {purposeLanes.length > 0 && (
+              <div className="mt-4 grid gap-2 lg:grid-cols-3">
+                {purposeLanes.map((lane) => (
+                  <button
+                    key={lane.key}
+                    type="button"
+                    onClick={() => applyPurposeLane(lane)}
+                    className={`rounded-lg border p-3 text-left transition ${
+                      activeLaneKey === lane.key
+                        ? "border-gray-900 bg-gray-50"
+                        : "border-gray-200 bg-white hover:border-gray-400"
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-gray-900">{lane.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-gray-600">{lane.rationale}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </SmartCard>
+
       {/* Search card */}
       <section aria-labelledby="search-section-title">
         <h2 id="search-section-title" className="sr-only">
@@ -961,6 +1224,7 @@ const UrlCollectorPage: React.FC = () => {
             onAiAssist={handleAiAssist}
             aiAssistLoading={aiAssistLoading}
             aiAssistRationale={aiAssistRationale}
+            searchDisabled={!activePurpose}
           />
 
           {/* Scope filters */}
@@ -1187,8 +1451,9 @@ const UrlCollectorPage: React.FC = () => {
                   onClear={handleClearResults}
                   sortKey={sortKey}
                   onSortChange={(k) => setSortKey(k)}
-                  searchQuery={lastQuery || keywords}
-                  jobs={collectorJobActions}
+                  collectorPurposeId={activePurposeId}
+                  collectorPurposeTitle={activePurpose?.title ?? "selected purpose"}
+                  collectorSearchId={collectorSearchId}
                 />
 
                 {hasSearched && searchResults.length > 0 && (

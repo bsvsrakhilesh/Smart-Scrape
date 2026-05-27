@@ -55,6 +55,8 @@ import {
   renameFolder,
   updateFileTags,
   apiUrl,
+  getCollectorPurpose,
+  type CollectorPurpose,
 } from "../lib/api";
 import { mergeUniqueTags, normalizeTagList } from "../lib/tagBuckets";
 import {
@@ -566,6 +568,21 @@ const Modal: React.FC<{
 export default function FileManagerPage() {
   const { notify } = useToast();
   const { confirm } = useConfirm();
+  const collectorPurposeId =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("collectorPurposeId") ?? ""
+      : "";
+  const [collectorPurpose, setCollectorPurpose] = useState<CollectorPurpose | null>(null);
+
+  useEffect(() => {
+    if (!collectorPurposeId) {
+      setCollectorPurpose(null);
+      return;
+    }
+    void getCollectorPurpose(collectorPurposeId)
+      .then(setCollectorPurpose)
+      .catch(() => setCollectorPurpose(null));
+  }, [collectorPurposeId]);
 
   // layout / pagination / minor UI state
   const [layout, setLayout] = useState<Layout>(() =>
@@ -1658,6 +1675,7 @@ export default function FileManagerPage() {
     params.set("sortOrder", sortDir);
 
     if (searchQuery.trim()) params.set("q", searchQuery.trim());
+    if (collectorPurposeId) params.set("collectorPurposeId", collectorPurposeId);
 
     if (!inZip && !inTrash) {
       if (archiveFilters.captureKind !== "all") {
@@ -2038,6 +2056,7 @@ export default function FileManagerPage() {
     refreshToken,
     virtualZip,
     listingScopeKey,
+    collectorPurposeId,
   ]);
 
   const reviewQueueScope = useMemo(() => {
@@ -2049,6 +2068,7 @@ export default function FileManagerPage() {
 
     const q = searchQuery.trim();
     if (q) scope.q = q;
+    if (collectorPurposeId) scope.collectorPurposeId = collectorPurposeId;
 
     if (archiveFilters.captureKind !== "all") {
       scope.captureKind = archiveFilters.captureKind;
@@ -2079,7 +2099,14 @@ export default function FileManagerPage() {
     }
 
     return scope;
-  }, [viewMode, virtualZip, currentFolderId, searchQuery, archiveFilters]);
+  }, [
+    viewMode,
+    virtualZip,
+    currentFolderId,
+    searchQuery,
+    archiveFilters,
+    collectorPurposeId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4291,6 +4318,27 @@ export default function FileManagerPage() {
             )}
           </div>
         </motion.header>
+
+        {collectorPurpose && (
+          <div className="mx-auto mb-4 flex max-w-7xl flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+            <div>
+              <span className="font-semibold">Purpose: {collectorPurpose.title}</span>
+              <span className="ml-3 text-sky-700">
+                {collectorPurpose.summary.capturedEvidenceCount} captured artifacts
+              </span>
+            </div>
+            <button
+              type="button"
+              className="rounded-md border border-sky-300 bg-white px-3 py-1.5 font-medium"
+              onClick={() => {
+                window.history.pushState(window.history.state, "", "/app/file-manager");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+            >
+              Clear purpose filter
+            </button>
+          </div>
+        )}
 
         {/* Content */}
         <div

@@ -175,6 +175,7 @@ model Url {
   captureEvents   CaptureEvent[]
   collections     CollectionUrl[]
   reviews         SavedUrlReview[]
+  collectorPurposeLinks CollectorPurposeUrl[]
 
   @@index([createdAt])
   @@index([updatedAt])
@@ -186,6 +187,61 @@ model Url {
   @@index([normalizedDomain, createdAt])
   @@index([taggingStatus, updatedAt])
   @@index([isFavorited, updatedAt])
+}
+
+model CollectorPurpose {
+  id                String   @id @default(cuid())
+  ownerId           String
+  title             String
+  researchQuestion  String
+  jurisdiction      String?
+  region            String?
+  yearFrom          String?
+  yearTo            String?
+  sourcePreferences String[] @default([])
+  targetActors      String[] @default([])
+  outputGoal        String?
+  status            String   @default("active")
+  plan              Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  searches       CollectorPurposeSearch[]
+  urls           CollectorPurposeUrl[]
+  answerSessions GovernanceAnswerSession[]
+  answerRuns     GovernanceAnswerRun[]
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, status])
+}
+
+model CollectorPurposeSearch {
+  id          String   @id @default(cuid())
+  purposeId   String
+  purpose     CollectorPurpose @relation(fields: [purposeId], references: [id], onDelete: Cascade)
+  query       String
+  laneKey     String?
+  parameters  Json?
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  linkedUrls CollectorPurposeUrl[] @relation("CollectorPurposeSourceSearch")
+
+  @@index([purposeId, createdAt])
+}
+
+model CollectorPurposeUrl {
+  purposeId      String
+  urlId          Int
+  sourceSearchId String?
+  linkedAt       DateTime @default(now())
+  purpose        CollectorPurpose @relation(fields: [purposeId], references: [id], onDelete: Cascade)
+  url            Url @relation(fields: [urlId], references: [id], onDelete: Cascade)
+  sourceSearch   CollectorPurposeSearch? @relation("CollectorPurposeSourceSearch", fields: [sourceSearchId], references: [id], onDelete: SetNull)
+
+  @@id([purposeId, urlId])
+  @@index([urlId])
+  @@index([sourceSearchId])
 }
 
 model Collection {
@@ -1100,6 +1156,8 @@ model GovernanceAnswerSession {
   resolvedWorkflowMode  String?
   selectedIssueId       String?
   selectedAgencyId      String?
+  collectorPurposeId    String?
+  collectorPurpose      CollectorPurpose? @relation(fields: [collectorPurposeId], references: [id], onDelete: SetNull)
   metadata              Json?
 
   runs GovernanceAnswerRun[]
@@ -1107,6 +1165,7 @@ model GovernanceAnswerSession {
   @@index([updatedAt])
   @@index([selectedIssueId])
   @@index([selectedAgencyId])
+  @@index([collectorPurposeId])
 }
 
 model GovernanceAnswerRun {
@@ -1143,6 +1202,8 @@ model GovernanceAnswerRun {
   resolvedWorkflowMode  String?
   selectedIssueId       String?
   selectedAgencyId      String?
+  collectorPurposeId    String?
+  collectorPurpose      CollectorPurpose? @relation(fields: [collectorPurposeId], references: [id], onDelete: SetNull)
 
   candidateDocumentIds Json?
   finalEvidenceChunkIds Json?
@@ -1159,5 +1220,5 @@ model GovernanceAnswerRun {
   @@index([sessionId, createdAt])
   @@index([status, createdAt])
   @@index([openaiResponseId])
+  @@index([collectorPurposeId])
 }
-

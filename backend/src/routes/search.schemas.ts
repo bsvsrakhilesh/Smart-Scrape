@@ -69,6 +69,7 @@ export const rerankBodySchema = z
     region: z.string().trim().max(120).optional(),
     fileType: z.enum(["pdf", "html"]).optional(),
     excludeFileType: z.enum(["pdf"]).optional(),
+    collectorPurposeId: z.string().trim().min(1).optional(),
   })
   .superRefine((v, ctx) => {
     const q = String(v.q ?? "").trim();
@@ -115,6 +116,8 @@ export const querySchema = z
     lr: z.string().trim().max(40).optional(),
     cr: z.string().trim().max(40).optional(),
     gl: z.string().trim().max(10).optional(),
+    collectorPurposeId: z.string().trim().min(1).optional(),
+    laneKey: z.string().trim().max(40).optional(),
   })
   .superRefine((v, ctx) => {
     const q = String(v.q ?? "").trim();

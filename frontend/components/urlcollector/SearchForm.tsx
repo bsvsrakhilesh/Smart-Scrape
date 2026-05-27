@@ -33,6 +33,7 @@ interface SearchFormProps {
   }) => Promise<void> | void;
   aiAssistLoading?: boolean;
   aiAssistRationale?: string;
+  searchDisabled?: boolean;
 }
 
 const SearchForm: React.FC<SearchFormProps> = ({
@@ -47,6 +48,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
   onAiAssist,
   aiAssistLoading = false,
   aiAssistRationale,
+  searchDisabled = false,
 }) => {
   const [website, setWebsite] = useState(initialWebsite);
   const [keywords, setKeywords] = useState(initialKeywords);
@@ -139,6 +141,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
             size="lg"
             variant="solid"
             loading={isLoading}
+            disabled={searchDisabled || isLoading}
             className="w-full md:w-auto rounded-full min-h-[44px] px-5"
             aria-label="Search the web"
             title="Search the web"
@@ -152,7 +155,7 @@ const SearchForm: React.FC<SearchFormProps> = ({
             size="lg"
             variant="outline"
             loading={aiAssistLoading}
-            disabled={!keywords.trim() || isLoading}
+            disabled={searchDisabled || !keywords.trim() || isLoading}
             className="w-full md:w-auto rounded-full min-h-[44px] px-5"
             aria-label="Use AI to improve the search plan"
             title="Use AI to improve the search plan"

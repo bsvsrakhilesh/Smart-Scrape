@@ -3,6 +3,7 @@ import { navigateWithinApp } from "./navigation";
 export type GovernanceWorkspaceOrigin =
   | "file-manager"
   | "saved-urls"
+  | "collector-purpose"
   | "manual"
   | "deep-link";
 
@@ -27,6 +28,8 @@ export type GovernanceWorkspaceIntent = {
   sourceScope?: GovernanceWorkspaceSourceScope | null;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
+  collectorPurposeTitle?: string | null;
   origin?: GovernanceWorkspaceOrigin;
   ts: number;
 };
@@ -106,6 +109,7 @@ function normalizeIntent(
   const origin =
     input.origin === "file-manager" ||
     input.origin === "saved-urls" ||
+    input.origin === "collector-purpose" ||
     input.origin === "manual" ||
     input.origin === "deep-link"
       ? input.origin
@@ -148,6 +152,14 @@ function normalizeIntent(
     selectedAgencyId:
       typeof input.selectedAgencyId === "string"
         ? input.selectedAgencyId
+        : null,
+    collectorPurposeId:
+      typeof input.collectorPurposeId === "string"
+        ? input.collectorPurposeId
+        : null,
+    collectorPurposeTitle:
+      typeof input.collectorPurposeTitle === "string"
+        ? input.collectorPurposeTitle
         : null,
     origin,
     ts: typeof input.ts === "number" ? input.ts : Date.now(),

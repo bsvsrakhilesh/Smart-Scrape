@@ -209,7 +209,77 @@ export type SearchWebOptions = {
   lr?: string; // e.g. lang_en
   cr?: string; // e.g. countryIN
   gl?: string; // e.g. IN
+  collectorPurposeId?: string;
+  laneKey?: string;
 };
+
+export type CollectorPurposeSummary = {
+  savedUrlCount: number;
+  capturedEvidenceCount: number;
+  governanceReadyDocumentCount: number;
+};
+
+export type CollectorPurpose = {
+  id: string;
+  title: string;
+  researchQuestion: string;
+  jurisdiction?: string | null;
+  region?: string | null;
+  yearFrom?: string | null;
+  yearTo?: string | null;
+  sourcePreferences: string[];
+  targetActors: string[];
+  outputGoal?: string | null;
+  status: string;
+  summary: CollectorPurposeSummary;
+};
+
+export type CollectorPurposeLane = {
+  key: string;
+  label: string;
+  rationale: string;
+  website: string;
+  keywords: string;
+  jurisdiction: string;
+  region: string;
+  yearFrom: string;
+  yearTo: string;
+  format: "any" | "pdfOnly" | "excludePdf";
+};
+
+export type CollectorPurposeInput = {
+  title: string;
+  researchQuestion: string;
+  jurisdiction?: string | null;
+  region?: string | null;
+  yearFrom?: string | null;
+  yearTo?: string | null;
+  sourcePreferences?: string[];
+  targetActors?: string[];
+  outputGoal?: string | null;
+};
+
+export async function listCollectorPurposes(): Promise<CollectorPurpose[]> {
+  return apiRequest<CollectorPurpose[]>("GET", "/api/collector-purposes");
+}
+
+export async function getCollectorPurpose(id: string): Promise<CollectorPurpose> {
+  return apiRequest<CollectorPurpose>("GET", `/api/collector-purposes/${id}`);
+}
+
+export async function createCollectorPurpose(
+  payload: CollectorPurposeInput,
+): Promise<CollectorPurpose> {
+  return apiRequest<CollectorPurpose>("POST", "/api/collector-purposes", {
+    body: payload,
+  });
+}
+
+export async function planPurposeSearch(
+  id: string,
+): Promise<{ lanes: CollectorPurposeLane[]; generatedAt: string }> {
+  return apiRequest("POST", `/api/collector-purposes/${id}/plan`, { body: {} });
+}
 
 export type CollectorAssistRequest = {
   website?: string;
@@ -255,6 +325,7 @@ export async function searchWeb(
   rows: SearchResult[];
   nextPage: number | null;
   totalResults: number | null;
+  collectorSearchId: string | null;
 }> {
   try {
     const params: Record<string, any> = { q, page };
@@ -280,6 +351,7 @@ export async function searchWeb(
           snippet: it?.snippet ?? "",
           intelligence: it?.intelligence,
           ranking: it?.ranking,
+          purposeRelevance: it?.purposeRelevance,
         }))
       : [];
 
@@ -288,8 +360,9 @@ export async function searchWeb(
 
     const totalRaw = res.headers?.["x-total-results"];
     const totalResults = totalRaw ? Number(totalRaw) : null;
+    const collectorSearchId = res.headers?.["x-collector-search-id"] ?? null;
 
-    return { rows, nextPage, totalResults };
+    return { rows, nextPage, totalResults, collectorSearchId };
   } catch (err: any) {
     if (err?.code === "ERR_CANCELED") throw err;
     const status = err?.response?.status;
@@ -335,6 +408,7 @@ export async function rerankSearchResults(
           snippet: it?.snippet ?? "",
           intelligence: it?.intelligence,
           ranking: it?.ranking,
+          purposeRelevance: it?.purposeRelevance,
         }))
       : [];
   } catch (err: any) {
@@ -368,6 +442,7 @@ export type BackendUrlRow = {
     sha256?: string | null;
   } | null;
   discoverySummary?: PdfDiscoverySummary | null;
+  collectorPurposes?: Array<{ id: string; title: string }>;
   contentHash?: string | null;
   taggerVersion?: string | null;
   tagsMeta?: any;
@@ -642,6 +717,7 @@ export type FetchSavedUrlsParams = {
   tags?: string[];
   domains?: string[];
   collectionId?: string;
+  collectorPurposeId?: string;
   visibility?: "all" | "public" | "private";
   favoritesOnly?: boolean;
   dateFrom?: string;
@@ -771,6 +847,27 @@ export async function saveUrls(
 ): Promise<SaveUrlsResponse> {
   const res = await api.post("/api/urls", { urls: rows });
   return res.data as SaveUrlsResponse;
+}
+
+export async function saveCollectorPurposeSelection(
+  purposeId: string,
+  urls: SaveUrlsRequestRow[],
+  searchId?: string | null,
+): Promise<{
+  rows: Array<{
+    urlId: number;
+    url: string;
+    newlySaved: boolean;
+    newlyLinked: boolean;
+    status: "saved_to_purpose" | "added_to_purpose" | "already_in_purpose";
+  }>;
+  summary: CollectorPurposeSummary;
+}> {
+  return apiRequest(
+    "POST",
+    `/api/collector-purposes/${purposeId}/save-selection`,
+    { body: { urls, searchId: searchId ?? undefined } },
+  );
 }
 
 export async function urlsExists(urls: string[]) {
@@ -2463,7 +2560,13 @@ export type GovernanceWorkspaceEvidenceResponse = {
     anchorDocumentIds: string[];
     anchorUrlIds: number[];
     limit: number;
+    collectorPurposeId?: string | null;
   };
+  evidenceScope?: {
+    purpose: { id: string; title: string };
+    allowedDocumentIds: string[];
+    summary: CollectorPurposeSummary;
+  } | null;
   workflow: {
     requestedMode: "auto" | "landscape" | "case_trace" | "question_review";
     resolvedMode: "landscape" | "case_trace" | "question_review";
@@ -2983,6 +3086,7 @@ export type GovernanceAnswerRun = {
   retrievalMetadata: any;
   latencyMs: number | null;
   error?: string | null;
+  collectorPurposeId?: string | null;
 };
 
 export type GovernanceAnswerSession = {
@@ -2998,6 +3102,7 @@ export type GovernanceAnswerSession = {
   resolvedWorkflowMode: string | null;
   selectedIssueId: string | null;
   selectedAgencyId: string | null;
+  collectorPurposeId?: string | null;
   metadata: any;
   runs: GovernanceAnswerRun[];
 };
@@ -3015,6 +3120,7 @@ export type GovernanceAnswerPayload = {
   limit?: number;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
   deepReview?: boolean;
 };
 
@@ -3043,6 +3149,7 @@ export async function queryGovernanceWorkspaceEvidence(payload: {
   sourceScope?: "all" | "files" | "urls" | "mixed";
   workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   limit?: number;
+  collectorPurposeId?: string | null;
 }) {
   try {
     const res = await api.post<GovernanceWorkspaceEvidenceResponse>(

@@ -797,6 +797,7 @@ type StoredFileScopeParams = {
   taggingStatus?: string;
   metadataState?: string;
   folderId?: string;
+  collectorPurposeId?: string;
 };
 
 function metadataMissingWhereClause() {
@@ -823,6 +824,7 @@ function buildStoredFileScopeWhere(params: StoredFileScopeParams) {
     taggingStatus,
     metadataState,
     folderId,
+    collectorPurposeId,
   } = params;
 
   const where: any = {
@@ -942,6 +944,18 @@ function buildStoredFileScopeWhere(params: StoredFileScopeParams) {
       sourcePublishedAt: { not: null },
       sourceAuthors: { isEmpty: false },
       tags: { isEmpty: false },
+    });
+  }
+
+  if (collectorPurposeId && collectorPurposeId.trim()) {
+    andClauses.push({
+      url: {
+        is: {
+          collectorPurposeLinks: {
+            some: { purposeId: collectorPurposeId.trim() },
+          },
+        },
+      },
     });
   }
 
@@ -1514,6 +1528,7 @@ r.post("/files/finalize", async (req, res, next) => {
       uploaderId = "self",
       description = "",
       folderId,
+      collectorPurposeId,
     } = req.body ?? {};
 
     if (!uploadSessionId || !fileName) {
@@ -1760,6 +1775,7 @@ r.get("/explorer", async (req, res, next) => {
       offset,
       limit,
       folderId,
+      collectorPurposeId,
     } = req.query as Record<string, string>;
 
     const normalizedSortKey = normalizeExplorerSortKey(sortKey);
@@ -1780,6 +1796,7 @@ r.get("/explorer", async (req, res, next) => {
         taggingStatus,
         metadataState,
         folderId,
+        collectorPurposeId,
       });
     } catch (e: any) {
       if (isFolderScopeUnavailableError(e)) {
@@ -1913,6 +1930,7 @@ r.get("/files", async (req, res, next) => {
       offset,
       limit,
       folderId,
+      collectorPurposeId,
     } = req.query as Record<string, string>;
 
     let where: any;
@@ -1930,6 +1948,7 @@ r.get("/files", async (req, res, next) => {
         taggingStatus,
         metadataState,
         folderId,
+        collectorPurposeId,
       });
     } catch (e: any) {
       if (isFolderScopeUnavailableError(e)) {

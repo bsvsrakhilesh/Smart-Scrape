@@ -6,6 +6,7 @@ import {
   getUrlReviewQueueSummary,
   getUrlById,
   createManyUrls,
+  enrichUrlCreateRows,
   urlsExist,
   deleteUrlById,
   deleteUrlsBulk,
@@ -203,6 +204,7 @@ export async function getUrlsHandler(
       page,
       pageSize,
       collectionId,
+      collectorPurposeId,
       favoritesOnly,
       visibility,
       dateFrom,
@@ -239,6 +241,10 @@ export async function getUrlsHandler(
           typeof collectionId === "string" && collectionId.trim()
             ? collectionId
             : undefined,
+        collectorPurposeId:
+          typeof collectorPurposeId === "string" && collectorPurposeId.trim()
+            ? collectorPurposeId
+            : undefined,
         favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
         visibility: parsedVisibility,
         dateFrom: typeof dateFrom === "string" ? dateFrom : undefined,
@@ -269,6 +275,10 @@ export async function getUrlsHandler(
       collectionId:
         typeof collectionId === "string" && collectionId.trim()
           ? collectionId
+          : undefined,
+      collectorPurposeId:
+        typeof collectorPurposeId === "string" && collectorPurposeId.trim()
+          ? collectorPurposeId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
       visibility: parsedVisibility,
@@ -305,6 +315,7 @@ export async function getUrlFacetsHandler(
       sortOrder = "desc",
       q,
       collectionId,
+      collectorPurposeId,
       favoritesOnly,
       visibility,
       dateFrom,
@@ -333,6 +344,10 @@ export async function getUrlFacetsHandler(
       collectionId:
         typeof collectionId === "string" && collectionId.trim()
           ? collectionId
+          : undefined,
+      collectorPurposeId:
+        typeof collectorPurposeId === "string" && collectorPurposeId.trim()
+          ? collectorPurposeId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
       visibility: parsedVisibility,
@@ -369,6 +384,7 @@ export async function getUrlReviewQueueSummaryHandler(
       sortOrder = "desc",
       q,
       collectionId,
+      collectorPurposeId,
       favoritesOnly,
       visibility,
       dateFrom,
@@ -397,6 +413,10 @@ export async function getUrlReviewQueueSummaryHandler(
       collectionId:
         typeof collectionId === "string" && collectionId.trim()
           ? collectionId
+          : undefined,
+      collectorPurposeId:
+        typeof collectorPurposeId === "string" && collectorPurposeId.trim()
+          ? collectorPurposeId
           : undefined,
       favoritesOnly: favoritesOnly === true || favoritesOnly === "true",
       visibility: parsedVisibility,
@@ -486,44 +506,8 @@ export async function createUrlsHandler(
       });
     }
 
-    // Best-effort metadata enrichment (fast + resilient).
-    // Only enrich rows that look "thin" (title==url or missing snippet).
-    const enriched = [];
-    for (const r of rows) {
-      const needs =
-        !r.snippet ||
-        !String(r.snippet).trim() ||
-        !r.title ||
-        r.title.trim() === r.url.trim();
-
-      if (!needs) {
-        enriched.push(r);
-        continue;
-      }
-
-      try {
-        const meta = await extractUrlMetadata(r.url);
-        enriched.push({
-          ...r,
-          title:
-            r.title?.trim() && r.title.trim() !== r.url.trim()
-              ? r.title
-              : meta.title,
-          snippet:
-            r.snippet && String(r.snippet).trim() ? r.snippet : meta.snippet,
-          authors: meta.authors,
-          publishedAt: meta.publishedAt,
-          tagsMeta: {
-            ...(r as any).tagsMeta,
-            publishedAtMeta: meta.publishedAtMeta,
-          },
-        } as any);
-      } catch {
-        enriched.push(r);
-      }
-    }
-
-    const result = await createManyUrls(enriched as any);
+    const enriched = await enrichUrlCreateRows(rows);
+    const result = await createManyUrls(enriched);
     return res.status(201).json(result);
   } catch (err) {
     next(err);

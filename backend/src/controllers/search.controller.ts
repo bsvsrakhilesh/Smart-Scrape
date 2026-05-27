@@ -10,6 +10,11 @@ import {
 import { rerankSearchResults } from "../services/searchReranker.service";
 import { env } from "../config/env";
 import { log } from "../utils/logger";
+import { ownerIdForRequest } from "../utils/requestOwner";
+import {
+  recordCollectorPurposeSearch,
+  scoreResultsForPurpose,
+} from "../services/collectorPurpose.service";
 
 type IncomingRerankRow = SearchResultRow & {
   intelligence?: SearchResultIntelligence;
@@ -69,6 +74,26 @@ export async function searchHandler(
       results: enrichedResults,
       opts,
     });
+    const purposeId = strOrUndef(req.query.collectorPurposeId);
+    const outputResults = purposeId
+      ? await scoreResultsForPurpose(
+          ownerIdForRequest(req),
+          purposeId,
+          rerankedResults,
+        )
+      : rerankedResults;
+
+    if (purposeId) {
+      const search = await recordCollectorPurposeSearch({
+        ownerId: ownerIdForRequest(req),
+        purposeId,
+        query: q,
+        laneKey: strOrUndef(req.query.laneKey),
+        parameters: opts,
+        resultCount: outputResults.length,
+      });
+      res.setHeader("x-collector-search-id", search.id);
+    }
 
     if (typeof nextPage === "number")
       res.setHeader("x-next-page", String(nextPage));
@@ -83,11 +108,11 @@ export async function searchHandler(
     }
 
     log.info("search.response.ok", {
-      items_count: rerankedResults.length,
+      items_count: outputResults.length,
       ms: Date.now() - startedAt,
     });
 
-    return res.json(rerankedResults);
+    return res.json(outputResults);
   } catch (err: any) {
     log.error("search.response.error", {
       ms: Date.now() - startedAt,
@@ -174,6 +199,14 @@ export async function searchRerankHandler(
       results: enrichedRows as any,
       opts,
     });
+    const purposeId = strOrUndef(req.body?.collectorPurposeId);
+    const outputResults = purposeId
+      ? await scoreResultsForPurpose(
+          ownerIdForRequest(req),
+          purposeId,
+          rerankedResults,
+        )
+      : rerankedResults;
 
     res.setHeader(
       "x-ai-reranked",
@@ -181,11 +214,11 @@ export async function searchRerankHandler(
     );
 
     log.info("search.rerank.response.ok", {
-      items_count: rerankedResults.length,
+      items_count: outputResults.length,
       ms: Date.now() - startedAt,
     });
 
-    return res.json(rerankedResults);
+    return res.json(outputResults);
   } catch (err: any) {
     log.error("search.rerank.response.error", {
       ms: Date.now() - startedAt,

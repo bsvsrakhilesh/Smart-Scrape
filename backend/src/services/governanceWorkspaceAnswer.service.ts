@@ -32,6 +32,8 @@ export type GovernanceAnswerInput = {
   deepReview?: boolean;
   requestId?: string | null;
   createdBy?: string | null;
+  collectorPurposeId?: string | null;
+  ownerId?: string | null;
   signal?: AbortSignal;
   onStreamEvent?: GovernanceAnswerStreamEmit;
 };
@@ -161,6 +163,7 @@ type GovernanceAnswerSessionRow = {
   resolvedWorkflowMode: string | null;
   selectedIssueId: string | null;
   selectedAgencyId: string | null;
+  collectorPurposeId: string | null;
   metadata: unknown;
 };
 
@@ -192,6 +195,7 @@ type GovernanceAnswerRunRow = {
   resolvedWorkflowMode: string | null;
   selectedIssueId: string | null;
   selectedAgencyId: string | null;
+  collectorPurposeId: string | null;
   candidateDocumentIds: unknown;
   finalEvidenceChunkIds: unknown;
   sourceRevisionIds: unknown;
@@ -362,6 +366,7 @@ async function insertSession(p: {
   requestedWorkflowMode: string;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
 }) {
   const id = randomUUID();
   const title = p.question ? p.question.slice(0, 120) : "Governance answer session";
@@ -370,11 +375,11 @@ async function insertSession(p: {
     INSERT INTO "GovernanceAnswerSession"
       ("id", "createdAt", "updatedAt", "createdBy", "requestId", "title", "question",
        "anchorDocumentIds", "anchorUrlIds", "sourceScope", "requestedWorkflowMode",
-       "selectedIssueId", "selectedAgencyId", "metadata")
+       "selectedIssueId", "selectedAgencyId", "collectorPurposeId", "metadata")
     VALUES
       (${id}, NOW(), NOW(), ${p.createdBy ?? null}, ${p.requestId ?? null}, ${title}, ${p.question},
        ${asJson(p.anchorDocumentIds)}, ${asJson(p.anchorUrlIds)}, ${p.sourceScope}, ${p.requestedWorkflowMode},
-       ${p.selectedIssueId ?? null}, ${p.selectedAgencyId ?? null}, ${asJson({ promptVersion: GOVERNANCE_ANSWER_PROMPT_VERSION })})
+       ${p.selectedIssueId ?? null}, ${p.selectedAgencyId ?? null}, ${p.collectorPurposeId ?? null}, ${asJson({ promptVersion: GOVERNANCE_ANSWER_PROMPT_VERSION })})
   `;
 
   return id;
@@ -391,6 +396,7 @@ async function ensureSession(p: {
   requestedWorkflowMode: string;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
 }) {
   if (p.sessionId) {
     const rows = await prisma.$queryRaw<GovernanceAnswerSessionRow[]>`
@@ -406,7 +412,8 @@ async function ensureSession(p: {
             "sourceScope" = ${p.sourceScope},
             "requestedWorkflowMode" = ${p.requestedWorkflowMode},
             "selectedIssueId" = ${p.selectedIssueId ?? null},
-            "selectedAgencyId" = ${p.selectedAgencyId ?? null}
+            "selectedAgencyId" = ${p.selectedAgencyId ?? null},
+            "collectorPurposeId" = ${p.collectorPurposeId ?? null}
         WHERE "id" = ${p.sessionId}
       `;
       return p.sessionId;
@@ -431,6 +438,7 @@ async function insertRun(p: {
   requestedWorkflowMode: string;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
 }) {
   const id = randomUUID();
   await prisma.$executeRaw`
@@ -438,12 +446,12 @@ async function insertRun(p: {
       ("id", "sessionId", "createdAt", "updatedAt", "createdBy", "requestId", "status", "question",
        "model", "assistModel", "previousRunId", "previousResponseId",
        "anchorDocumentIds", "anchorUrlIds", "sourceScope", "requestedWorkflowMode",
-       "selectedIssueId", "selectedAgencyId")
+       "selectedIssueId", "selectedAgencyId", "collectorPurposeId")
     VALUES
       (${id}, ${p.sessionId}, NOW(), NOW(), ${p.createdBy ?? null}, ${p.requestId ?? null}, 'STARTED', ${p.question},
        ${p.model}, ${p.assistModel}, ${p.previousRunId ?? null}, ${p.previousResponseId ?? null},
        ${asJson(p.anchorDocumentIds)}, ${asJson(p.anchorUrlIds)}, ${p.sourceScope}, ${p.requestedWorkflowMode},
-       ${p.selectedIssueId ?? null}, ${p.selectedAgencyId ?? null})
+       ${p.selectedIssueId ?? null}, ${p.selectedAgencyId ?? null}, ${p.collectorPurposeId ?? null})
   `;
   return id;
 }
@@ -550,6 +558,7 @@ function mapRun(row: GovernanceAnswerRunRow) {
     openaiResponseId: row.openaiResponseId,
     previousRunId: row.previousRunId,
     previousResponseId: row.previousResponseId,
+    collectorPurposeId: row.collectorPurposeId,
     candidateDocumentIds: safeStringArray(row.candidateDocumentIds),
     finalEvidenceChunkIds: safeStringArray(row.finalEvidenceChunkIds),
     retrievalMetadata: row.retrievalMetadata ?? null,
@@ -576,6 +585,7 @@ function mapSession(row: GovernanceAnswerSessionRow, runs: GovernanceAnswerRunRo
     resolvedWorkflowMode: row.resolvedWorkflowMode,
     selectedIssueId: row.selectedIssueId,
     selectedAgencyId: row.selectedAgencyId,
+    collectorPurposeId: row.collectorPurposeId,
     metadata: row.metadata ?? null,
     runs: runs.map(mapRun),
   };
@@ -589,6 +599,7 @@ export async function createGovernanceAnswerSession(p: {
   workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
+  collectorPurposeId?: string | null;
   requestId?: string | null;
   createdBy?: string | null;
 }) {
@@ -603,6 +614,7 @@ export async function createGovernanceAnswerSession(p: {
     requestedWorkflowMode: normalizeWorkflow(p.workflowMode),
     selectedIssueId: p.selectedIssueId ?? null,
     selectedAgencyId: p.selectedAgencyId ?? null,
+    collectorPurposeId: p.collectorPurposeId ?? null,
   });
   return getGovernanceAnswerSession(sessionId);
 }
@@ -1203,6 +1215,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
     requestedWorkflowMode,
     selectedIssueId: input.selectedIssueId ?? null,
     selectedAgencyId: input.selectedAgencyId ?? null,
+    collectorPurposeId: input.collectorPurposeId ?? null,
   });
 
   const previousResponseId =
@@ -1223,6 +1236,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
     requestedWorkflowMode,
     selectedIssueId: input.selectedIssueId ?? null,
     selectedAgencyId: input.selectedAgencyId ?? null,
+    collectorPurposeId: input.collectorPurposeId ?? null,
   });
 
   await input.onStreamEvent?.({ type: "run", runId, sessionId });
@@ -1244,7 +1258,20 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
       sourceScope,
       workflowMode: requestedWorkflowMode,
       limit: Math.max(10, Math.min(12, Number(input.limit ?? 12))),
+      collectorPurposeId: input.collectorPurposeId ?? null,
+      ownerId: input.ownerId ?? "local",
     });
+
+    if (
+      input.collectorPurposeId &&
+      !((evidenceResponse as any)?.evidenceScope?.allowedDocumentIds ?? []).length
+    ) {
+      const err: any = new Error(
+        "This purpose has no captured evidence yet. Capture a saved URL before asking questions.",
+      );
+      err.status = 409;
+      throw err;
+    }
 
     const candidateDocumentIds = uniq(
       ((evidenceResponse as any)?.candidates ?? []).flatMap((candidate: any) =>
@@ -1275,7 +1302,11 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
       signal: input.signal,
     });
 
-    retrievalMetadata = buildRetrievalMetadata(evidenceResponse, evidenceCards);
+    retrievalMetadata = {
+      ...buildRetrievalMetadata(evidenceResponse, evidenceCards),
+      collectorPurposeId: input.collectorPurposeId ?? null,
+      allowedDocumentIds: (evidenceResponse as any)?.evidenceScope?.allowedDocumentIds ?? null,
+    };
 
     if (!evidenceCards.length) {
       const fallback = unsupportedFallback(question);

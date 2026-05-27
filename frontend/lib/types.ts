@@ -39,6 +39,11 @@ export interface SearchResult {
     reason?: string;
   };
   ranking?: SearchResultRanking;
+  purposeRelevance?: {
+    score: number;
+    matchedTerms: string[];
+    reason: string;
+  };
 }
 
 export type Page =
@@ -224,6 +229,7 @@ export interface SavedUrl {
     verifiedCount: number;
     lastDiscoveredAt: string | null;
   } | null;
+  collectorPurposes?: Array<{ id: string; title: string }>;
 }
 
 export interface Collection {

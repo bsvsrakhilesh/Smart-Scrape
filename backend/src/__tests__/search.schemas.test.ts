@@ -50,3 +50,24 @@ test("rerankBodySchema accepts site-only reranks with structured filters", () =>
   assert.equal(parsed.q, undefined);
   assert.equal(parsed.results.length, 1);
 });
+
+test("querySchema accepts purpose-scoped collector searches and lane identity", () => {
+  const parsed = querySchema.parse({
+    q: "pollution enforcement",
+    collectorPurposeId: "purpose-1",
+    laneKey: "official-record",
+  });
+
+  assert.equal(parsed.collectorPurposeId, "purpose-1");
+  assert.equal(parsed.laneKey, "official-record");
+});
+
+test("rerankBodySchema accepts purpose-scoped reranking", () => {
+  const parsed = rerankBodySchema.parse({
+    q: "pollution enforcement",
+    collectorPurposeId: "purpose-1",
+    results: [{ title: "Order", url: "https://example.gov/order.pdf" }],
+  });
+
+  assert.equal(parsed.collectorPurposeId, "purpose-1");
+});

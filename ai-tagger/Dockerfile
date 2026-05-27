@@ -4,9 +4,12 @@
 FROM python:3.12-slim
 
 # ---- Runtime env (less noise, better logs) ----
+# ML dependency index pages and wheels can take longer through Docker proxies.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
+    PIP_RETRIES=10
 
 # ---- OS deps ----
 # build-essential: for packages that need compilation

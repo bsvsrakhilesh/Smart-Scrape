@@ -17,7 +17,10 @@ ENV PYTHONUNBUFFERED=1 \
 # OCRmyPDF stack: primary scanned-PDF OCR path
 # tesseract-ocr: image/fallback OCR backend
 # curl: for HEALTHCHECK
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ghostscript \
     ocrmypdf \
@@ -27,8 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     tesseract-ocr-hin \
-    curl \
- && rm -rf /var/lib/apt/lists/*
+    curl
 
 # ---- Create non-root user ----
 RUN useradd -u 10001 -m appuser
@@ -41,11 +43,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ---- Dependencies first (better layer caching) ----
 COPY requirements.txt /app/requirements.txt
-RUN pip install --upgrade pip setuptools wheel \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel \
  && pip install -r /app/requirements.txt
 
 # ---- spaCy model (required for noun_chunks + NER) ----
-RUN python -m spacy download en_core_web_sm
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m spacy download en_core_web_sm
 
 # ---- App code ----
 COPY . /app

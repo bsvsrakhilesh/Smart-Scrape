@@ -1830,7 +1830,10 @@ export async function getUrlTagJob(jobId: string, urlId: number) {
 }
 
 api.interceptors.request.use((cfg) => {
-  const rid = window.crypto?.randomUUID?.() ?? String(Date.now());
+  const rid =
+    typeof window !== "undefined" && window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : String(Date.now());
   cfg.headers = axios.AxiosHeaders.from({
     ...(cfg.headers || {}),
     "X-Request-ID": rid,
@@ -1846,7 +1849,14 @@ export async function listZipChildren(fileId: string, prefix = "") {
   return res.data as {
     prefix: string;
     folders: string[];
-    files: { name: string; size: number; modified?: string }[];
+    files: {
+      name: string;
+      size: number;
+      compressedSize?: number;
+      modified?: string | null;
+    }[];
+    truncated?: boolean;
+    indexedAt?: number;
   };
 }
 export function streamZipFile(fileId: string, p: string) {
@@ -1858,7 +1868,16 @@ export async function searchZip(fileId: string, q: string) {
   const res = await api.get(`/api/files/${fileId}/archive/search`, {
     params: { q },
   });
-  return res.data as { q: string; hits: string[] };
+  return res.data as {
+    results: Array<{
+      path: string;
+      size: number;
+      compressedSize: number;
+      isDirectory: boolean;
+    }>;
+    truncated?: boolean;
+    indexedAt?: number;
+  };
 }
 // ---------- Storage ----------
 export async function getStorageUsage() {
@@ -3230,6 +3249,19 @@ function parseSseBlock(block: string): { event: string; data: any } | null {
   }
 }
 
+function findSseBlockBoundary(buffer: string): { index: number; length: number } {
+  const lfOnly = buffer.indexOf("\n\n");
+  const crlf = buffer.indexOf("\r\n\r\n");
+
+  if (lfOnly < 0 && crlf < 0) return { index: -1, length: 0 };
+  if (lfOnly < 0) return { index: crlf, length: 4 };
+  if (crlf < 0) return { index: lfOnly, length: 2 };
+
+  return lfOnly < crlf
+    ? { index: lfOnly, length: 2 }
+    : { index: crlf, length: 4 };
+}
+
 export async function streamGovernanceWorkspaceAnswer(
   payload: GovernanceAnswerPayload,
   onEvent: (event: GovernanceAnswerStreamEvent) => void,
@@ -3266,13 +3298,13 @@ export async function streamGovernanceWorkspaceAnswer(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    let idx = buffer.indexOf("\n\n");
-    while (idx >= 0) {
-      const block = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 2);
+    let boundary = findSseBlockBoundary(buffer);
+    while (boundary.index >= 0) {
+      const block = buffer.slice(0, boundary.index).trim();
+      buffer = buffer.slice(boundary.index + boundary.length);
       const parsed = parseSseBlock(block);
       if (parsed) onEvent(parsed as GovernanceAnswerStreamEvent);
-      idx = buffer.indexOf("\n\n");
+      boundary = findSseBlockBoundary(buffer);
     }
   }
 

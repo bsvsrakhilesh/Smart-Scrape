@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import HamburgerButton from "./HamburgerButton";
 import { Bell, Settings, User, BookOpen } from "lucide-react";
 import { motion } from "framer-motion";
+import { useToast } from "../providers/Toast";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -51,12 +52,33 @@ const Header: React.FC<HeaderProps> = ({
   isSidebarOpen,
 }) => {
   const navigate = useNavigate();
+  const { notify } = useToast();
+
+  const notifyUtilityUnavailable = useCallback(
+    (feature: "notifications" | "settings" | "account") => {
+      const messages = {
+        notifications:
+          "Notifications are not connected yet. Job and capture status still appears inside each workspace.",
+        settings:
+          "Global settings are not available in this build. Use the controls inside each workspace.",
+        account:
+          "Account management is not available in this build. Local roles come from the backend auth context.",
+      };
+
+      notify({
+        text: messages[feature],
+        kind: "info",
+        duration: 4200,
+      });
+    },
+    [notify],
+  );
 
   return (
     <div className="app-header relative w-full">
       <div className="app-header__inner h-24 lg:h-[72px] flex items-center justify-between gap-2 max-w-screen-2xl mx-auto w-full transition-[height] duration-200">
         {/* Left: hamburger + brand */}
-        <div className="flex items-left gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           <HamburgerButton
             open={isSidebarOpen}
             onClick={onToggleSidebar}
@@ -88,7 +110,7 @@ const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right: actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {/* Magnetic "Open Notebook" button */}
           <MagneticButton
             onClick={() => navigate("/notebook")}
@@ -101,35 +123,43 @@ const Header: React.FC<HeaderProps> = ({
             <BookOpen className="h-4 w-4" />
           </MagneticButton>
 
-          <motion.button
-            whileHover={{ y: -1 }}
-            whileTap={{ y: 0 }}
-            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
-            title="Notifications"
-            aria-label="Notifications"
-          >
-            <Bell size={18} />
-          </motion.button>
+          <div className="hidden items-center gap-2 sm:flex">
+            <motion.button
+              type="button"
+              whileHover={{ y: -1 }}
+              whileTap={{ y: 0 }}
+              onClick={() => notifyUtilityUnavailable("notifications")}
+              className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
+              title="Notifications"
+              aria-label="Notifications"
+            >
+              <Bell size={18} />
+            </motion.button>
 
-          <motion.button
-            whileHover={{ y: -1 }}
-            whileTap={{ y: 0 }}
-            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
-            title="Settings"
-            aria-label="Settings"
-          >
-            <Settings size={18} />
-          </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ y: -1 }}
+              whileTap={{ y: 0 }}
+              onClick={() => notifyUtilityUnavailable("settings")}
+              className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Settings size={18} />
+            </motion.button>
 
-          <motion.button
-            whileHover={{ y: -1 }}
-            whileTap={{ y: 0 }}
-            className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
-            title="Account"
-            aria-label="Account"
-          >
-            <User size={18} />
-          </motion.button>
+            <motion.button
+              type="button"
+              whileHover={{ y: -1 }}
+              whileTap={{ y: 0 }}
+              onClick={() => notifyUtilityUnavailable("account")}
+              className="icon-button hover-lift rounded-xl border border-transparent bg-background/70 shadow-sm ring-offset-background ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/60 transition-all duration-200 hover:bg-foreground/5 hover:border-border/70"
+              title="Account"
+              aria-label="Account"
+            >
+              <User size={18} />
+            </motion.button>
+          </div>
         </div>
       </div>
     </div>

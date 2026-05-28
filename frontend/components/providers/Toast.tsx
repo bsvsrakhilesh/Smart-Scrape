@@ -215,7 +215,7 @@ const ToastView: React.FC<{
 
       {/* Text */}
       <div className="text-sm leading-snug min-w-0 flex-1">
-        <div className="truncate">{text}</div>
+        <div className="break-words">{text}</div>
       </div>
 
       {/* Action (optional) */}

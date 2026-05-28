@@ -287,8 +287,8 @@ function PageDirectory() {
             Every page has a job in the research flow.
           </h2>
           <p className="mt-5 text-base leading-relaxed text-[#6F6F6F]">
-            The landing page now explains where each part of Smart Scrape fits,
-            while the hero shows the archive moving from intake to synthesis.
+            Move from source intake to organized evidence, governance review,
+            and cited notebook synthesis without losing the trail.
           </p>
         </div>
 

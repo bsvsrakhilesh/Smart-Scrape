@@ -168,6 +168,8 @@ const UrlCollectorPage: React.FC = () => {
     region: "",
     outputGoal: "",
   });
+  const [purposeMenuOpen, setPurposeMenuOpen] = useState(false);
+  const purposeSelectRef = useRef<HTMLDivElement>(null);
   const activePurpose = purposes.find((purpose) => purpose.id === activePurposeId) ?? null;
 
   useEffect(() => {
@@ -183,6 +185,30 @@ const UrlCollectorPage: React.FC = () => {
       live = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!purposeMenuOpen) return undefined;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!purposeSelectRef.current?.contains(event.target as Node)) {
+        setPurposeMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPurposeMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [purposeMenuOpen]);
 
   const [scope, setScope] = useState<CollectorScope>({
     yearFrom: urlYearFrom,
@@ -1108,138 +1134,235 @@ const UrlCollectorPage: React.FC = () => {
         </div>
       </header>
 
-      <SmartCard as="section" className="uc-panel p-4 sm:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-[240px] flex-1">
-            <label className="uc-filter-label" htmlFor="collector-purpose">
+      <SmartCard as="section" className="uc-panel uc-purpose-panel p-4 sm:p-6">
+        <div className="uc-purpose-toolbar">
+          <div className="uc-filters-copy">
+            <label className="uc-filters-kicker" htmlFor="collector-purpose">
               Research purpose
             </label>
-            <select
-              id="collector-purpose"
-              className="input mt-2 w-full"
-              value={activePurposeId}
-              onChange={(event) => selectPurpose(event.target.value)}
-            >
-              <option value="">Select a purpose before searching</option>
-              {purposes.map((purpose) => (
-                <option key={purpose.id} value={purpose.id}>
-                  {purpose.title}
-                </option>
-              ))}
-            </select>
+            <h2 className="uc-filters-title">
+              {activePurpose ? activePurpose.title : "Select or create a purpose"}
+            </h2>
+            <p className="uc-filters-subtitle">
+              Keep searches, captures, and saved links tied to the same research thread.
+            </p>
           </div>
-          {activePurpose && (
-            <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full border border-gray-200 px-3 py-2">
-                {activePurpose.summary.savedUrlCount} saved URLs
-              </span>
-              <span className="rounded-full border border-gray-200 px-3 py-2">
-                {activePurpose.summary.capturedEvidenceCount} captures
-              </span>
+
+          <div
+            className={`uc-purpose-select-wrap ${purposeMenuOpen ? "is-open" : ""}`}
+            ref={purposeSelectRef}
+          >
+            <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px] uc-purpose-select-shell">
               <button
                 type="button"
-                className="btn-ghost px-3 py-2"
-                onClick={() => navigate(`/app/saved-urls?collectorPurposeId=${encodeURIComponent(activePurpose.id)}`)}
+                id="collector-purpose"
+                className="md3-input input-pill uc-purpose-select w-full"
+                aria-haspopup="listbox"
+                aria-expanded={purposeMenuOpen}
+                onClick={() => setPurposeMenuOpen((open) => !open)}
               >
-                Open Saved URLs
+                {activePurpose ? activePurpose.title : "Select a purpose before searching"}
               </button>
             </div>
-          )}
+
+            <div
+              className={`uc-purpose-menu ${purposeMenuOpen ? "is-open" : ""}`}
+              role="listbox"
+              aria-labelledby="collector-purpose"
+            >
+              <button
+                type="button"
+                className={`uc-purpose-menu-option ${!activePurposeId ? "is-selected" : ""}`}
+                role="option"
+                aria-selected={!activePurposeId}
+                onClick={() => {
+                  selectPurpose("");
+                  setPurposeMenuOpen(false);
+                }}
+              >
+                Select a purpose before searching
+              </button>
+
+              {purposes.length > 0 && <div className="uc-purpose-menu-divider" />}
+
+              {purposes.map((purpose) => (
+                <button
+                  key={purpose.id}
+                  type="button"
+                  className={`uc-purpose-menu-option ${
+                    activePurposeId === purpose.id ? "is-selected" : ""
+                  }`}
+                  role="option"
+                  aria-selected={activePurposeId === purpose.id}
+                  onClick={() => {
+                    selectPurpose(purpose.id);
+                    setPurposeMenuOpen(false);
+                  }}
+                >
+                  {purpose.title}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {!activePurpose && (
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <input
-              className="input w-full"
-              placeholder="Purpose title"
-              value={purposeDraft.title}
-              onChange={(event) =>
-                setPurposeDraft((current) => ({ ...current, title: event.target.value }))
-              }
-            />
-            <input
-              className="input w-full"
-              placeholder="Jurisdiction or area"
-              value={purposeDraft.jurisdiction}
-              onChange={(event) =>
-                setPurposeDraft((current) => ({
-                  ...current,
-                  jurisdiction: event.target.value,
-                }))
-              }
-            />
-            <textarea
-              className="input min-h-[88px] w-full md:col-span-2"
-              placeholder="What question are you collecting evidence to answer?"
-              value={purposeDraft.researchQuestion}
-              onChange={(event) =>
-                setPurposeDraft((current) => ({
-                  ...current,
-                  researchQuestion: event.target.value,
-                }))
-              }
-            />
-            <input
-              className="input w-full md:col-span-2"
-              placeholder="Desired output, decision, or governance review"
-              value={purposeDraft.outputGoal}
-              onChange={(event) =>
-                setPurposeDraft((current) => ({
-                  ...current,
-                  outputGoal: event.target.value,
-                }))
-              }
-            />
-            <button
-              type="button"
-              onClick={() => void createPurpose()}
-              disabled={purposeBusy}
-              className="btn-primary w-fit px-4 py-2"
-            >
-              {purposeBusy ? "Creating..." : "Create purpose"}
-            </button>
+          <div className="uc-purpose-create">
+            <div className="uc-purpose-create-grid">
+              <div className="uc-filter-item uc-purpose-field--title">
+                <label className="uc-filter-label" htmlFor="collector-purpose-title">
+                  Purpose title
+                </label>
+                <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
+                  <input
+                    id="collector-purpose-title"
+                    className="md3-input input-pill uc-purpose-input w-full"
+                    placeholder="e.g. Delhi water governance"
+                    value={purposeDraft.title}
+                    onChange={(event) =>
+                      setPurposeDraft((current) => ({ ...current, title: event.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="uc-filter-item uc-purpose-field--area">
+                <label className="uc-filter-label" htmlFor="collector-purpose-jurisdiction">
+                  Jurisdiction or area
+                </label>
+                <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
+                  <input
+                    id="collector-purpose-jurisdiction"
+                    className="md3-input input-pill uc-purpose-input w-full"
+                    placeholder="India, EU, California..."
+                    value={purposeDraft.jurisdiction}
+                    onChange={(event) =>
+                      setPurposeDraft((current) => ({
+                        ...current,
+                        jurisdiction: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="uc-filter-item uc-purpose-field--question">
+                <label className="uc-filter-label" htmlFor="collector-purpose-question">
+                  Research question
+                </label>
+                <div className="input-gradient-shell bg-landing-gradient uc-purpose-textarea-shell p-[1.5px]">
+                  <textarea
+                    id="collector-purpose-question"
+                    className="md3-input uc-purpose-textarea w-full"
+                    placeholder="What decision, risk, or claim needs evidence?"
+                    value={purposeDraft.researchQuestion}
+                    onChange={(event) =>
+                      setPurposeDraft((current) => ({
+                        ...current,
+                        researchQuestion: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="uc-filter-item uc-purpose-field--output">
+                <label className="uc-filter-label" htmlFor="collector-purpose-output">
+                  Desired output
+                </label>
+                <div className="input-gradient-shell bg-landing-gradient rounded-full p-[1.5px]">
+                  <input
+                    id="collector-purpose-output"
+                    className="md3-input input-pill uc-purpose-input w-full"
+                    placeholder="Brief, memo, review..."
+                    value={purposeDraft.outputGoal}
+                    onChange={(event) =>
+                      setPurposeDraft((current) => ({
+                        ...current,
+                        outputGoal: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="uc-purpose-create-actions">
+              <button
+                type="button"
+                onClick={() => void createPurpose()}
+                disabled={purposeBusy}
+                className="btn-primary min-h-[40px] px-4 py-2"
+              >
+                {purposeBusy ? "Creating..." : "Create purpose"}
+              </button>
+            </div>
           </div>
         )}
 
         {activePurpose && (
-          <div className="mt-5 border-t border-gray-100 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="font-medium text-gray-900">{activePurpose.researchQuestion}</div>
-                {(activePurpose.jurisdiction || activePurpose.outputGoal) && (
-                  <div className="mt-1 text-sm text-gray-600">
-                    {[activePurpose.jurisdiction, activePurpose.outputGoal].filter(Boolean).join(" | ")}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                className="btn-ghost px-4 py-2"
-                disabled={purposeBusy}
-                onClick={() => void generatePurposeLanes()}
-              >
-                {purposeBusy ? "Generating..." : "Generate search lanes"}
-              </button>
+          <div className="uc-purpose-summary">
+            <div className="uc-purpose-summary-main">
+              <p className="uc-purpose-question">{activePurpose.researchQuestion}</p>
+              {(activePurpose.jurisdiction || activePurpose.outputGoal) && (
+                <div className="uc-purpose-meta-row">
+                  {[activePurpose.jurisdiction, activePurpose.outputGoal]
+                    .filter(Boolean)
+                    .map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                </div>
+              )}
             </div>
-            {purposeLanes.length > 0 && (
-              <div className="mt-4 grid gap-2 lg:grid-cols-3">
-                {purposeLanes.map((lane) => (
-                  <button
-                    key={lane.key}
-                    type="button"
-                    onClick={() => applyPurposeLane(lane)}
-                    className={`rounded-lg border p-3 text-left transition ${
-                      activeLaneKey === lane.key
-                        ? "border-gray-900 bg-gray-50"
-                        : "border-gray-200 bg-white hover:border-gray-400"
-                    }`}
-                  >
-                    <div className="text-sm font-semibold text-gray-900">{lane.label}</div>
-                    <div className="mt-1 text-xs leading-5 text-gray-600">{lane.rationale}</div>
-                  </button>
-                ))}
+
+            <div className="uc-purpose-summary-side">
+              <div className="uc-purpose-stats" aria-label="Purpose summary">
+                <span className="uc-purpose-stat">
+                  <strong>{activePurpose.summary.savedUrlCount}</strong> saved URLs
+                </span>
+                <span className="uc-purpose-stat">
+                  <strong>{activePurpose.summary.capturedEvidenceCount}</strong> captures
+                </span>
               </div>
-            )}
+
+              <div className="uc-purpose-actions">
+                <button
+                  type="button"
+                  className="uc-filters-reset is-active"
+                  onClick={() =>
+                    navigate(
+                      `/app/saved-urls?collectorPurposeId=${encodeURIComponent(activePurpose.id)}`,
+                    )
+                  }
+                >
+                  Open Saved URLs
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary min-h-[40px] px-4 py-2"
+                  disabled={purposeBusy}
+                  onClick={() => void generatePurposeLanes()}
+                >
+                  {purposeBusy ? "Generating..." : "Generate search lanes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activePurpose && purposeLanes.length > 0 && (
+          <div className="uc-purpose-lanes">
+            {purposeLanes.map((lane) => (
+              <button
+                key={lane.key}
+                type="button"
+                onClick={() => applyPurposeLane(lane)}
+                className={`uc-purpose-lane ${activeLaneKey === lane.key ? "is-active" : ""}`}
+              >
+                <span className="uc-purpose-lane-title">{lane.label}</span>
+                <span className="uc-purpose-lane-copy">{lane.rationale}</span>
+              </button>
+            ))}
           </div>
         )}
       </SmartCard>

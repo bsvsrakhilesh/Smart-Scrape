@@ -69,11 +69,7 @@ services:
         condition: service_healthy
 
   backend-worker:
-    image: smartscrape-backend-worker:dev
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: base
+    image: smartscrape-backend:dev
     container_name: smartscrape_backend_worker
     init: true
     working_dir: /app
@@ -156,9 +152,6 @@ services:
 
   ai-tagger-worker:
     image: smartscrape-ai-tagger:dev
-    build:
-      context: ./ai-tagger
-      dockerfile: Dockerfile
     container_name: smartscrape_ai_tagger_worker
     init: true
     environment:

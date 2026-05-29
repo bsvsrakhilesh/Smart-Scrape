@@ -42,7 +42,13 @@ import {
 } from "../lib/api";
 import NotebookTemplateModal from "../components/governance/NotebookTemplateModal";
 import { notebookClient } from "../lib/notebookClient";
-import type { NotebookTemplateKey } from "../lib/notebookClient";
+import type {
+  Citation,
+  ClaimCitationLink,
+  EvidenceBlock,
+  NotebookTemplateKey,
+  SourceKind,
+} from "../lib/notebookClient";
 import { openNotebookWithTarget } from "../lib/notebookLaunch";
 import {
   consumeGovernanceWorkspaceIntent,
@@ -723,6 +729,53 @@ function buildGovernanceAnswerNoteContent(run: GovernanceAnswerRun) {
   ]
     .filter((part) => part !== "")
     .join("\n");
+}
+
+function normalizeGovernanceCitationKind(
+  value: GovernanceAnswerCitation["sourceKind"],
+): SourceKind | null {
+  return value === "URL" || value === "FILE" ? value : null;
+}
+
+function toNotebookCitation(citation: GovernanceAnswerCitation): Citation {
+  return {
+    chunkId: citation.chunkId ?? citation.evidenceId,
+    quote: citation.quote,
+    pageStart: citation.pageStart,
+    pageEnd: citation.pageEnd,
+    charStart: citation.charStart,
+    charEnd: citation.charEnd,
+    sourceId: citation.sourceId,
+    sourceKind: normalizeGovernanceCitationKind(citation.sourceKind),
+    sourceLabel: citation.sourceLabel,
+    sourceUrl: citation.sourceUrl,
+    fileName: citation.fileName,
+    sourceRevisionId: citation.sourceRevisionId,
+    documentRevisionId: citation.documentRevisionId,
+    pipelineConfigId: citation.pipelineConfigId,
+  };
+}
+
+function toNotebookEvidenceBlock(
+  evidence: NonNullable<GovernanceAnswerRun["evidence"]>[number],
+): EvidenceBlock {
+  return {
+    claim: [evidence.title, evidence.summary].filter(Boolean).join(": "),
+    citations: (evidence.citations ?? []).map(toNotebookCitation),
+  };
+}
+
+function toNotebookClaimLink(
+  link: NonNullable<GovernanceAnswerRun["claimCitations"]>[number],
+): ClaimCitationLink {
+  const citations = (link.citations ?? []).map(toNotebookCitation);
+  return {
+    claim: link.claim,
+    status: citations.length ? "linked" : "review_needed",
+    source: "evidence",
+    supportScore: citations.length ? 1 : 0,
+    citations,
+  };
 }
 
 function GovernanceAnswerPanel({
@@ -1580,9 +1633,9 @@ export default function GovernanceWorkspacePage() {
               kind: "chat-answer",
               createdAt: new Date().toISOString(),
               answer: answerRun.answer,
-              citations: answerRun.citations ?? [],
-              evidence: answerRun.evidence ?? [],
-              claimLinks: answerRun.claimCitations ?? [],
+              citations: (answerRun.citations ?? []).map(toNotebookCitation),
+              evidence: (answerRun.evidence ?? []).map(toNotebookEvidenceBlock),
+              claimLinks: (answerRun.claimCitations ?? []).map(toNotebookClaimLink),
             },
           ],
         },

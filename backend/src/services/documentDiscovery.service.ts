@@ -585,6 +585,14 @@ async function verifyPdfCandidate(
   }
 }
 
+function isSecurityPolicyError(error: any) {
+  return (
+    error?.code === "SSRF_DENIED" ||
+    error?.status === 422 ||
+    /SSRF denied/i.test(String(error?.message || ""))
+  );
+}
+
 function resolveChromiumExecutablePath(): string {
   const candidates = [
     process.env.CHROMIUM_EXECUTABLE_PATH,
@@ -714,7 +722,8 @@ async function prepareCandidate(
     verified = probe.verified;
     contentType = probe.contentType;
     contentLength = probe.contentLength;
-  } catch {
+  } catch (error: any) {
+    if (isSecurityPolicyError(error)) throw error;
     if (!looksLikePdfUrl(c.url)) return null;
   }
 

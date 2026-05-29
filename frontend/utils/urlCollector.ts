@@ -1,4 +1,5 @@
 import type { SearchResult } from "../lib/types";
+import { canonicalizeUrl } from "./urlCanonical";
 
 export type CaptureMode = "text" | "pdf";
 export type CollectorSearchWebOptions = {
@@ -93,6 +94,50 @@ export function normalizeCollectorKeywords(raw: string): string {
 
 export function buildCollectorSearchQuery(kws: string): string {
   return (kws || "").trim();
+}
+
+export function collectorResultDedupKey(url: string): string {
+  const canonical = canonicalizeUrl(url);
+  return canonical || String(url || "").trim();
+}
+
+export function mergeCollectorSearchResults(
+  existing: SearchResult[],
+  incoming: SearchResult[],
+  options: { limit?: number } = {},
+): { rows: SearchResult[]; added: number; skipped: number } {
+  const limit =
+    typeof options.limit === "number" && Number.isFinite(options.limit)
+      ? Math.max(0, options.limit)
+      : undefined;
+  const seen = new Set<string>();
+  const rows: SearchResult[] = [];
+  let added = 0;
+  let skipped = 0;
+
+  const push = (row: SearchResult, countIncoming: boolean) => {
+    const key = collectorResultDedupKey(row.url);
+    if (!key || seen.has(key)) {
+      if (countIncoming) skipped += 1;
+      return;
+    }
+
+    seen.add(key);
+    rows.push(row);
+    if (countIncoming) added += 1;
+  };
+
+  for (const row of existing) {
+    if (limit !== undefined && rows.length >= limit) break;
+    push(row, false);
+  }
+
+  for (const row of incoming) {
+    if (limit !== undefined && rows.length >= limit) break;
+    push(row, true);
+  }
+
+  return { rows, added, skipped };
 }
 
 export function formatAppliedCollectorSearchPlan(

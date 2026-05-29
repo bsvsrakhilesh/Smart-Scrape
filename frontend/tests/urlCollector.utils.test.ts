@@ -6,6 +6,7 @@ import {
   formatAppliedCollectorSearchPlan,
   inferPreferredCollectorCapture,
   isDirectPdfSearchResult,
+  mergeCollectorSearchResults,
   normalizeCollectorKeywords,
   normalizeCollectorWebsite,
   suggestCollectorCaptureName,
@@ -65,6 +66,50 @@ test("formatAppliedCollectorSearchPlan shows PDF exclusion as exclusion, not htm
 
   assert.equal(out, "air quality | format=exclude-pdf");
   assert.equal(out.includes("format=html"), false);
+});
+
+test("mergeCollectorSearchResults deduplicates paged collector results by canonical URL", () => {
+  const firstPage: SearchResult[] = [
+    {
+      title: "Original report",
+      url: "https://example.gov/orders/report.pdf?download=1&utm_source=search#page=1",
+      snippet: "First result wins.",
+    },
+  ];
+  const secondPage: SearchResult[] = [
+    {
+      title: "Duplicate report",
+      url: "https://EXAMPLE.gov:443/orders//report.pdf/?download=1&fbclid=abc",
+      snippet: "Should be hidden as a duplicate.",
+    },
+    {
+      title: "Different year",
+      url: "https://example.gov/orders/report.pdf?download=1&year=2024",
+    },
+  ];
+
+  const out = mergeCollectorSearchResults(firstPage, secondPage);
+
+  assert.equal(out.added, 1);
+  assert.equal(out.skipped, 1);
+  assert.deepEqual(
+    out.rows.map((row) => row.title),
+    ["Original report", "Different year"],
+  );
+});
+
+test("mergeCollectorSearchResults preserves case-sensitive source URL differences", () => {
+  const out = mergeCollectorSearchResults(
+    [{ title: "Upper path", url: "https://example.gov/Report" }],
+    [{ title: "Lower path", url: "https://example.gov/report" }],
+  );
+
+  assert.equal(out.added, 1);
+  assert.equal(out.skipped, 0);
+  assert.deepEqual(
+    out.rows.map((row) => row.title),
+    ["Upper path", "Lower path"],
+  );
 });
 
 test("inferPreferredCollectorCapture prefers PDF for official document types and PDF urls", () => {

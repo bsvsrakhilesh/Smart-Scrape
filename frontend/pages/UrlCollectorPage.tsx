@@ -21,6 +21,7 @@ import { useCollectorJobs } from "../hooks/useCollectorJobs";
 import {
   buildCollectorSearchQuery,
   formatAppliedCollectorSearchPlan,
+  mergeCollectorSearchResults,
   normalizeCollectorKeywords,
 } from "../utils/urlCollector";
 
@@ -577,11 +578,16 @@ const UrlCollectorPage: React.FC = () => {
           message: `Loaded first ${p1.rows.length} result${p1.rows.length === 1 ? "" : "s"}`,
           progressPct: 22,
         });
-        setSearchResults(p1.rows);
+        const initialMerge = mergeCollectorSearchResults([], p1.rows, {
+          limit: INITIAL_RESULTS_TARGET,
+        });
+        let merged = initialMerge.rows;
+
+        setSearchResults(merged);
         setSelectedUrls(new Set());
         setNextPage(p1.nextPage);
         setTotalResults(p1.totalResults);
-        setPrefetchCount(p1.rows.length);
+        setPrefetchCount(merged.length);
 
         // Scroll the results into view once we have something to show
         requestAnimationFrame(() => {
@@ -603,8 +609,6 @@ const UrlCollectorPage: React.FC = () => {
         }
 
         // Auto-prefetch up to 50 results (5 pages x 10 results)
-        const seen = new Set(p1.rows.map((r) => r.url));
-        let merged = [...p1.rows];
         let np = p1.nextPage;
         const maxPages = Math.ceil(INITIAL_RESULTS_TARGET / RESULTS_PER_PAGE);
         let pagesFetched = 1;
@@ -649,13 +653,9 @@ const UrlCollectorPage: React.FC = () => {
 
           pagesFetched += 1;
 
-          for (const r of pn.rows) {
-            if (r.url && !seen.has(r.url)) {
-              seen.add(r.url);
-              merged.push(r);
-              if (merged.length >= INITIAL_RESULTS_TARGET) break;
-            }
-          }
+          merged = mergeCollectorSearchResults(merged, pn.rows, {
+            limit: INITIAL_RESULTS_TARGET,
+          }).rows;
 
           setSearchResults([...merged]);
           setPrefetchCount(merged.length);
@@ -847,15 +847,7 @@ const UrlCollectorPage: React.FC = () => {
         progressPct: 52,
       });
 
-      const seen = new Set(searchResults.map((r) => r.url));
-      const merged = [...searchResults];
-
-      for (const r of newRows) {
-        if (r.url && !seen.has(r.url)) {
-          seen.add(r.url);
-          merged.push(r);
-        }
-      }
+      const merged = mergeCollectorSearchResults(searchResults, newRows).rows;
 
       setSearchResults(merged);
 

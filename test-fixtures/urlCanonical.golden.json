@@ -1,0 +1,69 @@
+{
+  "canonicalize": [
+    {
+      "name": "adds https to a bare evidence URL",
+      "input": "example.com/reports",
+      "expected": "https://example.com/reports"
+    },
+    {
+      "name": "normalizes duplicate slashes and strips source noise",
+      "input": " HTTPS://Example.COM:443/reports//air-quality///?utm_source=newsletter&b=2&a=1#section ",
+      "expected": "https://example.com/reports/air-quality?a=1&b=2"
+    },
+    {
+      "name": "preserves www on full evidence URLs",
+      "input": "HTTPS://WWW.Example.COM./reports",
+      "expected": "https://www.example.com/reports"
+    },
+    {
+      "name": "preserves http on full evidence URLs",
+      "input": "http://Example.COM:80/report?b=2&a=1",
+      "expected": "http://example.com/report?a=1&b=2"
+    },
+    {
+      "name": "removes extended tracking parameters",
+      "input": "https://example.com/report?msclkid=1&igshid=2&mkt_tok=3&mc_eid=4&keep=yes",
+      "expected": "https://example.com/report?keep=yes"
+    },
+    {
+      "name": "keeps meaningful query state",
+      "input": "https://example.com/report?utm_campaign=noise&page=2&year=2024",
+      "expected": "https://example.com/report?page=2&year=2024"
+    },
+    {
+      "name": "preserves case-sensitive path text",
+      "input": "https://example.com/Reports/Air-Quality",
+      "expected": "https://example.com/Reports/Air-Quality"
+    },
+    {
+      "name": "sorts query keys while preserving repeated value order",
+      "input": "https://example.com/search?z=9&tag=air&b=2&tag=policy&a=1",
+      "expected": "https://example.com/search?a=1&b=2&tag=air&tag=policy&z=9"
+    },
+    {
+      "name": "normalizes protocol-relative evidence URLs",
+      "input": "//example.com/report",
+      "expected": "https://example.com/report"
+    },
+    {
+      "name": "rejects malformed text input",
+      "input": "not a url ???",
+      "expected": ""
+    },
+    {
+      "name": "rejects unsupported mailto URLs",
+      "input": "mailto:test@example.com",
+      "expected": ""
+    },
+    {
+      "name": "rejects unsupported ftp URLs",
+      "input": "ftp://example.com/file",
+      "expected": ""
+    },
+    {
+      "name": "rejects unsupported javascript URLs",
+      "input": "javascript:alert(1)",
+      "expected": ""
+    }
+  ]
+}

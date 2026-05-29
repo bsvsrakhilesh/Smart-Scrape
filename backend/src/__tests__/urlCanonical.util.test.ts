@@ -1,10 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 
 import {
   canonicalizeUrl,
   normalizedDomainFromUrl,
 } from "../utils/urlCanonical";
+
+type CanonicalCase = {
+  name: string;
+  input: string;
+  expected: string;
+};
+
+function loadGoldenCases(): CanonicalCase[] {
+  const candidates = [
+    path.resolve(process.cwd(), "test-fixtures", "urlCanonical.golden.json"),
+    path.resolve(process.cwd(), "..", "test-fixtures", "urlCanonical.golden.json"),
+  ];
+  const file = candidates.find((candidate) => fs.existsSync(candidate));
+  assert.ok(file, "Shared canonicalization fixture must exist");
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
+    canonicalize?: CanonicalCase[];
+  };
+  return parsed.canonicalize ?? [];
+}
+
+test("canonicalizeUrl matches shared golden cases", () => {
+  for (const c of loadGoldenCases()) {
+    assert.equal(canonicalizeUrl(c.input), c.expected, c.name);
+  }
+});
 
 test("canonicalizeUrl normalizes host, path, params, and fragment", () => {
   const out = canonicalizeUrl(
@@ -38,6 +65,20 @@ test("canonicalizeUrl collapses duplicate collector URLs to a stable evidence ke
   );
 });
 
+test("canonicalizeUrl provides a single saved URL dedup key for noisy collector duplicates", () => {
+  const collectorResults = [
+    "https://example.gov/orders/2024/report.pdf?utm_source=google&download=1#page=4",
+    "https://EXAMPLE.gov:443/orders//2024/report.pdf/?download=1",
+    "example.gov/orders/2024/report.pdf?download=1&fbclid=abc",
+  ];
+
+  const keys = new Set(collectorResults.map((url) => canonicalizeUrl(url)));
+
+  assert.deepEqual([...keys], [
+    "https://example.gov/orders/2024/report.pdf?download=1",
+  ]);
+});
+
 test("canonicalizeUrl keeps meaningful collector URL state distinct", () => {
   assert.equal(
     canonicalizeUrl(
@@ -55,6 +96,30 @@ test("canonicalizeUrl keeps meaningful collector URL state distinct", () => {
     canonicalizeUrl("https://example.com/report?page=2&year=2024"),
     canonicalizeUrl("http://example.com/report?page=2&year=2024"),
   );
+});
+
+test("canonicalizeUrl preserves case-sensitive path distinctions", () => {
+  assert.notEqual(
+    canonicalizeUrl("https://example.com/Report"),
+    canonicalizeUrl("https://example.com/report"),
+  );
+});
+
+test("canonicalizeUrl preserves repeated query parameter value order", () => {
+  assert.notEqual(
+    canonicalizeUrl("https://example.com/search?tag=air&tag=policy"),
+    canonicalizeUrl("https://example.com/search?tag=policy&tag=air"),
+  );
+});
+
+test("canonicalizeUrl rejects malformed and unsupported source URL inputs", () => {
+  assert.equal(canonicalizeUrl(""), "");
+  assert.equal(canonicalizeUrl("   "), "");
+  assert.equal(canonicalizeUrl("not a url ???"), "");
+  assert.equal(canonicalizeUrl("mailto:test@example.com"), "");
+  assert.equal(canonicalizeUrl("ftp://example.com/file"), "");
+  assert.equal(canonicalizeUrl("javascript:alert(1)"), "");
+  assert.equal(canonicalizeUrl("//example.com/report"), "https://example.com/report");
 });
 
 test("normalizedDomainFromUrl removes collector URL host decoration", () => {

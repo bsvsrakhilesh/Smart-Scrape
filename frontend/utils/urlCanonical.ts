@@ -13,13 +13,21 @@ export function canonicalizeUrl(input: string): string {
   let s = String(input || "").trim();
   if (!s) return "";
 
-  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+  if (/^\/\//.test(s)) {
+    s = "https:" + s;
+  } else if (!/^https?:\/\//i.test(s)) {
+    const schemeLike = s.match(/^[a-zA-Z][a-zA-Z0-9+\-.]*:/);
+    if (schemeLike && !/^\d+(?:[/?#]|$)/.test(s.slice(schemeLike[0].length))) {
+      return "";
+    }
+    s = "https://" + s;
+  }
 
   let u: URL;
   try {
     u = new URL(s);
   } catch {
-    return s;
+    return "";
   }
 
   u.hostname = u.hostname.toLowerCase().replace(/\.+$/, "");

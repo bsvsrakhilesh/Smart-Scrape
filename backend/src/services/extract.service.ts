@@ -139,6 +139,14 @@ function tryParseDate(s: string | null | undefined): Date | null {
   const t = String(s).trim();
   if (!t) return null;
 
+  const isoDay = t.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s]|$)/);
+  if (
+    isoDay &&
+    !dateFromUtcParts(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]))
+  ) {
+    return null;
+  }
+
   // handle ISO / RFC / common formats
   const d = new Date(t);
   if (!Number.isNaN(d.getTime())) return d;
@@ -213,7 +221,7 @@ function pickAuthorsFromLd(ld: any[]): string[] {
 }
 
 function pickPublishedFromLd(ld: any[]): Date | null {
-  const candidates: Array<string | null | undefined> = [];
+  const byPriority: Array<Array<string | null | undefined>> = [[], [], []];
 
   for (const obj of ld) {
     if (!obj || typeof obj !== "object") continue;
@@ -223,15 +231,17 @@ function pickPublishedFromLd(ld: any[]): Date | null {
 
     for (const t of targets) {
       if (!t || typeof t !== "object") continue;
-      candidates.push((t as any).datePublished);
-      candidates.push((t as any).dateCreated);
-      candidates.push((t as any).dateModified);
+      byPriority[0].push((t as any).datePublished);
+      byPriority[1].push((t as any).dateCreated);
+      byPriority[2].push((t as any).dateModified);
     }
   }
 
-  for (const c of candidates) {
-    const d = tryParseDate(c);
-    if (d) return d;
+  for (const candidates of byPriority) {
+    for (const c of candidates) {
+      const d = tryParseDate(c);
+      if (d) return d;
+    }
   }
   return null;
 }
@@ -282,9 +292,33 @@ function extractPublishedAtFromUrl(url: string): Date | null {
   const d = Number(m[3]);
   if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d))
     return null;
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  if (Number.isNaN(dt.getTime())) return null;
+  return dateFromUtcParts(y, mo, d);
+}
+
+function dateFromUtcParts(year: number, month: number, day: number) {
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (
+    Number.isNaN(dt.getTime()) ||
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return null;
+  }
   return dt;
+}
+
+function publishedAtFallbackFromUrl(url: string): {
+  publishedAt: Date | null;
+  publishedAtMeta: PublishedAtMeta;
+} {
+  const publishedAt = extractPublishedAtFromUrl(url);
+  return {
+    publishedAt,
+    publishedAtMeta: publishedAt
+      ? { source: "url_pattern", confidence: 0.35 }
+      : { source: "unknown", confidence: 0.0 },
+  };
 }
 
 function tryParseDateLoose(s: string | null | undefined): Date | null {
@@ -298,8 +332,8 @@ function tryParseDateLoose(s: string | null | undefined): Date | null {
     const y = Number(m[1]);
     const mo = Number(m[2]);
     const d = Number(m[3]);
-    const dt = new Date(Date.UTC(y, mo - 1, d));
-    if (!Number.isNaN(dt.getTime())) return dt;
+    const dt = dateFromUtcParts(y, mo, d);
+    if (dt) return dt;
   }
 
   return tryParseDate(t);
@@ -326,8 +360,8 @@ function guessPdfPublishedAtFromText(text: string): Date | null {
     const mm = Number(m2[2]);
     let yy = Number(m2[3]);
     if (yy < 100) yy += 2000;
-    const dt = new Date(Date.UTC(yy, mm - 1, dd));
-    if (!Number.isNaN(dt.getTime())) return dt;
+    const dt = dateFromUtcParts(yy, mm, dd);
+    if (dt) return dt;
   }
 
   return null;
@@ -353,7 +387,7 @@ function extractPdfDateCandidatesFromPages(
       rx: /\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/g,
       weight: 0.7,
       parse: (m) =>
-        new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))),
+        dateFromUtcParts(Number(m[1]), Number(m[2]), Number(m[3])),
     },
     // dd/mm/yyyy
     {
@@ -362,7 +396,7 @@ function extractPdfDateCandidatesFromPages(
       parse: (m) => {
         let yy = Number(m[3]);
         if (yy < 100) yy += 2000;
-        return new Date(Date.UTC(yy, Number(m[2]) - 1, Number(m[1])));
+        return dateFromUtcParts(yy, Number(m[2]), Number(m[1]));
       },
     },
     // 31 March 2022
@@ -399,7 +433,7 @@ function extractPdfDateCandidatesFromPages(
         const dd = Number(m[1]);
         const mm = monthMap[m[2].toLowerCase()] ?? 0;
         const yy = Number(m[3]);
-        return new Date(Date.UTC(yy, mm, dd));
+        return dateFromUtcParts(yy, mm + 1, dd);
       },
     },
   ];
@@ -513,8 +547,7 @@ async function extractPdfUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
 
@@ -523,8 +556,7 @@ async function extractPdfUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
 
@@ -538,8 +570,7 @@ async function extractPdfUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
 
@@ -552,8 +583,7 @@ async function extractPdfUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
   const text = String(out?.text || "");
@@ -655,8 +685,7 @@ export async function extractUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
 
@@ -666,8 +695,7 @@ export async function extractUrlMetadata(url: string): Promise<{
       title: url,
       snippet: "",
       authors: [],
-      publishedAt: extractPublishedAtFromUrl(url),
-      publishedAtMeta: { source: "url_pattern", confidence: 0.35 },
+      ...publishedAtFallbackFromUrl(url),
     };
   }
 
@@ -681,6 +709,8 @@ export async function extractUrlMetadata(url: string): Promise<{
     doc.querySelector('meta[name="twitter:title"]')?.getAttribute("content") ||
     "";
 
+  const ld = extractLdJson(dom);
+
   const reader = new Readability(doc);
   const article = reader.parse();
 
@@ -690,8 +720,6 @@ export async function extractUrlMetadata(url: string): Promise<{
   const snippet = cleanSnippet(rawText).slice(0, PREVIEW_SNIPPET_CHARS);
 
   // -------- authors & publishedAt --------
-  const ld = extractLdJson(dom);
-
   // authors: JSON-LD first; fallback to meta tags; fallback to Readability byline
   const authorsLd = pickAuthorsFromLd(ld);
   const metaAuthor = pickMetaContent(doc, [
@@ -705,11 +733,12 @@ export async function extractUrlMetadata(url: string): Promise<{
   const byline =
     typeof (article as any)?.byline === "string" ? (article as any).byline : "";
 
-  const authors = uniqNonEmpty([
-    ...authorsLd,
-    ...(metaAuthor ? [metaAuthor] : []),
-    ...(byline ? [byline] : []),
-  ]);
+  const authors = authorsLd.length
+    ? authorsLd
+    : uniqNonEmpty([
+        ...(metaAuthor ? [metaAuthor] : []),
+        ...(byline ? [byline] : []),
+      ]);
 
   // publishedAt: JSON-LD first; fallback to meta tags; fallback to URL pattern
   const publishedLd = pickPublishedFromLd(ld);

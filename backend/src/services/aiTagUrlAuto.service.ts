@@ -5,7 +5,6 @@ import { createJobFromFile, createJobFromUrl } from "./pyTaggerClient";
 import { startOrReuseAiTagJobForUrl } from "./aiTagJobStart.service";
 import { finalizeAiTagJobForUrl } from "./aiTagJobFinalize.service";
 import { persistAiTagFailureForUrl } from "./aiTagPersistence.service";
-import { enqueueAiTagUrl } from "../queues/aiTagUrl.queue";
 
 const TOPK = Number(process.env.TAGS_TOPK || 10);
 const USE_LLM = (process.env.TAGS_USE_LLM || "true").toLowerCase() === "true";
@@ -109,23 +108,32 @@ export async function runAiTagForUrl(
  * tagged, persisted, and only then does the next URL start.
  */
 export function scheduleAiTagForUrl(urlId: number, opts?: { force?: boolean }) {
-  void enqueueAiTagUrl(urlId, opts).catch(async (e: any) => {
-    const msg = String(e?.message || e || "Unknown queueing error").slice(
-      0,
-      500,
-    );
+  if (
+    String(process.env.SMARTSCRAPE_DISABLE_AUTO_TAG_QUEUE || "").toLowerCase() ===
+    "true"
+  ) {
+    return;
+  }
 
-    try {
-      await prisma.url.update({
-        where: { id: urlId },
-        data: {
-          taggingStatus: TaggingStatus.FAILED,
-          taggingJobId: null,
-          taggingError: msg,
-        },
-      });
-    } catch {}
+  void import("../queues/aiTagUrl.queue")
+    .then(({ enqueueAiTagUrl }) => enqueueAiTagUrl(urlId, opts))
+    .catch(async (e: any) => {
+      const msg = String(e?.message || e || "Unknown queueing error").slice(
+        0,
+        500,
+      );
 
-    console.error("[aiTagUrlAuto] enqueue failed", { urlId }, e);
-  });
+      try {
+        await prisma.url.update({
+          where: { id: urlId },
+          data: {
+            taggingStatus: TaggingStatus.FAILED,
+            taggingJobId: null,
+            taggingError: msg,
+          },
+        });
+      } catch {}
+
+      console.error("[aiTagUrlAuto] enqueue failed", { urlId }, e);
+    });
 }

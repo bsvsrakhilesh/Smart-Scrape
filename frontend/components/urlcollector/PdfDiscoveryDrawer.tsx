@@ -481,32 +481,36 @@ const PdfDiscoveryDrawer: React.FC<Props> = ({
       });
 
       if (controller.signal.aborted) {
-        jobs?.cancelJob(jobId, "PDF capture canceled");
+        if (jobId) jobs?.cancelJob(jobId, "PDF capture canceled");
       } else if (failures.length) {
-        jobs?.failJob(
-          jobId,
-          `Captured ${succeeded} of ${targets.length} PDFs.`,
-          {
-            stage: "partial-failure",
-            message: "Some PDF captures failed",
-            progressPct: 100,
-            meta: {
-              sourceUrlId,
-              sourceUrl,
-              operationRunId: finalRun.id,
-              succeeded,
-              failed: failures.length,
+        if (jobId) {
+          jobs?.failJob(
+            jobId,
+            `Captured ${succeeded} of ${targets.length} PDFs.`,
+            {
+              stage: "partial-failure",
+              message: "Some PDF captures failed",
+              progressPct: 100,
+              meta: {
+                sourceUrlId,
+                sourceUrl,
+                operationRunId: finalRun.id,
+                succeeded,
+                failed: failures.length,
+              },
             },
-          },
-        );
+          );
+        }
       } else {
-        jobs?.succeedJob(
-          jobId,
-          `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}`,
-          {
-            meta: { sourceUrlId, sourceUrl, operationRunId: finalRun.id, succeeded },
-          },
-        );
+        if (jobId) {
+          jobs?.succeedJob(
+            jobId,
+            `Captured ${succeeded} PDF${succeeded === 1 ? "" : "s"}`,
+            {
+              meta: { sourceUrlId, sourceUrl, operationRunId: finalRun.id, succeeded },
+            },
+          );
+        }
       }
     } catch (error: any) {
       if (isAbortLike(error) || controller.signal.aborted) {

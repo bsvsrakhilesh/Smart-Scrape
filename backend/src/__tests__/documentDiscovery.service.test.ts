@@ -240,3 +240,41 @@ test("discoverDocumentsForUrl does not fetch or persist private linked PDF candi
   assert.equal(last(updates)?.data.status, "FAILED");
   assert.equal(last(updates)?.data.errorCode, "SSRF_DENIED");
 });
+
+test("discoverDocumentsForUrl denies robots redirects to private targets", async (t) => {
+  const { discoverDocumentsForUrl, prisma } = await loadDiscoveryService();
+  const sourceUrl = "https://example.gov/reports";
+  const { updates, upserts } = mockDiscoveryRunDb(t, prisma, sourceUrl);
+  const fetchedUrls: string[] = [];
+
+  t.mock.method(dns as any, "lookup", async (hostname: string) => {
+    if (hostname === "metadata.example.internal") {
+      return [{ address: "169.254.169.254", family: 4 }];
+    }
+    return SAFE_DNS_RESULT;
+  });
+  t.mock.method(globalThis as any, "fetch", async (input: any) => {
+    const url = String(input);
+    fetchedUrls.push(url);
+    if (url === "https://example.gov/robots.txt") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://metadata.example.internal/robots.txt" },
+      });
+    }
+    assert.fail(`unexpected fetch for ${url}`);
+  });
+
+  await assert.rejects(
+    () => discoverDocumentsForUrl({ sourceUrlId: 42, useBrowserFallback: false }),
+    (error: any) =>
+      error?.code === "SSRF_DENIED" &&
+      error?.status === 422 &&
+      /SSRF denied/.test(error.message),
+  );
+
+  assert.deepEqual(fetchedUrls, ["https://example.gov/robots.txt"]);
+  assert.equal(upserts.length, 0);
+  assert.equal(last(updates)?.data.status, "FAILED");
+  assert.equal(last(updates)?.data.errorCode, "SSRF_DENIED");
+});

@@ -54,3 +54,33 @@ test("probeUrlKind falls back from unknown HEAD to range without losing SSRF gua
     { url: "https://example.gov/files/order.pdf", method: "GET" },
   ]);
 });
+
+test("probeUrlKind denies redirects to private targets before following them", async (t) => {
+  const fetchedUrls: string[] = [];
+
+  t.mock.method(dns as any, "lookup", async (hostname: string) => {
+    if (hostname === "metadata.example.internal") {
+      return [{ address: "169.254.169.254", family: 4 }];
+    }
+    return SAFE_DNS_RESULT;
+  });
+  t.mock.method(globalThis as any, "fetch", async (input: any) => {
+    const url = String(input);
+    fetchedUrls.push(url);
+    if (url === "https://example.gov/redirect.pdf") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://metadata.example.internal/latest.pdf" },
+      });
+    }
+    assert.fail(`unexpected fetch for ${url}`);
+  });
+
+  await assert.rejects(
+    () => probeUrlKind("https://example.gov/redirect.pdf"),
+    (error: any) =>
+      error?.status === 422 && /SSRF denied/.test(String(error?.message)),
+  );
+
+  assert.deepEqual(fetchedUrls, ["https://example.gov/redirect.pdf"]);
+});

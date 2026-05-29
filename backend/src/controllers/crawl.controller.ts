@@ -32,6 +32,8 @@ try {
   // no-op: older runtimes or restricted environments
 }
 
+const MAX_REDIRECTS = 5;
+
 function isPrivateIp(ip: string) {
   const a = ipaddr.parse(ip);
   return (
@@ -52,6 +54,17 @@ async function resolveAndGuard(hostname: string) {
   }
 }
 
+function isRedirectStatus(status: number) {
+  return status >= 300 && status < 400;
+}
+
+function isSecurityPolicyError(error: any) {
+  return (
+    error?.status === 422 ||
+    /SSRF denied/i.test(String(error?.message || ""))
+  );
+}
+
 async function fetchWithTimeout(
   url: string,
   ms = 10000,
@@ -60,12 +73,33 @@ async function fetchWithTimeout(
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), ms);
   try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      redirect: "follow",
-      headers: { "User-Agent": "SmartScrape/1.0", ...headers },
-    });
-    return res;
+    let currentUrl = url;
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+      const current = new URL(currentUrl);
+      await resolveAndGuard(current.hostname);
+
+      const res = await fetch(currentUrl, {
+        signal: ctrl.signal,
+        redirect: "manual",
+        headers: { "User-Agent": "SmartScrape/1.0", ...headers },
+      });
+
+      if (!isRedirectStatus(res.status)) return res;
+
+      const location = res.headers.get("location");
+      if (!location) return res;
+
+      const next = new URL(location, currentUrl);
+      if (next.protocol !== "http:" && next.protocol !== "https:") {
+        const err: any = new Error("SSRF denied: unsupported redirect protocol");
+        err.status = 422;
+        throw err;
+      }
+
+      currentUrl = next.toString();
+    }
+
+    throw new Error("Too many redirects while crawling URL");
   } finally {
     clearTimeout(to);
   }
@@ -81,7 +115,8 @@ async function isRobotsAllowed(targetUrl: string) {
     const body = await r.text();
     const robots = robotsParser(robotsUrl, body);
     return robots.isAllowed(targetUrl, "SmartScrape/1.0") !== false;
-  } catch {
+  } catch (error: any) {
+    if (isSecurityPolicyError(error)) throw error;
     return true;
   }
 }

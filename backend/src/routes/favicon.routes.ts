@@ -14,6 +14,7 @@ type CacheEntry = {
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
 const MAX_CACHE_ENTRIES = 512;
+const MAX_REDIRECTS = 3;
 
 const cache = new Map<string, CacheEntry>();
 
@@ -105,20 +106,30 @@ function isBlockedHostname(host: string): boolean {
   return false;
 }
 
+function hostnameFromHost(host: string): string {
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return host;
+  }
+}
+
 async function assertPublicHost(host: string) {
-  if (isBlockedHostname(host)) {
+  const hostname = hostnameFromHost(host);
+
+  if (isBlockedHostname(hostname)) {
     throw new Error("BLOCKED_HOST");
   }
 
   // If host is already an IP literal, block private ranges
-  const ipType = net.isIP(host);
+  const ipType = net.isIP(hostname);
   if (ipType) {
-    if (isPrivateIp(host)) throw new Error("BLOCKED_IP");
+    if (isPrivateIp(hostname)) throw new Error("BLOCKED_IP");
     return;
   }
 
   // Resolve A/AAAA and ensure none are private
-  const results = await dns.lookup(host, { all: true });
+  const results = await dns.lookup(hostname, { all: true });
   for (const r of results) {
     if (isPrivateIp(r.address)) {
       throw new Error("BLOCKED_DNS");
@@ -139,20 +150,43 @@ function safeHostFromUrl(raw: string): string | null {
 
 async function fetchFavicon(host: string, ifNoneMatch?: string) {
   // Try the canonical location first. Many sites have it.
-  const url = `https://${host}/favicon.ico`;
+  let currentUrl = `https://${host}/favicon.ico`;
 
-  const res = await axios.get<ArrayBuffer>(url, {
-    responseType: "arraybuffer",
-    timeout: 8000,
-    maxRedirects: 3,
-    headers: {
-      "User-Agent": "AQ-Governance-Collector/1.0 (+favicon)",
-      Accept:
-        "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      ...(ifNoneMatch ? { "If-None-Match": ifNoneMatch } : {}),
-    },
-    validateStatus: (s) => (s >= 200 && s < 300) || s === 304,
-  });
+  let res;
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+    const current = new URL(currentUrl);
+    await assertPublicHost(current.host);
+
+    res = await axios.get<ArrayBuffer>(currentUrl, {
+      responseType: "arraybuffer",
+      timeout: 8000,
+      maxRedirects: 0,
+      headers: {
+        "User-Agent": "AQ-Governance-Collector/1.0 (+favicon)",
+        Accept:
+          "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        ...(ifNoneMatch ? { "If-None-Match": ifNoneMatch } : {}),
+      },
+      validateStatus: (s) =>
+        (s >= 200 && s < 300) || s === 304 || (s >= 300 && s < 400),
+    });
+
+    if (res.status < 300 || res.status >= 400) break;
+
+    const location = res.headers["location"];
+    if (!location) break;
+
+    const next = new URL(String(location), currentUrl);
+    if (next.protocol !== "http:" && next.protocol !== "https:") {
+      throw new Error("BLOCKED_REDIRECT");
+    }
+
+    currentUrl = next.toString();
+  }
+
+  if (!res || (res.status >= 300 && res.status < 400)) {
+    throw new Error("TOO_MANY_REDIRECTS");
+  }
 
   return {
     status: res.status,
@@ -217,7 +251,10 @@ router.get("/favicon", async (req, res) => {
     if (entry.etag) res.setHeader("ETag", entry.etag);
     res.setHeader("Cache-Control", "public, max-age=86400");
     return res.status(200).send(entry.body);
-  } catch {
+  } catch (error: any) {
+    if (String(error?.message || "").startsWith("BLOCKED_")) {
+      return res.status(400).json({ error: "Blocked host" });
+    }
     return res.status(404).json({ error: "No favicon" });
   }
 });

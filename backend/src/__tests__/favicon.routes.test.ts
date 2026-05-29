@@ -71,3 +71,31 @@ test("favicon route rejects non-http URL schemes", async (t) => {
   assert.equal(response.status, 400);
   assert.deepEqual(response.body, { error: "Invalid url" });
 });
+
+test("favicon route rejects redirects to private hosts before following them", async (t) => {
+  const fetchedUrls: string[] = [];
+
+  t.mock.method(dns as any, "lookup", async (hostname: string) => {
+    if (hostname === "metadata.example.internal") {
+      return [{ address: "169.254.169.254", family: 4 }];
+    }
+    return [{ address: "93.184.216.34", family: 4 }];
+  });
+  t.mock.method(axios as any, "get", async (url: string) => {
+    fetchedUrls.push(url);
+    if (url === "https://public-looking.example/favicon.ico") {
+      return {
+        status: 302,
+        headers: { location: "http://metadata.example.internal/favicon.ico" },
+        data: Buffer.alloc(0),
+      };
+    }
+    assert.fail(`unexpected favicon fetch for ${url}`);
+  });
+
+  const response = await requestFavicon("https://public-looking.example/page");
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.body, { error: "Blocked host" });
+  assert.deepEqual(fetchedUrls, ["https://public-looking.example/favicon.ico"]);
+});

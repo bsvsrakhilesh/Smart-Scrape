@@ -113,6 +113,76 @@ test("crawlTextHandler denies private DNS targets before robots or page fetch", 
   assert.match(String(nextError?.message), /SSRF denied/);
 });
 
+test("crawlTextHandler denies robots redirects to private targets", async (t) => {
+  const { crawlTextHandler } = await loadCrawlHandlers();
+  const req = mockRequest("https://example.gov/page");
+  const res = mockResponse();
+  let nextError: any = null;
+  const fetchedUrls: string[] = [];
+
+  t.mock.method(dns as any, "lookup", async (hostname: string) => {
+    if (hostname === "metadata.example.internal") {
+      return [{ address: "169.254.169.254", family: 4 }];
+    }
+    return SAFE_DNS_RESULT;
+  });
+  t.mock.method(globalThis as any, "fetch", async (input: any) => {
+    const url = String(input);
+    fetchedUrls.push(url);
+    if (url === "https://example.gov/robots.txt") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://metadata.example.internal/robots.txt" },
+      });
+    }
+    assert.fail(`unexpected fetch for ${url}`);
+  });
+
+  await crawlTextHandler(req, res, (error?: any) => {
+    nextError = error;
+  });
+
+  assert.equal(res.body, undefined);
+  assert.equal(nextError?.status, 422);
+  assert.match(String(nextError?.message), /SSRF denied/);
+  assert.deepEqual(fetchedUrls, ["https://example.gov/robots.txt"]);
+});
+
+test("crawlPdfHandler denies robots redirects to private targets", async (t) => {
+  const { crawlPdfHandler } = await loadCrawlHandlers();
+  const req = mockRequest("https://example.gov/report.pdf");
+  const res = mockResponse();
+  let nextError: any = null;
+  const fetchedUrls: string[] = [];
+
+  t.mock.method(dns as any, "lookup", async (hostname: string) => {
+    if (hostname === "metadata.example.internal") {
+      return [{ address: "10.1.2.3", family: 4 }];
+    }
+    return SAFE_DNS_RESULT;
+  });
+  t.mock.method(globalThis as any, "fetch", async (input: any) => {
+    const url = String(input);
+    fetchedUrls.push(url);
+    if (url === "https://example.gov/robots.txt") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "http://metadata.example.internal/robots.txt" },
+      });
+    }
+    assert.fail(`unexpected fetch for ${url}`);
+  });
+
+  await crawlPdfHandler(req, res, (error?: any) => {
+    nextError = error;
+  });
+
+  assert.equal(res.body, undefined);
+  assert.equal(nextError?.status, 422);
+  assert.match(String(nextError?.message), /SSRF denied/);
+  assert.deepEqual(fetchedUrls, ["https://example.gov/robots.txt"]);
+});
+
 test("crawlPdfHandler denies private DNS targets before robots or PDF capture", async (t) => {
   const { crawlPdfHandler } = await loadCrawlHandlers();
   const req = mockRequest("https://metadata.example.internal/report.pdf");

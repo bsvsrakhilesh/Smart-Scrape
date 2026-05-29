@@ -93,6 +93,7 @@ const DISCOVERY_MAX_CANDIDATES = Math.max(
 );
 
 const RANGE_SNIFF_BYTES = 4095;
+const MAX_REDIRECTS = 5;
 
 const DEFAULT_CHROMIUM_PATHS = [
   "/usr/bin/chromium",
@@ -129,6 +130,10 @@ async function resolveAndGuard(hostname: string) {
   }
 }
 
+function isRedirectStatus(status: number) {
+  return status >= 300 && status < 400;
+}
+
 async function fetchWithTimeout(
   url: string,
   ms = 15000,
@@ -137,16 +142,39 @@ async function fetchWithTimeout(
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), ms);
   try {
-    return await fetch(url, {
-      ...init,
-      signal: ctrl.signal,
-      redirect: "follow",
-      headers: {
-        "User-Agent": BROWSER_UA,
-        "Accept-Language": "en-US,en;q=0.9",
-        ...(init.headers || {}),
-      },
-    });
+    let currentUrl = url;
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+      const current = new URL(currentUrl);
+      await resolveAndGuard(current.hostname);
+
+      const res = await fetch(currentUrl, {
+        ...init,
+        signal: ctrl.signal,
+        redirect: "manual",
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept-Language": "en-US,en;q=0.9",
+          ...(init.headers || {}),
+        },
+      });
+
+      if (!isRedirectStatus(res.status)) return res;
+
+      const location = res.headers.get("location");
+      if (!location) return res;
+
+      const next = new URL(location, currentUrl);
+      if (next.protocol !== "http:" && next.protocol !== "https:") {
+        const err: any = new Error("SSRF denied: unsupported redirect protocol");
+        err.status = 422;
+        err.code = "SSRF_DENIED";
+        throw err;
+      }
+
+      currentUrl = next.toString();
+    }
+
+    throw new Error("Too many redirects while fetching discovery URL");
   } finally {
     clearTimeout(to);
   }
@@ -163,7 +191,8 @@ async function isRobotsAllowed(targetUrl: string) {
     const body = await r.text();
     const robots = robotsParser(robotsUrl, body);
     return robots.isAllowed(targetUrl, "SmartScrape/1.0") !== false;
-  } catch {
+  } catch (error: any) {
+    if (isSecurityPolicyError(error)) throw error;
     return true;
   }
 }

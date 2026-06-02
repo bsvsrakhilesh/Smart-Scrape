@@ -1493,7 +1493,6 @@ export default function GovernanceWorkspacePage() {
   const [answerExporting, setAnswerExporting] = useState(false);
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const answerAbortRef = useRef<AbortController | null>(null);
-  const lastAutoAnswerKeyRef = useRef("");
   const constrainedPurposeId = launchIntent?.collectorPurposeId ?? null;
   const constrainedPurposeTitle =
     launchIntent?.collectorPurposeTitle ?? launchIntent?.title ?? "Selected purpose";
@@ -2037,49 +2036,34 @@ export default function GovernanceWorkspacePage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!workspaceEvidenceQuery.data || workspaceEvidenceQuery.isLoading) return;
-    if (
-      constrainedPurposeId &&
-      (workspaceEvidenceQuery.data.evidenceScope?.allowedDocumentIds.length ?? 0) === 0
-    ) {
-      return;
-    }
-    const question = workspaceQuestion.trim();
-    if (!question) return;
-
-    const key = [
-      workspaceQueryRunKey,
-      question,
-      workspaceIntentMode,
-      sourceScope,
-      launchIntent?.anchorDocumentIds?.join("|") ?? "",
-      launchIntent?.anchorUrlIds?.join("|") ?? "",
-      constrainedPurposeId ?? "",
-    ].join("::");
-
-    if (lastAutoAnswerKeyRef.current === key) return;
-    lastAutoAnswerKeyRef.current = key;
-    void startGovernanceAnswer(question, { previousRunId: null });
-  }, [
-    launchIntent?.anchorDocumentIds,
-    launchIntent?.anchorUrlIds,
-    constrainedPurposeId,
-    sourceScope,
-    startGovernanceAnswer,
-    workspaceEvidenceQuery.data,
-    workspaceEvidenceQuery.isLoading,
-    workspaceIntentMode,
-    workspaceQueryRunKey,
-    workspaceQuestion,
-  ]);
-
   const submitFollowUpAnswer = React.useCallback(() => {
     const question = followUpQuestion.trim();
     if (!question) return;
     setFollowUpQuestion("");
     void startGovernanceAnswer(question, { previousRunId: answerRun?.id ?? null });
   }, [answerRun?.id, followUpQuestion, startGovernanceAnswer]);
+
+  const canGenerateAnswerFromEvidence =
+    Boolean(workspaceEvidenceQuery.data) &&
+    !workspaceEvidenceQuery.isLoading &&
+    !answerLoading &&
+    workspaceQuestion.trim().length > 0 &&
+    evidenceCandidates.length > 0 &&
+    !(
+      constrainedPurposeId &&
+      (workspaceEvidenceQuery.data?.evidenceScope?.allowedDocumentIds.length ??
+        0) === 0
+    );
+
+  const generateAnswerFromEvidence = React.useCallback(() => {
+    const question = workspaceQuestion.trim();
+    if (!question || !canGenerateAnswerFromEvidence) return;
+    void startGovernanceAnswer(question, { previousRunId: null });
+  }, [
+    canGenerateAnswerFromEvidence,
+    startGovernanceAnswer,
+    workspaceQuestion,
+  ]);
 
   const regenerateAnswer = React.useCallback(() => {
     const question = answerRun?.question || workspaceQuestion.trim();
@@ -3422,7 +3406,7 @@ export default function GovernanceWorkspacePage() {
           )}
         </div>
 
-        {workspaceQueryRunKey > 0 || answerRun || answerLoading || answerError ? (
+        {answerRun || answerLoading || answerError || answerDraft.trim() ? (
           <GovernanceAnswerPanel
             run={answerRun}
             draftText={answerDraft}
@@ -3512,6 +3496,23 @@ export default function GovernanceWorkspacePage() {
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {evidenceReadiness.detail}
                 </p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={generateAnswerFromEvidence}
+                    disabled={!canGenerateAnswerFromEvidence}
+                    className="inline-flex h-11 items-center justify-center rounded-2xl bg-indigo-600 px-4 text-sm font-semibold text-white shadow-lg shadow-indigo-900/10 transition hover:-translate-y-0.5 hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    {answerLoading
+                      ? "Generating answer"
+                      : "Generate answer from retrieved evidence"}
+                  </button>
+                  <span className="text-xs leading-5 text-slate-500">
+                    Uses only retrieved sources and preserved citations.
+                  </span>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3">

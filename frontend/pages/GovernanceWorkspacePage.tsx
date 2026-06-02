@@ -440,6 +440,49 @@ function formatRetrievalLaneLabel(
   }
 }
 
+function formatEvidenceScore(value: number) {
+  return Math.round(value);
+}
+
+function evidenceReadinessMeta(args: {
+  candidateCount: number;
+  confidence: "high" | "medium" | "low";
+  topScore: number | null;
+}) {
+  if (args.candidateCount === 0) {
+    return {
+      label: "Needs broader search",
+      detail: "No retrieved sources are available for a cited answer yet.",
+      tone: "border-rose-200 bg-rose-50 text-rose-800",
+    };
+  }
+
+  if (
+    args.confidence === "high" ||
+    (args.candidateCount >= 3 && args.confidence === "medium")
+  ) {
+    return {
+      label: "Ready for cited answer",
+      detail: "The retrieved evidence set is strong enough to generate an answer.",
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    };
+  }
+
+  if (args.candidateCount <= 2 || args.confidence === "low") {
+    return {
+      label: "Thin evidence",
+      detail: "The answer can run, but broader retrieval may improve coverage.",
+      tone: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+
+  return {
+    label: "Ready for review",
+    detail: "Review the retrieved sources before generating the answer.",
+    tone: "border-sky-200 bg-sky-50 text-sky-800",
+  };
+}
+
 function toWorkspaceSurfaceMode(mode: WorkspaceIntakeMode): "map" | "case" {
   return mode === "case_trace" || mode === "question_review" ? "case" : "map";
 }
@@ -943,7 +986,7 @@ function GovernanceAnswerPanel({
       <SectionHeader
         icon={<Sparkles className="h-4 w-4" />}
         title="Inline cited answer"
-        subtitle="Persisted Governance Workspace Q&A with strict evidence citations."
+        subtitle="Generate answer from retrieved evidence. Answer will cite retrieved sources only."
         action={
           <div className="flex flex-wrap items-center gap-2">
             {run?.model ? (
@@ -983,7 +1026,7 @@ function GovernanceAnswerPanel({
         ) : (
           <EmptyPanel
             title="No synthesized answer yet"
-            body="Run a governance question; the answer layer will start after evidence retrieval succeeds."
+            body="Find evidence first, then generate an answer from the retrieved and cited source set."
           />
         )}
 
@@ -2052,6 +2095,54 @@ export default function GovernanceWorkspacePage() {
     openQuestions: [],
   };
 
+  const evidenceSourceCounts = useMemo(() => {
+    return evidenceCandidates.reduce(
+      (acc, candidate) => {
+        if (candidate.kind === "FILE") acc.fileCount += 1;
+        if (candidate.kind === "URL") acc.urlCount += 1;
+        if (candidate.anchor) acc.anchorCount += 1;
+        for (const family of candidate.coverageFamilies) {
+          acc.coverageFamilies.add(family);
+        }
+        return acc;
+      },
+      {
+        fileCount: 0,
+        urlCount: 0,
+        anchorCount: 0,
+        coverageFamilies: new Set<
+          "anchor" | "metadata" | "graph" | "chunk"
+        >(),
+      },
+    );
+  }, [evidenceCandidates]);
+
+  const evidenceReadiness = evidenceReadinessMeta({
+    candidateCount: evidenceCandidates.length,
+    confidence: retrievalDecision.confidence,
+    topScore: retrievalDecision.topCandidateScore,
+  });
+
+  const evidenceGapCues = useMemo(() => {
+    const cues: string[] = [];
+    if (workspaceQueryRunKey <= 0) return cues;
+    if (!queryUnderstanding.locationHints.length) cues.push("No location signal");
+    if (!queryUnderstanding.timeHints.length) cues.push("No time signal");
+    if (!queryUnderstanding.matchedAgencies.length) cues.push("No agency signal");
+    if (!queryUnderstanding.matchedIssues.length) cues.push("No issue signal");
+    if (retrievalDecision.confidence === "low") {
+      cues.push("Low-confidence retrieval");
+    }
+    return cues;
+  }, [
+    queryUnderstanding.locationHints.length,
+    queryUnderstanding.matchedAgencies.length,
+    queryUnderstanding.matchedIssues.length,
+    queryUnderstanding.timeHints.length,
+    retrievalDecision.confidence,
+    workspaceQueryRunKey,
+  ]);
+
   const caseTrailFoundation = workspaceEvidenceQuery.data
     ?.caseTrailFoundation ?? {
     active: false,
@@ -3115,6 +3206,110 @@ export default function GovernanceWorkspacePage() {
               }
             />
 
+            <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+              <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Evidence review summary
+                    </div>
+                    <div className="mt-1 text-sm text-slate-600">
+                      Review source coverage before generating the cited answer.
+                    </div>
+                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${evidenceReadiness.tone}`}
+                  >
+                    {evidenceReadiness.label}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-xl border border-white bg-white/85 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Retrieved
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-slate-950">
+                      {evidenceCandidates.length}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white bg-white/85 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Files / URLs
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-slate-950">
+                      {evidenceSourceCounts.fileCount} /{" "}
+                      {evidenceSourceCounts.urlCount}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white bg-white/85 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Anchors
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-slate-950">
+                      {evidenceSourceCounts.anchorCount}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white bg-white/85 px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Confidence
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-slate-950">
+                      {formatRetrievalConfidenceLabel(
+                        retrievalDecision.confidence,
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {evidenceReadiness.detail}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Coverage and gaps
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Array.from(evidenceSourceCounts.coverageFamilies).length ? (
+                    Array.from(evidenceSourceCounts.coverageFamilies).map(
+                      (family) => (
+                        <span
+                          key={family}
+                          className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700"
+                        >
+                          {formatCoverageFamilyLabel(family)}
+                        </span>
+                      ),
+                    )
+                  ) : (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+                      Coverage pending
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {evidenceGapCues.length ? (
+                    evidenceGapCues.map((cue) => (
+                      <span
+                        key={cue}
+                        className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800"
+                      >
+                        {cue}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                      Core query signals detected
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="mt-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span
@@ -4113,10 +4308,14 @@ export default function GovernanceWorkspacePage() {
                     >
                       <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                         <span>
-                          {candidate.kind === "URL" ? "Saved URL" : "File"}
+                          {candidate.kind === "URL"
+                            ? "Saved URL source"
+                            : "File Manager source"}
                         </span>
                         <span>•</span>
-                        <span>Total score {candidate.matchScore}</span>
+                        <span>
+                          Relevance {formatEvidenceScore(candidate.matchScore)}
+                        </span>
                         {candidate.documentId ===
                         retrievalDecision.recommendedDocumentId ? (
                           <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-sky-700">
@@ -4163,6 +4362,38 @@ export default function GovernanceWorkspacePage() {
                         </div>
                       ) : null}
 
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                        {candidate.publishedAt ? (
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                            Published{" "}
+                            {new Date(
+                              candidate.publishedAt,
+                            ).toLocaleDateString()}
+                          </span>
+                        ) : candidate.updatedAt ? (
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                            Updated{" "}
+                            {new Date(candidate.updatedAt).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                          Claims {candidate.stats.claimCount}
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+                          Events {candidate.stats.eventCount}
+                        </span>
+                        {candidate.stats.gapCount > 0 ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700">
+                            Gaps {candidate.stats.gapCount}
+                          </span>
+                        ) : null}
+                        {candidate.stats.relationCount > 0 ? (
+                          <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-violet-700">
+                            Relations {candidate.stats.relationCount}
+                          </span>
+                        ) : null}
+                      </div>
+
                       {candidate.summary ? (
                         <div className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
                           {candidate.summary}
@@ -4200,18 +4431,20 @@ export default function GovernanceWorkspacePage() {
 
                       <div className="mt-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Why this source
+                          Why this document was selected
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-2">
                           <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
-                            Signal {candidate.signalScore}
+                            Signal {formatEvidenceScore(candidate.signalScore)}
                           </span>
                           <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700">
-                            Authority {candidate.authorityScore}
+                            Authority{" "}
+                            {formatEvidenceScore(candidate.authorityScore)}
                           </span>
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-                            Freshness {candidate.freshnessScore}
+                            Freshness{" "}
+                            {formatEvidenceScore(candidate.freshnessScore)}
                           </span>
                           {candidate.anchorScore > 0 ? (
                             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
@@ -4290,22 +4523,10 @@ export default function GovernanceWorkspacePage() {
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                        <span>Claims {candidate.stats.claimCount}</span>
-                        <span>Events {candidate.stats.eventCount}</span>
-                        <span>Gaps {candidate.stats.gapCount}</span>
-                        <span>Relations {candidate.stats.relationCount}</span>
                         {candidate.duplicateCount > 0 ? (
                           <span>
                             Related records{" "}
                             {candidate.clusterDocumentIds.length}
-                          </span>
-                        ) : null}
-                        {candidate.publishedAt ? (
-                          <span>
-                            Published{" "}
-                            {new Date(
-                              candidate.publishedAt,
-                            ).toLocaleDateString()}
                           </span>
                         ) : null}
                       </div>

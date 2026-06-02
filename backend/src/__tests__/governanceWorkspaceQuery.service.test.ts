@@ -53,3 +53,100 @@ test("resolveQueryType identifies question review independent of domain terms", 
 
   assert.equal(out, "question_review");
 });
+
+function rankedCandidate(overrides: Record<string, any>): any {
+  return {
+    documentId: "doc-default",
+    kind: "FILE",
+    urlId: null,
+    primaryFileId: "file-default",
+    mimeType: "application/pdf",
+    title: "Evidence.pdf",
+    sourceLabel: "https://example.gov/evidence",
+    summary: null,
+    publishedAt: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    anchor: false,
+    anchorScore: 0,
+    signalScore: 40,
+    reasons: new Set(["test reason"]),
+    matchedIssues: new Set(["Industrial emissions"]),
+    matchedAgencies: new Set(["CAQM"]),
+    matchedLanes: new Set(["metadata"]),
+    authorityScore: 5,
+    freshnessScore: 2,
+    matchScore: 47,
+    whyRanked: ["Relevant governance signal match"],
+    duplicateCount: 0,
+    clusterDocumentIds: ["doc-default"],
+    clusterKinds: ["FILE"],
+    clusterReason: null,
+    retrievalLanes: ["metadata"],
+    coverageFamilies: ["metadata"],
+    diversityReason: null,
+    temporalReason: null,
+    ...overrides,
+  };
+}
+
+test("clusterRankedCandidates prefers File Manager PDF over text duplicate", async () => {
+  const hooks = await loadHooks();
+  const clustered = hooks.clusterRankedCandidates([
+    rankedCandidate({
+      documentId: "doc-text",
+      primaryFileId: "file-text",
+      mimeType: "text/plain",
+      title: "CAQM Order.txt",
+      matchScore: 95,
+    }),
+    rankedCandidate({
+      documentId: "doc-pdf",
+      primaryFileId: "file-pdf",
+      mimeType: "application/pdf",
+      title: "CAQM Order.pdf",
+      matchScore: 70,
+    }),
+  ]);
+
+  assert.equal(clustered.length, 1);
+  assert.equal(clustered[0].documentId, "doc-pdf");
+  assert.deepEqual(
+    new Set(clustered[0].clusterDocumentIds),
+    new Set(["doc-text", "doc-pdf"]),
+  );
+});
+
+test("clusterRankedCandidates prefers file artifact over saved URL duplicate", async () => {
+  const hooks = await loadHooks();
+  const clustered = hooks.clusterRankedCandidates([
+    rankedCandidate({
+      documentId: "doc-url",
+      kind: "URL",
+      urlId: 12,
+      primaryFileId: null,
+      mimeType: null,
+      title: "CAQM Order",
+      matchScore: 98,
+    }),
+    rankedCandidate({
+      documentId: "doc-pdf",
+      kind: "FILE",
+      primaryFileId: "file-pdf",
+      mimeType: "application/pdf",
+      title: "CAQM Order.pdf",
+      matchScore: 72,
+    }),
+  ]);
+
+  assert.equal(clustered.length, 1);
+  assert.equal(clustered[0].documentId, "doc-pdf");
+  assert.equal(clustered[0].kind, "FILE");
+});
+
+test("documentAllowed keeps Saved URL records out of file-scoped retrieval", async () => {
+  const hooks = await loadHooks();
+
+  assert.equal(hooks.documentAllowed("FILE", "files"), true);
+  assert.equal(hooks.documentAllowed("URL", "files"), false);
+});

@@ -53,6 +53,7 @@ type CandidateAccumulator = {
   kind: DocumentKind;
   urlId: number | null;
   primaryFileId: string | null;
+  mimeType: string | null;
   title: string;
   sourceLabel: string | null;
   summary: string | null;
@@ -489,6 +490,7 @@ const documentContextSelect = {
   primaryFile: {
     select: {
       fileName: true,
+      mimeType: true,
       sourceUrl: true,
       sourcePublishedAt: true,
     },
@@ -919,6 +921,29 @@ function documentDescriptor(doc: DocumentWithContext) {
   };
 }
 
+function isPdfCandidate(candidate: RankedCandidate) {
+  return (
+    candidate.kind === "FILE" &&
+    (candidate.mimeType?.toLowerCase().includes("pdf") ||
+      /\.pdf$/i.test(candidate.title))
+  );
+}
+
+function isTextFileCandidate(candidate: RankedCandidate) {
+  return (
+    candidate.kind === "FILE" &&
+    (candidate.mimeType?.toLowerCase().startsWith("text/") ||
+      /\.txt$/i.test(candidate.title))
+  );
+}
+
+function fileEvidencePreference(candidate: RankedCandidate) {
+  if (isPdfCandidate(candidate)) return 3;
+  if (candidate.kind === "FILE" && isTextFileCandidate(candidate)) return 2;
+  if (candidate.kind === "FILE") return 2;
+  return 1;
+}
+
 function parseIsoDate(value: string | null | undefined) {
   if (!value) return null;
   const ms = Date.parse(value);
@@ -1214,6 +1239,7 @@ function addCandidate(
     kind: args.doc.kind,
     urlId: args.doc.urlId,
     primaryFileId: args.doc.primaryFileId,
+    mimeType: args.doc.primaryFile?.mimeType ?? null,
     title: descriptor.title,
     sourceLabel: descriptor.sourceLabel,
     summary: args.summary ?? null,
@@ -1303,6 +1329,9 @@ function buildCandidateClusterKey(candidate: RankedCandidate) {
 
 function chooseClusterRepresentative(group: RankedCandidate[]) {
   return [...group].sort((a, b) => {
+    const sourcePreferenceDelta =
+      fileEvidencePreference(b) - fileEvidencePreference(a);
+    if (sourcePreferenceDelta !== 0) return sourcePreferenceDelta;
     if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
     if (b.authorityScore !== a.authorityScore) {
       return b.authorityScore - a.authorityScore;
@@ -2675,6 +2704,8 @@ function buildQuestionReviewSurface(args: {
 export const governanceWorkspaceQueryTestHooks = {
   resolveWorkflowPlan,
   resolveQueryType,
+  clusterRankedCandidates,
+  documentAllowed,
 };
 
 function buildCaseTrailFoundation(args: {

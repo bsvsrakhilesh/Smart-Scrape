@@ -857,6 +857,34 @@ function openGovernanceCitation(citation: GovernanceAnswerCitation) {
   }
 }
 
+function citationDisplayLabel(citation: GovernanceAnswerCitation) {
+  return (
+    citation.sourceLabel ||
+    citation.fileName ||
+    citation.sourceUrl ||
+    citation.evidenceId
+  );
+}
+
+function citationLocationLabel(citation: GovernanceAnswerCitation) {
+  const parts = [
+    citation.pageStart != null
+      ? citation.pageEnd != null && citation.pageEnd !== citation.pageStart
+        ? `pages ${citation.pageStart}-${citation.pageEnd}`
+        : `page ${citation.pageStart}`
+      : null,
+    citation.charStart != null
+      ? `chars ${citation.charStart}-${citation.charEnd ?? "?"}`
+      : null,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" · ") : "Location not specified";
+}
+
+function citationCanOpenSource(citation: GovernanceAnswerCitation | null) {
+  return Boolean(citation?.sourceUrl || citation?.fileId);
+}
+
 function buildGovernanceAnswerNoteContent(run: GovernanceAnswerRun) {
   const citationLines = (run.citations ?? [])
     .slice(0, 40)
@@ -1043,6 +1071,15 @@ function GovernanceAnswerPanel({
   const hasAnswer = Boolean(answerText.trim()) || Boolean(run);
   const answerSections = orderAnswerSections(parseAnswerSections(answerText));
   const claimCitations = run?.claimCitations ?? [];
+  const [selectedCitation, setSelectedCitation] =
+    React.useState<GovernanceAnswerCitation | null>(null);
+
+  const inspectCitation = React.useCallback(
+    (citation: GovernanceAnswerCitation) => {
+      setSelectedCitation(citation);
+    },
+    [],
+  );
 
   return (
     <div className="rounded-[26px] border border-indigo-100 bg-white/90 p-4 shadow-[0_18px_44px_rgba(79,70,229,0.10)] backdrop-blur-sm">
@@ -1147,16 +1184,13 @@ function GovernanceAnswerPanel({
                       <button
                         key={`${citation.evidenceId}-${citeIndex}`}
                         type="button"
-                        onClick={() => openGovernanceCitation(citation)}
+                        onClick={() => inspectCitation(citation)}
                         className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-indigo-200 hover:text-indigo-700"
                         title={citation.quote}
                       >
                         <span className="max-w-[14rem] truncate">
-                          {citation.sourceLabel ||
-                            citation.fileName ||
-                            citation.evidenceId}
+                          {citationDisplayLabel(citation)}
                         </span>
-                        <ArrowUpRight className="h-3.5 w-3.5" />
                       </button>
                     ))}
                   </div>
@@ -1176,17 +1210,94 @@ function GovernanceAnswerPanel({
                 <button
                   key={`${citation.evidenceId}-${index}`}
                   type="button"
-                  onClick={() => openGovernanceCitation(citation)}
+                  onClick={() => inspectCitation(citation)}
                   className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-indigo-200 hover:text-indigo-700"
                   title={citation.quote}
                 >
                   <span className="max-w-[14rem] truncate">
-                    {citation.sourceLabel || citation.evidenceId}
+                    {citationDisplayLabel(citation)}
                   </span>
-                  <ArrowUpRight className="h-3.5 w-3.5" />
                 </button>
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {selectedCitation ? (
+          <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-950">
+                  Citation inspector
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Exact evidence quote and source location for the selected claim.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCitation(null)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Clear
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr),280px]">
+              <div className="rounded-2xl border border-white/80 bg-white p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Verbatim quote
+                </div>
+                <blockquote className="mt-3 border-l-4 border-indigo-300 pl-4 text-sm leading-7 text-slate-800">
+                  {selectedCitation.quote}
+                </blockquote>
+              </div>
+
+              <div className="rounded-2xl border border-white/80 bg-white p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Source
+                </div>
+                <div className="mt-2 text-sm font-semibold text-slate-950 break-words">
+                  {citationDisplayLabel(selectedCitation)}
+                </div>
+                <div className="mt-2 text-xs leading-5 text-slate-500">
+                  {citationLocationLabel(selectedCitation)}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedCitation.sourceKind ? (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      {selectedCitation.sourceKind}
+                    </span>
+                  ) : null}
+                  {selectedCitation.documentId ? (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Document linked
+                    </span>
+                  ) : null}
+                  {selectedCitation.chunkId ? (
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Chunk linked
+                    </span>
+                  ) : null}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openGovernanceCitation(selectedCitation)}
+                  disabled={!citationCanOpenSource(selectedCitation)}
+                  className="mt-4 inline-flex items-center rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <ArrowUpRight className="mr-2 h-4 w-4" />
+                  Open source
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : citations.length ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-600">
+            Select any citation chip or evidence marker to inspect the exact
+            quote before opening the source document.
           </div>
         ) : null}
 
@@ -1208,7 +1319,7 @@ function GovernanceAnswerPanel({
                     <button
                       key={`${item.evidenceId}-cite-${index}`}
                       type="button"
-                      onClick={() => openGovernanceCitation(citation)}
+                      onClick={() => inspectCitation(citation)}
                       className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-white"
                       title={citation.quote}
                     >

@@ -26,6 +26,7 @@ import {
   getDocumentGovernance,
   getGovernanceAgenciesDirectory,
   getGovernanceAgencyLandscape,
+  getGovernanceAnswerSession,
   getGovernanceIssueRelations,
   getGovernanceIssuesDirectory,
   getGovernanceIssueTimeline,
@@ -39,6 +40,7 @@ import {
   type GovernanceRelationType,
   type GovernanceAnswerCitation,
   type GovernanceAnswerRun,
+  type GovernanceAnswerSession,
 } from "../lib/api";
 import NotebookTemplateModal from "../components/governance/NotebookTemplateModal";
 import { notebookClient } from "../lib/notebookClient";
@@ -1037,6 +1039,122 @@ function orderAnswerSections(sections: AnswerSection[]) {
   });
 }
 
+function AnswerSessionPanel({
+  session,
+  loading,
+  selectedRunId,
+  onSelectRun,
+  onRefresh,
+}: {
+  session: GovernanceAnswerSession | null;
+  loading: boolean;
+  selectedRunId: string | null;
+  onSelectRun: (run: GovernanceAnswerRun) => void;
+  onRefresh: () => void;
+}) {
+  const runs = session?.runs ?? [];
+
+  return (
+    <div className="rounded-[26px] border border-slate-200 bg-white/90 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.07)] backdrop-blur-sm">
+      <SectionHeader
+        icon={<BookOpen className="h-4 w-4" />}
+        title="Answer session"
+        subtitle="Investigation continuity for answers, follow-ups, regenerations, and deep reviews."
+        action={
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading || !session}
+            className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+            Refresh
+          </button>
+        }
+      />
+
+      <div className="mt-4">
+        {loading && !session ? (
+          <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading answer session
+          </div>
+        ) : runs.length ? (
+          <div className="space-y-3">
+            {runs.map((run, index) => {
+              const active = run.id === selectedRunId;
+              const citationCount = run.citations?.length ?? 0;
+              const evidenceCount = run.evidence?.length ?? 0;
+
+              return (
+                <button
+                  key={run.id}
+                  type="button"
+                  onClick={() => onSelectRun(run)}
+                  className={[
+                    "w-full rounded-2xl border p-3 text-left transition",
+                    active
+                      ? "border-indigo-300 bg-indigo-50/70 shadow-sm"
+                      : "border-slate-200 bg-slate-50/70 hover:border-slate-300 hover:bg-white",
+                  ].join(" ")}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      <span>Run {runs.length - index}</span>
+                      <span>{run.status}</span>
+                      {active ? (
+                        <span className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-indigo-700">
+                          Current view
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      {formatDate(run.createdAt)}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-slate-950">
+                    {run.question}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {run.groundingStatus ? (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
+                        {humanizeEnumValue(run.groundingStatus, "Grounding")}
+                      </span>
+                    ) : null}
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Citations {citationCount}
+                    </span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                      Evidence {evidenceCount}
+                    </span>
+                    {run.model ? (
+                      <span className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700">
+                        {run.model}
+                      </span>
+                    ) : null}
+                    {run.assistModel ? (
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-800">
+                        Deep review support
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyPanel
+            title="No answer runs yet"
+            body="Generate an answer from retrieved evidence to start the session timeline."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GovernanceAnswerPanel({
   run,
   draftText,
@@ -1518,6 +1636,12 @@ export default function GovernanceWorkspacePage() {
       }),
   });
 
+  const answerSessionQuery = useQuery({
+    queryKey: ["governance-answer-session", answerSessionId],
+    enabled: Boolean(answerSessionId),
+    queryFn: async () => getGovernanceAnswerSession(String(answerSessionId)),
+  });
+
   useEffect(() => {
     const pending = consumeGovernanceWorkspaceIntent();
     if (!pending) return;
@@ -1993,6 +2117,7 @@ export default function GovernanceWorkspacePage() {
                 setAnswerRun(event.data.run);
                 setAnswerDraft(event.data.run.answer ?? "");
                 setAnswerStatus("Answer saved");
+                void answerSessionQuery.refetch();
                 break;
               case "error":
                 setAnswerError(event.data.message || "Governance answer generation failed.");
@@ -2020,6 +2145,7 @@ export default function GovernanceWorkspacePage() {
     [
       answerRun,
       answerSessionId,
+      answerSessionQuery.refetch,
       launchIntent?.anchorDocumentIds,
       launchIntent?.anchorUrlIds,
       selectedAgencyId,
@@ -2034,6 +2160,18 @@ export default function GovernanceWorkspacePage() {
     return () => {
       answerAbortRef.current?.abort();
     };
+  }, []);
+
+  useEffect(() => {
+    if (!answerSessionId || !answerRun?.id) return;
+    void answerSessionQuery.refetch();
+  }, [answerRun?.id, answerSessionId, answerSessionQuery.refetch]);
+
+  const restoreAnswerRun = React.useCallback((run: GovernanceAnswerRun) => {
+    setAnswerRun(run);
+    setAnswerDraft(run.answer ?? "");
+    setAnswerError(null);
+    setAnswerStatus(null);
   }, []);
 
   const submitFollowUpAnswer = React.useCallback(() => {
@@ -3405,6 +3543,16 @@ export default function GovernanceWorkspacePage() {
             </span>
           )}
         </div>
+
+        {answerSessionId ? (
+          <AnswerSessionPanel
+            session={answerSessionQuery.data ?? null}
+            loading={answerSessionQuery.isLoading || answerSessionQuery.isFetching}
+            selectedRunId={answerRun?.id ?? null}
+            onSelectRun={restoreAnswerRun}
+            onRefresh={() => void answerSessionQuery.refetch()}
+          />
+        ) : null}
 
         {answerRun || answerLoading || answerError || answerDraft.trim() ? (
           <GovernanceAnswerPanel

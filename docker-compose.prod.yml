@@ -78,6 +78,7 @@ services:
       DEV_AUTH_ENABLED: "false"
       INGESTION_QUEUE_CONCURRENCY: 2
       AI_TAG_URL_QUEUE_CONCURRENCY: 1
+      AI_TAG_FILE_QUEUE_CONCURRENCY: 2
     volumes:
       - backend_storage:/data
     depends_on:
@@ -123,6 +124,7 @@ services:
       TAGGER_CACHE_NS: tagger:v1
       TAGGER_SHARED_FILE_ROOTS: /data,/ingress
       TAGGER_INGRESS_DIR: /ingress
+      AI_TAGGER_WORKER_CONCURRENCY: 2
     env_file:
       - ./ai-tagger/.env
     expose:
@@ -133,7 +135,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: uvicorn app:app --host 0.0.0.0 --port 7071
+    command: uvicorn app:app --host 0.0.0.0 --port 7071 --no-access-log
 
   ai-tagger-worker:
     image: smartscrape-ai-tagger:prod
@@ -159,7 +161,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=1"
+    command: sh -c "celery -A tasks:CELERY worker -l info --concurrency=$${AI_TAGGER_WORKER_CONCURRENCY:-2}"
 
 volumes:
   db_data:

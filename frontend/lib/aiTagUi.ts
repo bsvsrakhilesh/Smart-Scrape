@@ -1,5 +1,5 @@
 export const AI_TAG_JOB_TIMEOUT_SEC = 300;
-export const AI_TAG_JOB_POLL_MS = 1200;
+export const AI_TAG_JOB_POLL_MS = 2500;
 
 export type AiTagRuntimeFields = {
   aiTagJobProgress?: number | null;

@@ -18,6 +18,7 @@ import {
   postGovernanceWorkspaceAnswerHandler,
   postGovernanceWorkspaceAnswerStreamHandler,
   postGovernanceWorkspaceQueryHandler,
+  postGovernanceWorkspaceRetrieveHandler,
 } from "../controllers/governance.controller";
 
 const r = Router();
@@ -116,6 +117,17 @@ const nullableOptionalQuestion = z.preprocess(
   z.string().trim().max(4000).optional(),
 );
 
+const workspaceOfficerFilters = z
+  .object({
+    questionType: nullableOptionalString(1, 120),
+    issueHint: nullableOptionalString(1, 240),
+    jurisdiction: nullableOptionalString(1, 160),
+    timeRange: nullableOptionalString(1, 160),
+    pollutants: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
+    agencies: z.array(z.string().trim().min(1).max(160)).max(8).optional(),
+  })
+  .optional();
+
 const workspaceAnswerSessionBody = z.object({
   sessionId: nullableOptionalString(),
   question: nullableOptionalQuestion,
@@ -125,6 +137,7 @@ const workspaceAnswerSessionBody = z.object({
   workflowMode: z
     .enum(["auto", "landscape", "case_trace", "question_review"])
     .optional(),
+  officerFilters: workspaceOfficerFilters,
   selectedIssueId: nullableOptionalString(),
   selectedAgencyId: nullableOptionalString(),
   collectorPurposeId: nullableOptionalString(),
@@ -177,6 +190,7 @@ const workspaceQueryBody = z.object({
     .optional(),
   limit: z.coerce.number().int().positive().max(12).optional(),
   collectorPurposeId: nullableOptionalString(),
+  officerFilters: workspaceOfficerFilters,
 });
 
 
@@ -220,6 +234,12 @@ r.post(
   "/governance/workspace/answer/feedback",
   validate({ body: workspaceAnswerFeedbackBody }),
   postGovernanceWorkspaceAnswerFeedbackHandler,
+);
+
+r.post(
+  "/governance/workspace/retrieve",
+  validate({ body: workspaceQueryBody }),
+  postGovernanceWorkspaceRetrieveHandler,
 );
 
 r.post(

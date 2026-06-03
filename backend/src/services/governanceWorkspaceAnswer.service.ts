@@ -27,6 +27,7 @@ export type GovernanceAnswerInput = {
   sourceScope?: "all" | "files" | "urls" | "mixed";
   workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   limit?: number;
+  officerFilters?: GovernanceAnswerOfficerFilters | null;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
   selectedDocumentIds?: string[];
@@ -37,6 +38,15 @@ export type GovernanceAnswerInput = {
   ownerId?: string | null;
   signal?: AbortSignal;
   onStreamEvent?: GovernanceAnswerStreamEmit;
+};
+
+type GovernanceAnswerOfficerFilters = {
+  questionType?: string | null;
+  issueHint?: string | null;
+  jurisdiction?: string | null;
+  timeRange?: string | null;
+  pollutants?: string[];
+  agencies?: string[];
 };
 
 type EvidenceKind =
@@ -209,6 +219,31 @@ type MultiStepResearchResult = {
       retrievalLanes: string[];
     }
   >;
+};
+
+type GraphRagSummary = {
+  active: boolean;
+  summary: {
+    graphCandidateCount: number;
+    relationLaneCount: number;
+    contradictionCount: number;
+    overrideChainCount: number;
+    comparisonCount: number;
+    caseTrailEventCount: number;
+    actorCount: number;
+    openQuestionCount: number;
+  };
+  relationshipPaths: Array<{
+    id: string;
+    kind: "comparison" | "override_chain" | "case_trail" | "actor_signal";
+    label: string;
+    detail: string;
+    documentIds: string[];
+    relationTypes: string[];
+    issueTitle?: string | null;
+    actorName?: string | null;
+  }>;
+  officerWarnings: string[];
 };
 
 const AIR_QUALITY_POLLUTANT_PATTERNS: Array<[RegExp, string]> = [
@@ -594,11 +629,46 @@ function inferOfficerQueryType(question: string): AirQualityOfficerQueryType {
   return "quick_answer";
 }
 
-export function buildAirQualityQueryProfile(question: string): AirQualityQueryProfile {
+function normalizeAnswerOfficerFilters(
+  filters: GovernanceAnswerInput["officerFilters"],
+): GovernanceAnswerOfficerFilters {
+  if (!filters || typeof filters !== "object") return {};
+  return {
+    questionType: String(filters.questionType ?? "").trim() || null,
+    issueHint: String(filters.issueHint ?? "").trim() || null,
+    jurisdiction: String(filters.jurisdiction ?? "").trim() || null,
+    timeRange: String(filters.timeRange ?? "").trim() || null,
+    pollutants: safeStringArray(filters.pollutants).slice(0, 8),
+    agencies: safeStringArray(filters.agencies).slice(0, 8),
+  };
+}
+
+export function buildAirQualityQueryProfile(
+  question: string,
+  filters?: GovernanceAnswerOfficerFilters | null,
+): AirQualityQueryProfile {
   const text = question.toLowerCase();
   const queryType = inferOfficerQueryType(question);
-  const pollutants = collectPatternMatches(question, AIR_QUALITY_POLLUTANT_PATTERNS);
-  const agencies = collectPatternMatches(question, AIR_QUALITY_AGENCY_PATTERNS);
+  const officerFilters = normalizeAnswerOfficerFilters(filters);
+  const filterText = [
+    officerFilters.questionType,
+    officerFilters.issueHint,
+    officerFilters.jurisdiction,
+    officerFilters.timeRange,
+    ...(officerFilters.pollutants ?? []),
+    ...(officerFilters.agencies ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const profileText = [question, filterText].filter(Boolean).join("\n");
+  const pollutants = uniq([
+    ...collectPatternMatches(profileText, AIR_QUALITY_POLLUTANT_PATTERNS),
+    ...(officerFilters.pollutants ?? []),
+  ]);
+  const agencies = uniq([
+    ...collectPatternMatches(profileText, AIR_QUALITY_AGENCY_PATTERNS),
+    ...(officerFilters.agencies ?? []),
+  ]);
   const sectors = collectPatternMatches(question, AIR_QUALITY_SECTOR_PATTERNS);
   const orderTypes = collectPatternMatches(question, AIR_QUALITY_ORDER_PATTERNS);
   const enforcementSignals = collectPatternMatches(question, [
@@ -621,13 +691,13 @@ export function buildAirQualityQueryProfile(question: string): AirQualityQueryPr
   return {
     domain: "air_quality_governance",
     queryType,
-    jurisdiction: detectJurisdiction(question),
+    jurisdiction: officerFilters.jurisdiction || detectJurisdiction(question),
     agencies,
     pollutants,
     sectors,
     orderTypes,
     enforcementSignals,
-    timeRange: detectTimeRange(question),
+    timeRange: officerFilters.timeRange || detectTimeRange(question),
     sourcePriorities,
     generationStages: [
       "understand_air_quality_question",
@@ -740,6 +810,127 @@ function buildAnswerRetrievalTraceSummary(args: {
       .slice(0, 8)
       .map(([reason, count]) => ({ reason, count })),
     selectedEvidence,
+  };
+}
+
+export function buildGraphRagSummary(evidenceResponse: any): GraphRagSummary {
+  const candidates = Array.isArray(evidenceResponse?.candidates)
+    ? evidenceResponse.candidates
+    : [];
+  const graphCandidates = candidates.filter((candidate: any) =>
+    Array.isArray(candidate.coverageFamilies) &&
+    candidate.coverageFamilies.includes("graph"),
+  );
+  const relationLaneCount = candidates.filter((candidate: any) =>
+    Array.isArray(candidate.retrievalLanes) &&
+    candidate.retrievalLanes.includes("relation_graph"),
+  ).length;
+  const contradictionFoundation = objectFrom(
+    evidenceResponse?.contradictionFoundation,
+  );
+  const contradictionSummary = objectFrom(contradictionFoundation.summary);
+  const overrideChainFoundation = objectFrom(
+    evidenceResponse?.overrideChainFoundation,
+  );
+  const comparisonSurface = objectFrom(evidenceResponse?.comparisonSurface);
+  const caseTrailFoundation = objectFrom(evidenceResponse?.caseTrailFoundation);
+  const questionReviewSurface = objectFrom(
+    evidenceResponse?.questionReviewSurface,
+  );
+  const comparisonItems = arrayFrom(comparisonSurface.comparisons);
+  const overrideChains = arrayFrom(overrideChainFoundation.chains);
+  const caseTrailEvents = arrayFrom(caseTrailFoundation.events);
+  const actorInputs = arrayFrom(questionReviewSurface.actorInputs);
+  const openQuestions = arrayFrom(questionReviewSurface.openQuestions);
+
+  const comparisonPaths = comparisonItems.slice(0, 5).map((item: any) => ({
+    id: String(item.comparisonKey ?? `comparison:${item.documentIds?.join(":")}`),
+    kind: "comparison" as const,
+    label: String(item.changeSummary ?? "Document relationship"),
+    detail: String(
+      item.strongestReason ??
+        "Relationship pair assembled from contradiction or override evidence.",
+    ),
+    documentIds: safeStringArray(item.documentIds),
+    relationTypes: safeStringArray(item.relationTypes),
+    issueTitle: typeof item.issueTitle === "string" ? item.issueTitle : null,
+  }));
+
+  const overridePaths = overrideChains.slice(0, 4).map((chain: any) => ({
+    id: String(chain.chainKey ?? `override:${chain.documentIds?.join(":")}`),
+    kind: "override_chain" as const,
+    label: String(chain.title ?? "Override or supersession chain"),
+    detail: String(chain.basis ?? "Possible override chain detected."),
+    documentIds: safeStringArray(chain.documentIds),
+    relationTypes: ["OVERRIDE", "SUPERSEDES"].filter((type) =>
+      JSON.stringify(chain).includes(type),
+    ),
+    issueTitle: typeof chain.issueTitle === "string" ? chain.issueTitle : null,
+  }));
+
+  const caseTrailPaths = caseTrailEvents.slice(0, 4).map((event: any) => ({
+    id: String(event.eventId ?? `case-trail:${event.documentId ?? event.dateLabel}`),
+    kind: "case_trail" as const,
+    label: String(event.title ?? event.dateLabel ?? "Case trail event"),
+    detail: String(event.detail ?? event.reason ?? "Chronology graph event."),
+    documentIds: safeStringArray(event.documentIds ?? [event.documentId]),
+    relationTypes: [],
+    issueTitle: typeof event.issueTitle === "string" ? event.issueTitle : null,
+  }));
+
+  const actorPaths = actorInputs.slice(0, 4).map((actor: any) => ({
+    id: `actor:${String(actor.actorName ?? "unknown")}`,
+    kind: "actor_signal" as const,
+    label: String(actor.actorName ?? "Unattributed institution"),
+    detail: String(
+      actor.strongestSignal?.detail ??
+        actor.role ??
+        "Actor signal assembled from graph evidence.",
+    ),
+    documentIds: safeStringArray(actor.strongestSignal?.documentIds),
+    relationTypes: [],
+    actorName: typeof actor.actorName === "string" ? actor.actorName : null,
+  }));
+
+  const officerWarnings = [
+    numberFrom(contradictionSummary.reviewCount, 0) > 0
+      ? `${numberFrom(contradictionSummary.reviewCount)} graph relation(s) require analyst review.`
+      : null,
+    comparisonItems.length > 0
+      ? "Comparison paths may indicate conflicts, scope changes, overrides, or supersession."
+      : null,
+    openQuestions.length > 0
+      ? `${openQuestions.length} graph-informed open question(s) remain.`
+      : null,
+  ].filter((item): item is string => Boolean(item));
+
+  const relationshipPaths = [
+    ...comparisonPaths,
+    ...overridePaths,
+    ...caseTrailPaths,
+    ...actorPaths,
+  ].slice(0, 14);
+
+  return {
+    active:
+      graphCandidates.length > 0 ||
+      relationshipPaths.length > 0 ||
+      numberFrom(contradictionSummary.contradictionCount, 0) > 0,
+    summary: {
+      graphCandidateCount: graphCandidates.length,
+      relationLaneCount,
+      contradictionCount: numberFrom(
+        contradictionSummary.contradictionCount,
+        0,
+      ),
+      overrideChainCount: overrideChains.length,
+      comparisonCount: comparisonItems.length,
+      caseTrailEventCount: caseTrailEvents.length,
+      actorCount: actorInputs.length,
+      openQuestionCount: openQuestions.length,
+    },
+    relationshipPaths,
+    officerWarnings,
   };
 }
 
@@ -2237,6 +2428,7 @@ async function generateAnswerOnce(p: {
   evidenceCards: EvidenceCard[];
   profile: AirQualityQueryProfile;
   multiStepResearch?: MultiStepResearchResult | null;
+  graphRagSummary?: GraphRagSummary | null;
   model: string;
   previousResponseId?: string | null;
   repairFrom?: GovernanceAnswerStructured | null;
@@ -2251,6 +2443,7 @@ async function generateAnswerOnce(p: {
     "Every factual claim in the answer must appear in claimCitations with at least one citation.",
     "Each citation must use an allowed evidenceId and quote a verbatim substring from that evidence TEXT.",
     "Prioritize official-source evidence from pollution boards, CAQM, environment departments, courts/tribunals, municipal bodies, district administrations, orders, directions, inspections, compliance reports, and action plans.",
+    "Use GRAPH_RAG_SUMMARY to reason over agency relationships, issue links, contradictions, override chains, case-trail chronology, and actor signals when it is present.",
     "Return the officer workflow metadata fields: queryType, jurisdiction, agencies, pollutants, timeRange, summary, findings, conflicts, evidenceGaps, recommendedNextSteps, and confidence.",
     "Findings and conflicts must be citation-backed. Evidence gaps and recommended next steps may be uncited but must be phrased as review actions, not factual conclusions.",
     "Allowed general suggestions are permitted only inside caveats with kind=suggestion, clearly labeled as not directly established by evidence.",
@@ -2275,6 +2468,9 @@ async function generateAnswerOnce(p: {
     "",
     p.multiStepResearch?.enabled
       ? `MULTI_STEP_RESEARCH_TRACE:\n${JSON.stringify(p.multiStepResearch)}\n`
+      : "",
+    p.graphRagSummary?.active
+      ? `GRAPH_RAG_SUMMARY:\n${JSON.stringify(p.graphRagSummary)}\n`
       : "",
     `ALLOWED_EVIDENCE_IDS:\n${allowedIds}`,
     "",
@@ -2402,6 +2598,7 @@ function buildRetrievalMetadata(
   profile: AirQualityQueryProfile,
   selectedDocumentIds: string[] = [],
   multiStepResearch?: MultiStepResearchResult | null,
+  graphRagSummary?: GraphRagSummary | null,
 ) {
   return {
     promptVersion: GOVERNANCE_ANSWER_PROMPT_VERSION,
@@ -2412,6 +2609,7 @@ function buildRetrievalMetadata(
     queryUnderstanding: evidenceResponse?.queryUnderstanding ?? null,
     retrievalDecision: evidenceResponse?.retrievalDecision ?? null,
     multiStepResearch: multiStepResearch ?? null,
+    graphRagSummary: graphRagSummary ?? null,
     totalCandidates: evidenceResponse?.totalCandidates ?? 0,
     evidenceCardCount: evidenceCards.length,
     retrievalTraceSummary: buildAnswerRetrievalTraceSummary({
@@ -2438,9 +2636,10 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
   const anchorUrlIds = safeNumberArray(input.anchorUrlIds);
   const sourceScope = normalizeScope(input.sourceScope);
   const requestedWorkflowMode = normalizeWorkflow(input.workflowMode);
+  const officerFilters = normalizeAnswerOfficerFilters(input.officerFilters);
   const model = modelForAnswer(input.deepReview);
   const assistModel = modelForAssist();
-  const officerQueryProfile = buildAirQualityQueryProfile(question);
+  const officerQueryProfile = buildAirQualityQueryProfile(question, officerFilters);
 
   const sessionId = await ensureSession({
     sessionId: input.sessionId ?? null,
@@ -2502,6 +2701,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
       limit: Math.max(10, Math.min(12, Number(input.limit ?? 12))),
       collectorPurposeId: input.collectorPurposeId ?? null,
       ownerId: input.ownerId ?? "local",
+      officerFilters,
     });
 
     const allowedDocumentIds = input.collectorPurposeId
@@ -2542,6 +2742,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
         message: `Retrieved ${multiStepResearch.steps.length} research lanes`,
       });
     }
+    const graphRagSummary = buildGraphRagSummary(evidenceResponse);
 
     const retrievedDocumentIds = uniq([
       ...documentIdsFromEvidenceResponse(evidenceResponse),
@@ -2586,6 +2787,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
         officerQueryProfile,
         candidateDocumentIds,
         multiStepResearch,
+        graphRagSummary,
       ),
       collectorPurposeId: input.collectorPurposeId ?? null,
       allowedDocumentIds,
@@ -2668,6 +2870,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
       evidenceCards,
       profile: officerQueryProfile,
       multiStepResearch,
+      graphRagSummary,
       model,
       previousResponseId,
       signal: input.signal,
@@ -2686,6 +2889,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
         evidenceCards,
         profile: officerQueryProfile,
         multiStepResearch,
+        graphRagSummary,
         model,
         previousResponseId: openaiResponseId ?? previousResponseId,
         repairFrom: first.answer,

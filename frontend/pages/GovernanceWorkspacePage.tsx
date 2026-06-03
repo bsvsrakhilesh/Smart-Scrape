@@ -45,12 +45,14 @@ import {
   type GovernanceAnswerCitation,
   type GovernanceAnswerEvaluation,
   type GovernanceAnswerFeedbackRating,
+  type GovernanceAnswerGraphRagSummary,
   type GovernanceAnswerMultiStepResearch,
   type GovernanceAnswerRetrievalTraceSummary,
   type GovernanceAnswerRun,
   type GovernanceAnswerSession,
   type GovernanceAnswerSessionSummary,
   type GovernanceWorkspaceEvidenceCandidate,
+  type GovernanceWorkspaceOfficerFilters,
 } from "../lib/api";
 import NotebookTemplateModal from "../components/governance/NotebookTemplateModal";
 import { notebookClient } from "../lib/notebookClient";
@@ -324,6 +326,46 @@ function buildQuestionBuilderDraft(input: {
   }
 
   return `${parts.join(" ")}?`.replace(/\s+\?/g, "?");
+}
+
+function extractOfficerFilterPollutants(value: string) {
+  const text = value.toLowerCase();
+  const pollutants: string[] = [];
+  if (/\bpm\s*2\.?5\b|\bpm2\.?5\b/.test(text)) pollutants.push("PM2.5");
+  if (/\bpm\s*10\b|\bpm10\b/.test(text)) pollutants.push("PM10");
+  if (/\bno[x2]?\b|\bnitrogen dioxide\b/.test(text)) pollutants.push("NOx");
+  if (/\bso2\b|\bsulfur dioxide\b|\bsulphur dioxide\b/.test(text)) {
+    pollutants.push("SO2");
+  }
+  if (/\bozone\b|\bo3\b/.test(text)) pollutants.push("Ozone");
+  if (/\baqi\b/.test(text)) pollutants.push("AQI");
+  return Array.from(new Set(pollutants));
+}
+
+function buildOfficerFilters(input: {
+  questionType: QuestionBuilderType | "";
+  issueHint: string;
+  locationHint: string;
+  timeHint: string;
+  question: string;
+}): GovernanceWorkspaceOfficerFilters | null {
+  const questionType = input.questionType
+    ? formatQuestionBuilderTypeLabel(input.questionType)
+    : null;
+  const issueHint = normalizeQuestionDraft(input.issueHint) || null;
+  const jurisdiction = normalizeQuestionDraft(input.locationHint) || null;
+  const timeRange = normalizeQuestionDraft(input.timeHint) || null;
+  const pollutants = extractOfficerFilterPollutants(
+    [input.issueHint, input.question].join(" "),
+  );
+  const filters: GovernanceWorkspaceOfficerFilters = {
+    ...(questionType ? { questionType } : {}),
+    ...(issueHint ? { issueHint } : {}),
+    ...(jurisdiction ? { jurisdiction } : {}),
+    ...(timeRange ? { timeRange } : {}),
+    ...(pollutants.length ? { pollutants } : {}),
+  };
+  return Object.keys(filters).length ? filters : null;
 }
 
 function formatQueryTypeLabel(type: GovernanceQueryType) {
@@ -1810,6 +1852,12 @@ function GovernanceAnswerPanel({
       ? (run.retrievalMetadata
           .multiStepResearch as GovernanceAnswerMultiStepResearch)
       : null;
+  const graphRagSummary =
+    run?.retrievalMetadata?.graphRagSummary &&
+    typeof run.retrievalMetadata.graphRagSummary === "object"
+      ? (run.retrievalMetadata
+          .graphRagSummary as GovernanceAnswerGraphRagSummary)
+      : null;
   const [selectedCitation, setSelectedCitation] =
     React.useState<GovernanceAnswerCitation | null>(null);
 
@@ -2235,6 +2283,116 @@ function GovernanceAnswerPanel({
                 </div>
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {graphRagSummary?.active ? (
+          <div className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-950">
+                  GraphRAG relationship map
+                </div>
+                <div className="mt-1 text-xs text-slate-600">
+                  Agency links, issue trails, contradictions, and relationship paths found during retrieval.
+                </div>
+              </div>
+              <span className="rounded-full border border-cyan-200 bg-white px-3 py-1 text-xs font-semibold text-cyan-800">
+                {graphRagSummary.relationshipPaths.length} paths
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ["Graph candidates", graphRagSummary.summary.graphCandidateCount],
+                ["Relation lanes", graphRagSummary.summary.relationLaneCount],
+                ["Contradictions", graphRagSummary.summary.contradictionCount],
+                ["Override chains", graphRagSummary.summary.overrideChainCount],
+                ["Comparisons", graphRagSummary.summary.comparisonCount],
+                ["Case events", graphRagSummary.summary.caseTrailEventCount],
+                ["Actors", graphRagSummary.summary.actorCount],
+                ["Open questions", graphRagSummary.summary.openQuestionCount],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="rounded-xl border border-cyan-100 bg-white/85 px-3 py-2"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-700">
+                    {label}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-950">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {graphRagSummary.officerWarnings.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {graphRagSummary.officerWarnings.slice(0, 4).map((warning) => (
+                  <span
+                    key={warning}
+                    className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800"
+                  >
+                    {warning}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {graphRagSummary.relationshipPaths.length ? (
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                {graphRagSummary.relationshipPaths.slice(0, 8).map((path) => (
+                  <div
+                    key={path.id}
+                    className="rounded-xl border border-cyan-100 bg-white/90 p-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">
+                            {humanizeEnumValue(path.kind, "Path")}
+                          </span>
+                          {path.actorName ? (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                              {path.actorName}
+                            </span>
+                          ) : null}
+                          {path.issueTitle ? (
+                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                              {path.issueTitle}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 text-sm font-semibold text-slate-950">
+                          {path.label}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                        {path.documentIds.length} docs
+                      </span>
+                    </div>
+
+                    <p className="mt-2 text-xs leading-5 text-slate-600">
+                      {path.detail}
+                    </p>
+
+                    {path.relationTypes.length ? (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {path.relationTypes.slice(0, 4).map((relation) => (
+                          <span
+                            key={`${path.id}-${relation}`}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+                          >
+                            {humanizeEnumValue(relation, "Relation")}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -2868,6 +3026,22 @@ export default function GovernanceWorkspacePage() {
     [issueHint, locationHint, questionType, timeHint],
   );
 
+  const officerFilters = useMemo(
+    () =>
+      buildOfficerFilters({
+        questionType,
+        issueHint,
+        locationHint,
+        timeHint,
+        question: workspaceQuestion,
+      }),
+    [issueHint, locationHint, questionType, timeHint, workspaceQuestion],
+  );
+  const officerFiltersKey = useMemo(
+    () => JSON.stringify(officerFilters ?? {}),
+    [officerFilters],
+  );
+
   const hasQuestionBuilderInput =
     Boolean(questionType) ||
     Boolean(issueHint.trim()) ||
@@ -2966,6 +3140,7 @@ export default function GovernanceWorkspacePage() {
       launchIntent?.anchorDocumentIds?.join("|") ?? "",
       launchIntent?.anchorUrlIds?.join("|") ?? "",
       constrainedPurposeId ?? "",
+      officerFiltersKey,
     ],
     enabled:
       workspaceQueryRunKey > 0 &&
@@ -2981,6 +3156,7 @@ export default function GovernanceWorkspacePage() {
         sourceScope,
         limit: 8,
         collectorPurposeId: constrainedPurposeId,
+        officerFilters,
       }),
   });
 
@@ -3291,6 +3467,7 @@ export default function GovernanceWorkspacePage() {
             selectedIssueId,
             selectedAgencyId,
             collectorPurposeId: constrainedPurposeId,
+            officerFilters,
             selectedDocumentIds,
             limit: 12,
             deepReview: options?.deepReview === true,
@@ -3347,6 +3524,7 @@ export default function GovernanceWorkspacePage() {
       launchIntent?.anchorDocumentIds,
       launchIntent?.anchorUrlIds,
       lockedEvidenceDocumentIds,
+      officerFilters,
       selectedAgencyId,
       selectedIssueId,
       sourceScope,

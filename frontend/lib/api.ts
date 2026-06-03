@@ -3214,11 +3214,21 @@ export type GovernanceAnswerPayload = {
   sourceScope?: "all" | "files" | "urls" | "mixed";
   workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   limit?: number;
+  officerFilters?: GovernanceWorkspaceOfficerFilters | null;
   selectedIssueId?: string | null;
   selectedAgencyId?: string | null;
   collectorPurposeId?: string | null;
   selectedDocumentIds?: string[];
   deepReview?: boolean;
+};
+
+export type GovernanceWorkspaceOfficerFilters = {
+  questionType?: string | null;
+  issueHint?: string | null;
+  jurisdiction?: string | null;
+  timeRange?: string | null;
+  pollutants?: string[];
+  agencies?: string[];
 };
 
 export type GovernanceAnswerResponse = {
@@ -3313,6 +3323,31 @@ export type GovernanceAnswerMultiStepResearch = {
   }>;
 };
 
+export type GovernanceAnswerGraphRagSummary = {
+  active: boolean;
+  summary: {
+    graphCandidateCount: number;
+    relationLaneCount: number;
+    contradictionCount: number;
+    overrideChainCount: number;
+    comparisonCount: number;
+    caseTrailEventCount: number;
+    actorCount: number;
+    openQuestionCount: number;
+  };
+  relationshipPaths: Array<{
+    id: string;
+    kind: "comparison" | "override_chain" | "case_trail" | "actor_signal" | string;
+    label: string;
+    detail: string;
+    documentIds: string[];
+    relationTypes: string[];
+    issueTitle?: string | null;
+    actorName?: string | null;
+  }>;
+  officerWarnings: string[];
+};
+
 export type GovernanceAnswerStreamEvent =
   | { event: "run"; data: { type: "run"; runId: string; sessionId: string } }
   | { event: "status"; data: { type: "status"; message: string } }
@@ -3334,10 +3369,11 @@ export async function queryGovernanceWorkspaceEvidence(payload: {
   workflowMode?: "auto" | "landscape" | "case_trace" | "question_review";
   limit?: number;
   collectorPurposeId?: string | null;
+  officerFilters?: GovernanceWorkspaceOfficerFilters | null;
 }) {
   try {
     const res = await api.post<GovernanceWorkspaceEvidenceResponse>(
-      "/api/governance/workspace/query",
+      "/api/governance/workspace/retrieve",
       payload,
       {
         headers: { Accept: "application/json" },

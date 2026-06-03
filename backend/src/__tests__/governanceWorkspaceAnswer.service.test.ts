@@ -178,6 +178,24 @@ test("air quality query profile detects officer workflow and domain signals", as
   assert.ok(profile.sourcePriorities.includes("Official orders and directions"));
 });
 
+test("air quality query profile merges structured officer filters", async () => {
+  const { buildAirQualityQueryProfile } = await loadAnswerScopeHelpers();
+
+  const profile = buildAirQualityQueryProfile("What should I review?", {
+    questionType: "Field prep",
+    issueHint: "PM2.5",
+    jurisdiction: "Delhi NCR",
+    timeRange: "Current",
+    pollutants: ["PM2.5"],
+    agencies: ["CAQM"],
+  });
+
+  assert.equal(profile.jurisdiction, "Delhi NCR");
+  assert.equal(profile.timeRange, "Current");
+  assert.ok(profile.pollutants.includes("PM2.5"));
+  assert.ok(profile.agencies.includes("CAQM"));
+});
+
 test("multi-step research planner decomposes complex officer questions", async () => {
   const { buildAirQualityQueryProfile, buildMultiStepResearchPlan } =
     await loadAnswerScopeHelpers();
@@ -280,6 +298,76 @@ test("answer run evaluation scores retrieval, citations, coverage, and feedback"
   assert.equal(evaluation.officerFeedbackCount, 1);
   assert.ok(evaluation.scores.overall >= 70);
   assert.equal(evaluation.checks.find((item) => item.key === "citations")?.status, "pass");
+});
+
+test("graph rag summary extracts relationship paths and officer warnings", async () => {
+  const { buildGraphRagSummary } = await loadAnswerScopeHelpers();
+
+  const summary = buildGraphRagSummary({
+    candidates: [
+      {
+        coverageFamilies: ["graph", "chunk"],
+        retrievalLanes: ["relation_graph", "semantic_chunk"],
+      },
+    ],
+    contradictionFoundation: {
+      summary: { contradictionCount: 2, reviewCount: 1 },
+    },
+    overrideChainFoundation: {
+      chains: [
+        {
+          chainKey: "chain-1",
+          title: "Later CAQM order supersedes earlier direction",
+          basis: "Supersedes-style relation indicates displacement.",
+          documentIds: ["doc-a", "doc-b"],
+        },
+      ],
+    },
+    comparisonSurface: {
+      comparisons: [
+        {
+          comparisonKey: "doc-a::doc-b",
+          changeSummary: "Position shift from earlier to later order.",
+          strongestReason: "Later order overrides earlier record.",
+          documentIds: ["doc-a", "doc-b"],
+          relationTypes: ["OVERRIDE"],
+          issueTitle: "GRAP enforcement",
+        },
+      ],
+    },
+    caseTrailFoundation: {
+      events: [
+        {
+          eventId: "event-1",
+          title: "Inspection completed",
+          detail: "Inspection report added to the record.",
+          documentIds: ["doc-c"],
+          issueTitle: "Industrial emissions",
+        },
+      ],
+    },
+    questionReviewSurface: {
+      actorInputs: [
+        {
+          actorName: "CAQM",
+          strongestSignal: {
+            detail: "CAQM direction is the strongest actor signal.",
+            documentIds: ["doc-b"],
+          },
+        },
+      ],
+      openQuestions: ["Verify follow-up status."],
+    },
+  });
+
+  assert.equal(summary.active, true);
+  assert.equal(summary.summary.graphCandidateCount, 1);
+  assert.equal(summary.summary.relationLaneCount, 1);
+  assert.equal(summary.summary.contradictionCount, 2);
+  assert.equal(summary.summary.overrideChainCount, 1);
+  assert.ok(summary.relationshipPaths.some((item: any) => item.kind === "comparison"));
+  assert.ok(summary.relationshipPaths.some((item: any) => item.kind === "actor_signal"));
+  assert.ok(summary.officerWarnings.some((item: string) => item.includes("analyst review")));
 });
 
 test("selected answer evidence restricts candidate documents", async () => {

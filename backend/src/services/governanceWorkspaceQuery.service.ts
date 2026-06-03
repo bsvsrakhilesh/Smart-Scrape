@@ -29,6 +29,16 @@ type GovernanceWorkspaceQueryInput = {
   limit?: number;
   collectorPurposeId?: string | null;
   ownerId?: string | null;
+  officerFilters?: GovernanceWorkspaceOfficerFilters | null;
+};
+
+type GovernanceWorkspaceOfficerFilters = {
+  questionType?: string | null;
+  issueHint?: string | null;
+  jurisdiction?: string | null;
+  timeRange?: string | null;
+  pollutants?: string[];
+  agencies?: string[];
 };
 
 type GovernanceWorkspaceRetrievalLane =
@@ -703,7 +713,10 @@ function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
   limit: number;
   collectorPurposeId: string | null;
   ownerId: string;
+  officerFilters: GovernanceWorkspaceOfficerFilters;
 } {
+  const officerFilters = normalizeOfficerFilters(input.officerFilters);
+
   return {
     question: String(input.question || "").trim(),
     anchorDocumentIds: uniqueStrings(input.anchorDocumentIds),
@@ -713,7 +726,47 @@ function normalizeInput(input: GovernanceWorkspaceQueryInput): Required<
     limit: clampLimit(input.limit),
     collectorPurposeId: String(input.collectorPurposeId || "").trim() || null,
     ownerId: String(input.ownerId || "local").trim() || "local",
+    officerFilters,
   };
+}
+
+function normalizeOfficerFilters(
+  filters: GovernanceWorkspaceQueryInput["officerFilters"],
+): GovernanceWorkspaceOfficerFilters {
+  if (!filters || typeof filters !== "object") return {};
+  return {
+    questionType: trimOptional(filters.questionType),
+    issueHint: trimOptional(filters.issueHint),
+    jurisdiction: trimOptional(filters.jurisdiction),
+    timeRange: trimOptional(filters.timeRange),
+    pollutants: uniqueStrings(filters.pollutants).slice(0, 8),
+    agencies: uniqueStrings(filters.agencies).slice(0, 8),
+  };
+}
+
+function trimOptional(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
+function officerFilterTerms(filters: GovernanceWorkspaceOfficerFilters): string[] {
+  return uniqueStrings([
+    filters.questionType,
+    filters.issueHint,
+    filters.jurisdiction,
+    filters.timeRange,
+    ...(filters.pollutants ?? []),
+    ...(filters.agencies ?? []),
+  ]);
+}
+
+function retrievalQuestionWithFilters(
+  question: string,
+  filters: GovernanceWorkspaceOfficerFilters,
+) {
+  const terms = officerFilterTerms(filters);
+  if (!terms.length) return question;
+  return [question, `Officer filters: ${terms.join("; ")}`].filter(Boolean).join("\n");
 }
 
 function tokenizeQuestion(question: string): string[] {
@@ -1132,6 +1185,36 @@ function rankCandidate(candidate: CandidateAccumulator): RankedCandidate {
     diversityReason: null,
     temporalReason: null,
   };
+}
+
+function applyOfficerFilterBoosts(
+  candidates: Map<string, CandidateAccumulator>,
+  filters: GovernanceWorkspaceOfficerFilters,
+) {
+  const terms = officerFilterTerms(filters);
+  if (!terms.length) return;
+
+  for (const candidate of candidates.values()) {
+    const haystack = [
+      candidate.title,
+      candidate.sourceLabel,
+      candidate.summary,
+      candidate.publishedAt,
+      candidate.createdAt,
+      candidate.updatedAt,
+      ...Array.from(candidate.matchedIssues),
+      ...Array.from(candidate.matchedAgencies),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    const matched = terms.filter((term) =>
+      haystack.includes(String(term).toLowerCase()),
+    );
+    if (!matched.length) continue;
+    candidate.signalScore += Math.min(18, matched.length * 6);
+    candidate.reasons.add(`Officer filter match: ${matched.slice(0, 3).join(", ")}`);
+  }
 }
 
 function resolveRetrievalDecision(
@@ -3805,22 +3888,26 @@ export async function queryGovernanceWorkspaceEvidence(
   rawInput: GovernanceWorkspaceQueryInput,
 ) {
   const input = normalizeInput(rawInput);
+  const retrievalQuestion = retrievalQuestionWithFilters(
+    input.question,
+    input.officerFilters,
+  );
   const evidenceScope = input.collectorPurposeId
     ? await resolveCollectorPurposeEvidenceScope(input.ownerId, input.collectorPurposeId)
     : null;
   const allowedDocumentIds = evidenceScope
     ? new Set(evidenceScope.allowedDocumentIds)
     : null;
-  const tokens = tokenizeQuestion(input.question);
+  const tokens = tokenizeQuestion(retrievalQuestion);
   const workflow = resolveWorkflowPlan({
     requestedMode: input.workflowMode,
-    question: input.question,
+    question: retrievalQuestion,
     tokens,
     anchorDocumentIds: input.anchorDocumentIds,
     anchorUrlIds: input.anchorUrlIds,
   });
   const queryUnderstanding = await buildQueryUnderstanding({
-    question: input.question,
+    question: retrievalQuestion,
     tokens,
     workflowMode: workflow.resolvedMode,
   });
@@ -3855,9 +3942,9 @@ export async function queryGovernanceWorkspaceEvidence(
     });
   }
 
-  if (input.question.trim()) {
+  if (retrievalQuestion.trim()) {
     await addHybridChunkCandidates(candidates, {
-      question: input.question,
+      question: retrievalQuestion,
       tokens,
       scope: input.sourceScope,
       limit: Math.max(input.limit * 3, 18),
@@ -4122,6 +4209,8 @@ export async function queryGovernanceWorkspaceEvidence(
     }
   }
 
+  applyOfficerFilterBoosts(candidates, input.officerFilters);
+
   const ranked = Array.from(candidates.values())
     .map((candidate) => rankCandidate(candidate))
     .sort((a, b) => {
@@ -4267,6 +4356,7 @@ export async function queryGovernanceWorkspaceEvidence(
       anchorUrlIds: input.anchorUrlIds,
       limit: input.limit,
       collectorPurposeId: input.collectorPurposeId,
+      officerFilters: input.officerFilters,
     },
     evidenceScope,
     workflow,

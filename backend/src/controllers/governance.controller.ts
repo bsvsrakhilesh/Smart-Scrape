@@ -325,10 +325,11 @@ export async function getAgencyLandscapeHandler(
   }
 }
 
-export async function postGovernanceWorkspaceQueryHandler(
+async function handleGovernanceWorkspaceEvidenceRequest(
   req: Request,
   res: Response,
   next: NextFunction,
+  action: "governance.workspace.query" | "governance.workspace.retrieve",
 ) {
   try {
     const body = (req as any).body ?? {};
@@ -345,6 +346,10 @@ export async function postGovernanceWorkspaceQueryHandler(
       workflowMode:
         typeof body.workflowMode === "string" ? body.workflowMode : undefined,
       limit: typeof body.limit === "number" ? body.limit : undefined,
+      officerFilters:
+        body.officerFilters && typeof body.officerFilters === "object"
+          ? body.officerFilters
+          : undefined,
       collectorPurposeId:
         typeof body.collectorPurposeId === "string"
           ? body.collectorPurposeId
@@ -353,14 +358,18 @@ export async function postGovernanceWorkspaceQueryHandler(
     });
 
     await logGovernanceAudit(req, {
-      action: "governance.workspace.query",
+      action,
       resourceType: "SYSTEM",
-      resourceId: "governance-workspace-query",
+      resourceId:
+        action === "governance.workspace.retrieve"
+          ? "governance-workspace-retrieve"
+          : "governance-workspace-query",
       metadata: {
         question: out.query.question || null,
         sourceScope: out.query.sourceScope,
         requestedWorkflowMode: out.query.workflowMode,
         resolvedWorkflowMode: out.workflow.resolvedMode,
+        officerFilters: out.query.officerFilters ?? null,
         anchorDocumentIds: out.query.anchorDocumentIds,
         anchorUrlIds: out.query.anchorUrlIds,
         tokenCount: out.query.tokens.length,
@@ -375,6 +384,32 @@ export async function postGovernanceWorkspaceQueryHandler(
   } catch (err) {
     next(err);
   }
+}
+
+export async function postGovernanceWorkspaceQueryHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  return handleGovernanceWorkspaceEvidenceRequest(
+    req,
+    res,
+    next,
+    "governance.workspace.query",
+  );
+}
+
+export async function postGovernanceWorkspaceRetrieveHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  return handleGovernanceWorkspaceEvidenceRequest(
+    req,
+    res,
+    next,
+    "governance.workspace.retrieve",
+  );
 }
 
 
@@ -426,6 +461,10 @@ function buildAnswerInput(req: Request) {
     workflowMode:
       typeof body.workflowMode === "string" ? body.workflowMode : undefined,
     limit: typeof body.limit === "number" ? body.limit : undefined,
+    officerFilters:
+      body.officerFilters && typeof body.officerFilters === "object"
+        ? body.officerFilters
+        : undefined,
     selectedIssueId:
       typeof body.selectedIssueId === "string" ? body.selectedIssueId : undefined,
     selectedAgencyId:

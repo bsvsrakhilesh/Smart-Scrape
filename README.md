@@ -45,230 +45,404 @@ Documents like orders, notices, compliance reports, meeting minutes, action-take
 
 ## Installation
 
-This guide is written for someone who wants to run the SmartScrape website
-locally, even without much development experience. Use Docker Compose unless
-you specifically want to develop each service manually. Docker Compose starts
-everything SmartScrape needs: the website, backend API, workers, PostgreSQL with
-pgvector, Redis, and the Python AI tagger.
+The supported local installation path is Docker Compose. It starts the complete
+SmartScrape stack: React frontend, Express backend, backend worker, PostgreSQL
+with pgvector, Redis, FastAPI AI tagger, and AI tagger worker. Docker also runs
+the Node and Python dependency installation inside the containers, so reviewers
+do not need a local PostgreSQL, Redis, Node.js, or Python installation for the
+standard setup.
 
-You do not need to install PostgreSQL, Redis, Python, or Node.js separately for
-the normal Docker setup. Docker runs those services in containers.
+### Requirements
 
-1. Install the required tools.
+- Docker Desktop or Docker Engine with Docker Compose.
+- Git, unless you download the repository as a ZIP archive.
+- A terminal: PowerShell on Windows, Terminal on macOS or Linux.
+- For full external integrations: `OPENAI_API_KEY`, `GOOGLE_CSE_KEY`,
+  and `GOOGLE_CSE_CX`.
+- Optional for non-Docker development only: Node.js 22+, npm, Python 3.12,
+  PostgreSQL 16 with pgvector, and Redis 7.
 
-   - Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-     and start it.
-   - Install [Git](https://git-scm.com/downloads), or download this repository
-     as a ZIP file and extract it.
-   - On Windows, open PowerShell. On macOS or Linux, open Terminal.
+SmartScrape uses these local ports in the Docker development setup:
 
-   To check Docker is ready, run:
+| Service | URL |
+| --- | --- |
+| Frontend | `http://localhost:3000` |
+| Backend API | `http://localhost:4000` |
+| Backend health check | `http://localhost:4000/health` |
+| AI tagger health check | `http://localhost:7071/health` |
+| Optional Institutional Capture Node | `http://localhost:7081` |
 
-   ```powershell
-   docker --version
-   docker compose version
-   ```
+### 1. Get the Source Code
 
-2. Get the project files and enter the project directory.
+Clone the repository and enter the project directory:
 
-   ```powershell
-   git clone https://github.com/bsvsrakhilesh/Smart-Scrape.git
-   cd Smart-Scrape
-   ```
+```powershell
+git clone https://github.com/bsvsrakhilesh/Smart-Scrape.git
+cd Smart-Scrape
+```
 
-   If you already downloaded or opened the project folder, just open a terminal
-   inside the `smart-scrape` directory and continue.
+If you downloaded a ZIP archive, extract it and open a terminal in the extracted
+`Smart-Scrape` directory.
 
-3. Create environment files from the examples.
+Check that Docker is available:
 
-   ```powershell
-   Copy-Item .env.example .env
-   Copy-Item backend\.env.example backend\.env
-   Copy-Item frontend\.env.example frontend\.env
-   Copy-Item ai-tagger\.env.example ai-tagger\.env
-   Copy-Item icn\.env.example icn\.env
-   ```
+```powershell
+docker --version
+docker compose version
+```
 
-   On macOS or Linux, use `cp` instead of `Copy-Item`.
+### 2. Create Local Environment Files
 
-4. Create a database password.
+Copy the checked-in examples before starting the containers.
 
-   This is just a new password you choose. It does not need to already exist.
-   Docker will use it when creating the PostgreSQL container.
+On Windows PowerShell:
 
-   To generate a simple alphanumeric password in PowerShell:
+```powershell
+Copy-Item .env.example .env
+Copy-Item backend\.env.example backend\.env
+Copy-Item frontend\.env.example frontend\.env
+Copy-Item ai-tagger\.env.example ai-tagger\.env
+Copy-Item icn\.env.example icn\.env
+```
 
-   ```powershell
-   -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
-   ```
+On macOS or Linux:
 
-   Keep the generated value nearby for the next step.
+```bash
+cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp ai-tagger/.env.example ai-tagger/.env
+cp icn/.env.example icn/.env
+```
 
-5. Fill the required local Docker settings.
+The `.env` files are local configuration files. They may contain secrets and
+should not be committed.
 
-   In the root `.env` file, set `POSTGRES_PASSWORD` to the password you
-   generated:
+### 3. Configure the Docker Development Stack
 
-   ```env
-   POSTGRES_PASSWORD=change-me
-   CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-   ```
+Choose a PostgreSQL password for local development. Any strong password is fine;
+it does not need to exist before Docker creates the database container.
 
-   In `backend/.env`, set these values. Use the same password in
-   `POSTGRES_PASSWORD` and inside `DATABASE_URL`:
+PowerShell password generator:
 
-   ```env
-   NODE_ENV=development
-   PORT=4000
-   POSTGRES_PASSWORD=change-me
-   DATABASE_URL=postgresql://postgres:change-me@db:5432/SmartScrape?schema=public
-   CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-   TAGGER_PY_URL=http://ai-tagger:7071
-   OPENAI_ENABLED=false
-   ```
+```powershell
+-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+```
 
-   Example: if your password is `abc123`, then the database line becomes:
+macOS or Linux password generator:
 
-   ```env
-   DATABASE_URL=postgresql://postgres:abc123@db:5432/SmartScrape?schema=public
-   ```
+```bash
+openssl rand -base64 24
+```
 
-   In `ai-tagger/.env`, Redis and port values can stay blank for Docker because
-   Compose supplies them. Set `OPENAI_API_KEY`, `LLM_MODEL`, or
-   `STRUCTURED_LLM_MODEL` only when using LLM-enhanced tag ranking and
-   structured extraction.
+Set the root `.env` file:
 
-6. Optional: add API keys for AI and Google search features.
+```env
+POSTGRES_PASSWORD=replace-with-your-password
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
 
-   You can skip this step for a basic local launch. Without these keys, the
-   website can still start, but OpenAI-backed notebook/chat/tagging features and
-   Google-powered URL search will not be fully available.
+Set the required local values in `backend/.env`. Use the same password in
+`POSTGRES_PASSWORD` and `DATABASE_URL`:
 
-   - OpenAI API key: sign in to the
-     [OpenAI Platform](https://platform.openai.com/), open
-     [API keys](https://platform.openai.com/api-keys), create a new secret key,
-     and copy it immediately. Put it in `backend/.env` as `OPENAI_API_KEY=...`
-     and set `OPENAI_ENABLED=true`. If you want the Python tagger to use the
-     same LLM key, also put it in `ai-tagger/.env`.
-   - Google Programmable Search credentials: SmartScrape expects
-     `GOOGLE_CSE_KEY` and `GOOGLE_CSE_CX` for Google-powered URL search. Google
-     currently marks the Custom Search JSON API as closed to new customers, so
-     this path applies only if your Google Cloud project already has access or
-     Google grants access. For an eligible project, create or configure a
-     Programmable Search Engine in the
-     [control panel](https://programmablesearchengine.google.com/controlpanel/all),
-     copy its Search Engine ID from the Overview/Basic section as
-     `GOOGLE_CSE_CX`, then create an API key in
-     [Google Cloud Credentials](https://console.cloud.google.com/apis/credentials)
-     for `GOOGLE_CSE_KEY`. Restrict the key to the Custom Search JSON API where
-     possible.
+```env
+NODE_ENV=development
+PORT=4000
+POSTGRES_PASSWORD=replace-with-your-password
+DATABASE_URL=postgresql://postgres:replace-with-your-password@db:5432/SmartScrape?schema=public
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+TAGGER_PY_URL=http://ai-tagger:7071
+OPENAI_ENABLED=false
+TAGS_USE_LLM=false
+DEV_AUTH_ENABLED=false
+```
 
-7. Start SmartScrape.
+For the Docker development stack, these values are supplied by
+`docker-compose.dev.yml` and can stay blank in the copied `.env` files:
+`REDIS_URL`, `FILE_STORAGE_DIR`, `CHROMIUM_EXECUTABLE_PATH`,
+`AI_TAG_URL_QUEUE_CONCURRENCY`, `AI_TAG_FILE_QUEUE_CONCURRENCY`, and the
+`ai-tagger/.env` `PORT` and `REDIS_URL` values.
 
-   ```powershell
-   docker compose -f docker-compose.dev.yml up --build
-   ```
+`frontend/.env` can stay blank for Docker because the development container
+starts Vite on port `3000` and proxies API requests to the backend service.
 
-   The first run can take several minutes because Docker downloads images and
-   installs dependencies. Leave the terminal open while the app is running.
+### 4. Optional External Service Configuration
 
-8. Open the website.
+SmartScrape can run without external API keys. In that mode, local startup,
+file upload, source storage, deterministic tests, and non-LLM workflows remain
+available, but web search and LLM-backed analysis are limited.
 
-   Go to `http://localhost:3000` in your browser.
+To enable OpenAI-backed notebook answers, governance answers, LLM-assisted tag
+ranking, and structured extraction, set these values in `backend/.env`:
 
-   Useful service URLs:
+```env
+OPENAI_ENABLED=true
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4.1-mini
+GOVERNANCE_ANSWER_MODEL=gpt-4.1-mini
+GOVERNANCE_ASSIST_MODEL=gpt-4.1-mini
+GOVERNANCE_DEEP_REVIEW_MODEL=gpt-4.1
+```
 
-   - Website: `http://localhost:3000`
-   - Backend health check: `http://localhost:4000/health`
-   - AI tagger health check: `http://localhost:7071/health`
+If the Python AI tagger should also use LLM enhancement, set these values in
+`ai-tagger/.env`:
 
-9. Stop or restart the app.
+```env
+OPENAI_API_KEY=sk-...
+LLM_MODEL=gpt-4.1-mini
+STRUCTURED_LLM_ENABLED=true
+STRUCTURED_LLM_MODEL=gpt-4.1-mini
+```
 
-   To stop it, press `Ctrl+C` in the terminal running Docker Compose.
+To enable Google-powered URL search, set these values in `backend/.env`:
 
-   To start it again later:
+```env
+GOOGLE_CSE_KEY=your-google-api-key
+GOOGLE_CSE_CX=your-programmable-search-engine-id
+```
 
-   ```powershell
-   docker compose -f docker-compose.dev.yml up
-   ```
+If those Google values are absent, reviewers can still test saved-source,
+upload, tagging, notebook, and governance workflows with manually supplied
+URLs and files.
 
-10. Optional: run the Institutional Capture Node (ICN) for authenticated browser
-   captures. The development backend is configured to look for it on the host at
-   `http://host.docker.internal:7081`.
+### 5. Start SmartScrape
 
-   ```powershell
-   cd icn
-   npm install
-   npm run install:browsers
-   npm run dev
-   ```
-
-   If you set `ICN_SHARED_SECRET` in `icn/.env`, set the same value in
-   `backend/.env`.
-
-## Requirements
-
-- Docker Desktop or Docker Engine with Compose for normal local use.
-- Git, unless you download the project as a ZIP file.
-- SmartScrape requires PostgreSQL with pgvector and Redis. Docker starts both
-  automatically as the `db` and `redis` services.
-- Node.js 22+ and npm if you run the frontend, backend, or ICN outside Docker.
-- Python 3.12 if you run `ai-tagger` outside Docker.
-- If you run services locally without Docker, install and start PostgreSQL with
-  pgvector and Redis yourself before starting the backend.
-- Optional keys for full AI/search behavior: `OPENAI_API_KEY`,
-  `GOOGLE_CSE_KEY`, and `GOOGLE_CSE_CX`.
-
-## Quick start
-
-Use this after you have completed the Installation steps above.
-Before running the command, make sure Docker Desktop is open and your terminal
-is inside the `Smart-Scrape` project folder.
-
-Start the website:
+Start the full development stack:
 
 ```powershell
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-The first run may take several minutes. When the services are running without
-errors, open:
+The first run can take several minutes while Docker downloads base images,
+builds the SmartScrape images, installs dependencies, generates the Prisma
+client, and applies database migrations. Keep the terminal open while the
+application is running.
+
+When startup completes, open:
 
 ```text
 http://localhost:3000
 ```
 
-To stop the website, press `Ctrl+C` in the terminal. To start it again later,
-run:
+Confirm the backend and AI tagger are responding:
+
+```text
+http://localhost:4000/health
+http://localhost:7071/health
+```
+
+### 6. Stop, Restart, or Reset
+
+Stop the running stack with `Ctrl+C` in the Docker Compose terminal.
+
+Restart the existing containers:
 
 ```powershell
 docker compose -f docker-compose.dev.yml up
 ```
 
-Only use the commands below if you are developing without Docker. This path is
-not recommended for a first-time user because you must install and run
-PostgreSQL, pgvector, Redis, Node.js, Python, and the AI tagger yourself.
+Rebuild after dependency or Dockerfile changes:
+
+```powershell
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Stop containers without deleting saved database or file-storage volumes:
+
+```powershell
+docker compose -f docker-compose.dev.yml down
+```
+
+Reset all local Docker data, including the PostgreSQL database and uploaded
+files stored in Docker volumes:
+
+```powershell
+docker compose -f docker-compose.dev.yml down -v
+```
+
+Only use the reset command when you intentionally want a fresh local database.
+
+### 7. Troubleshooting
+
+If Docker reports that a port is already in use, stop the process using that
+port or edit the port mapping in `docker-compose.dev.yml`. The frontend uses
+`3000`, the backend uses `4000`, and the AI tagger uses `7071`.
+
+If the database container fails to start, confirm that `backend/.env` contains
+`POSTGRES_PASSWORD` and that the same password appears inside `DATABASE_URL`.
+For Docker, the database host in `DATABASE_URL` must be `db`, not `localhost`.
+
+If the backend health check does not respond, inspect the backend logs:
+
+```powershell
+docker compose -f docker-compose.dev.yml logs backend
+```
+
+If the AI tagger health check does not respond, inspect the tagger logs:
+
+```powershell
+docker compose -f docker-compose.dev.yml logs ai-tagger
+docker compose -f docker-compose.dev.yml logs ai-tagger-worker
+```
+
+If dependency installation fails after package changes, rebuild the stack:
+
+```powershell
+docker compose -f docker-compose.dev.yml up --build
+```
+
+If the application starts but LLM or search features are unavailable, check that
+the relevant API keys are present in `backend/.env` and `ai-tagger/.env`. The
+basic local application does not require those keys.
+
+### 8. Optional Institutional Capture Node
+
+The Institutional Capture Node (ICN) is an optional local browser-capture
+service for authenticated pages. The Docker development backend is configured
+to look for it at `http://host.docker.internal:7081`.
+
+Run the ICN outside Docker:
+
+```powershell
+cd icn
+npm install
+npm run install:browsers
+npm run dev
+```
+
+Recommended `icn/.env` values for local testing:
+
+```env
+PORT=7081
+HOST=127.0.0.1
+ICN_NODE_NAME=local-icn
+ICN_HEADLESS=false
+ICN_ALLOWED_ORIGIN=http://localhost:3000
+```
+
+If you set `ICN_SHARED_SECRET` in `icn/.env`, set the same value in
+`backend/.env`.
+
+### 9. Local Development Without Docker
+
+This path is for contributors developing services directly on their machine. It
+is not the recommended reviewer setup because you must install and manage
+PostgreSQL with pgvector, Redis, Node.js, Python, and the AI tagger yourself.
+
+Install JavaScript dependencies and prepare the database:
 
 ```powershell
 npm run install:all
 npm -w backend run prisma:generate
 npm -w backend run prisma:migrate
+```
+
+For local services outside Docker, `backend/.env` must point at host services,
+for example:
+
+```env
+DATABASE_URL=postgresql://postgres:replace-with-your-password@localhost:5432/SmartScrape?schema=public
+REDIS_URL=redis://localhost:6379/0
+TAGGER_PY_URL=http://localhost:7071
+FILE_STORAGE_DIR=./storage
+```
+
+Install Python dependencies and run the AI tagger:
+
+```powershell
+cd ai-tagger
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 7071 --no-access-log
+```
+
+In a separate terminal, start the frontend and backend:
+
+```powershell
 npm run dev
 ```
 
-In that local setup, set `backend/.env` to use local service addresses, for
-example `DATABASE_URL=postgresql://postgres:<password>@localhost:5432/SmartScrape?schema=public`,
-`REDIS_URL=redis://localhost:6379/0`, and
-`TAGGER_PY_URL=http://localhost:7071`.
+Start the backend worker in another terminal when testing ingestion, embedding,
+and tagging queues:
 
-For production, fill `.env`, `backend/.env`, and `ai-tagger/.env` with
-production values, then run:
+```powershell
+npm -w backend run worker
+```
+
+### 10. Production Deployment
+
+For production, use `docker-compose.prod.yml` as a starting point and set
+production values in `.env`, `backend/.env`, and `ai-tagger/.env`.
+
+Minimum root `.env` values:
+
+```env
+POSTGRES_PASSWORD=replace-with-a-strong-production-password
+CORS_ORIGINS=https://your-production-domain.example
+```
+
+Minimum `backend/.env` values:
+
+```env
+NODE_ENV=production
+POSTGRES_PASSWORD=replace-with-a-strong-production-password
+DATABASE_URL=postgresql://postgres:replace-with-a-strong-production-password@db:5432/SmartScrape?schema=public
+CORS_ORIGINS=https://your-production-domain.example
+OPENAI_ENABLED=false
+DEV_AUTH_ENABLED=false
+```
+
+Start the production stack:
 
 ```powershell
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-## Example workflow
+The production compose file exposes the frontend on port `80` and keeps the
+backend and AI tagger on the internal Docker network.
+
+## Quick Start
+
+For the common local path, the complete setup is:
+
+```powershell
+git clone https://github.com/bsvsrakhilesh/Smart-Scrape.git
+cd Smart-Scrape
+Copy-Item .env.example .env
+Copy-Item backend\.env.example backend\.env
+Copy-Item frontend\.env.example frontend\.env
+Copy-Item ai-tagger\.env.example ai-tagger\.env
+Copy-Item icn\.env.example icn\.env
+```
+
+Then fill `POSTGRES_PASSWORD`, `DATABASE_URL`, and `CORS_ORIGINS` as described
+above, start Docker Desktop, and run:
+
+```powershell
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Open `http://localhost:3000` after the services are healthy.
+
+## Example Workflow
+
+After installation, use this workflow to verify the main research-software path:
+
+1. Open `http://localhost:3000`.
+2. Upload a small PDF or text file in the File Manager.
+3. Confirm that the source is saved with file name, capture metadata, and
+   searchable text where extraction is available.
+4. Add or review structured tags for the saved source.
+5. Open the Notebook, attach the saved source, and ask a question that requires
+   an answer grounded in the uploaded evidence.
+6. Confirm that the answer includes citations back to the saved source.
+7. Open the Governance Workspace and verify that the same source can be used in
+   an issue, agency, timeline, or evidence-review workflow.
+
+If Google search credentials are configured, also test the URL Collector by
+searching for a policy or governance source, reviewing the result metadata,
+saving one URL, and confirming that it appears in the saved-source archive.
 
 ## Repository structure
 
@@ -301,7 +475,6 @@ smart-scrape/
 |   |-- taxonomies/               # Domain taxonomies, including the CAQM example taxonomy
 |   `-- tests/                    # Python tests for tagging, OCR, and structured extraction
 |-- icn/                          # Institutional Capture Node for authenticated browser-based captures
-|-- docs/                         # User documentation and manuals
 `-- paper/                        # JOSS paper source files
     |-- paper.md
     `-- paper.bib
@@ -313,7 +486,9 @@ distribution and should not be edited directly.
 
 ## Documentation
 
-A detailed user manual is provided separately. It explains how to use the main SmartScrape workflows, including:
+This README is the primary user and reviewer documentation for the current
+repository. It includes installation, configuration, example workflow, testing,
+and verification instructions for the main SmartScrape workflows:
 
 - collecting URLs and PDFs
 - uploading and organizing documents
@@ -321,8 +496,6 @@ A detailed user manual is provided separately. It explains how to use the main S
 - working with the Governance Workspace
 - using the Notebook for evidence-backed analysis
 - interpreting citations and saved sources
-
-See: [User Manual](./docs/SmartScrape_User_Manual.pdf)
 
 ## Testing and verification
 

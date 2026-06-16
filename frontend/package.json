@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host --port 3000",
-    "build": "vite build",
+    "dev": "vite --host --port 3000 --configLoader runner",
+    "build": "vite build --configLoader runner",
     "test": "node -e \"const fs=require('fs'); fs.rmSync('.test-dist', { recursive: true, force: true });\" && tsc -p tsconfig.test.json && node -e \"require('fs').writeFileSync('.test-dist/package.json', JSON.stringify({ type: 'commonjs' }))\" && node --test --experimental-test-isolation=none .test-dist/tests/**/*.test.js",
-    "preview": "vite preview --port 4173 --strictPort",
-    "dev:watch": "vite --watch",
-    "dev:hot": "vite --host --port 3000"
+    "preview": "vite preview --port 4173 --strictPort --configLoader runner",
+    "preview:e2e": "vite preview --port 3000 --strictPort --host 127.0.0.1 --configLoader runner",
+    "dev:watch": "vite --watch --configLoader runner",
+    "dev:hot": "vite --host --port 3000 --configLoader runner"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.84.0",

@@ -26,8 +26,12 @@ import {
   formatAppliedCollectorSearchPlan,
   mergeCollectorSearchResults,
   normalizeCollectorKeywords,
+  normalizeCollectorWebsite,
 } from "../utils/urlCollector";
-import { summarizeCollectorAuthorityCoverage } from "../utils/collectorAuthorityCoverage";
+import {
+  summarizeCollectorAuthorityCoverage,
+  type CollectorAuthorityCoverageRow,
+} from "../utils/collectorAuthorityCoverage";
 import { useConfirm } from "../components/providers/Confirm";
 import { useToast } from "../components/providers/Toast";
 
@@ -360,6 +364,26 @@ const UrlCollectorPage: React.FC = () => {
   // Scroll target for the results section
   const resultsSectionRef = useRef<HTMLElement | null>(null);
 
+  const clearSearchOutcome = useCallback(() => {
+    resultsRequestEpochRef.current += 1;
+    fetchAbortRef.current?.abort();
+    setSearchResults([]);
+    setSelectedUrls(new Set());
+    setHasSearched(false);
+    setIsLoading(false);
+    setIsLoadingMore(false);
+    setIsReranking(false);
+    setAiRerankedCount(0);
+    setPrefetchCount(0);
+    setNextPage(null);
+    setTotalResults(null);
+    setCollectorSearchId(null);
+    setLastQuery("");
+    setLastSearchOpts(null);
+  }, []);
+
+  type AuthoritySearchSource = CollectorAuthoritySource | CollectorAuthorityCoverageRow;
+
   /* ---------- Restore persisted state ---------- */
   useEffect(() => {
     if (persistHydratedRef.current) return;
@@ -605,8 +629,8 @@ const UrlCollectorPage: React.FC = () => {
   const handleSearch = useCallback(
     async (siteArg?: string, kwArg?: string, scopeArg?: CollectorScope) => {
       if (!activePurpose) {
+        clearSearchOutcome();
         setError("Select or create a purpose before searching.");
-        setHasSearched(false);
         return;
       }
       const site = (siteArg ?? website).trim();
@@ -616,25 +640,22 @@ const UrlCollectorPage: React.FC = () => {
       const yFrom = toYYYY(effectiveScope.yearFrom);
       const yTo = toYYYY(effectiveScope.yearTo);
       if (yFrom && yTo && Number(yFrom) > Number(yTo)) {
+        clearSearchOutcome();
         setError("Year from must be ≤ Year to.");
-        setHasSearched(true);
         return;
       }
 
       const now = Date.now();
       if (now < rateLimitUntilRef.current) {
+        clearSearchOutcome();
         const secs = Math.ceil((rateLimitUntilRef.current - now) / 1000);
         setError(`Rate limit hit. Please wait ${secs}s and try again.`);
-        setHasSearched(true);
         return;
       }
 
       if (!site && !kws) {
+        clearSearchOutcome();
         setError("Enter a website and/or keywords to search.");
-        setHasSearched(false);
-        setIsLoadingMore(false);
-        setNextPage(null);
-        setTotalResults(null);
         return;
       }
 
@@ -887,19 +908,29 @@ const UrlCollectorPage: React.FC = () => {
   }, [handleSearch]);
 
   const buildAuthorityKeywords = useCallback(
-    (source: CollectorAuthoritySource) =>
-      [
+    (source: AuthoritySearchSource) => {
+      const queryHints =
+        "queryHints" in source ? source.queryHints.slice(0, 4).join(" | ") : "";
+      const documentTerms =
+        "documentTerms" in source ? source.documentTerms.slice(0, 4).join(" | ") : "";
+
+      return [
         activePurpose?.researchQuestion ?? "",
-        source.queryHints.slice(0, 4).join(" | "),
-        source.documentTerms.slice(0, 4).join(" | "),
+        source.label,
+        source.domain,
+        source.evidenceRole,
+        queryHints,
+        documentTerms,
+        "official source",
       ]
         .filter(Boolean)
-        .join(", "),
+        .join(", ");
+    },
     [activePurpose?.researchQuestion],
   );
 
   const searchAuthoritySource = useCallback(
-    (source: CollectorAuthoritySource) => {
+    (source: AuthoritySearchSource) => {
       const nextKeywords = buildAuthorityKeywords(source);
       const nextScope: CollectorScope = { ...scope, format: "pdfOnly" };
       setWebsite(source.domain);
@@ -1073,13 +1104,14 @@ const UrlCollectorPage: React.FC = () => {
         setAiAssistRationale(
           plan.rationale || "AI assist updated the search plan.",
         );
+        clearSearchOutcome();
       } catch (e: any) {
         setError(e?.message || "AI assist failed");
       } finally {
         setAiAssistLoading(false);
       }
     },
-    [],
+    [clearSearchOutcome],
   );
 
   const handleLoadMore = useCallback(async () => {
@@ -1384,9 +1416,9 @@ const UrlCollectorPage: React.FC = () => {
         current.filter((purpose) => purpose.id !== activePurpose.id),
       );
       setActivePurposeId("");
+      clearSearchOutcome();
       setPurposeLanes([]);
       setActiveLaneKey("");
-      setCollectorSearchId(null);
 
       const next = new URLSearchParams(loc.search);
       next.delete("purposeId");
@@ -1400,7 +1432,7 @@ const UrlCollectorPage: React.FC = () => {
     } finally {
       setPurposeDeleting(false);
     }
-  }, [activePurpose, confirm, loc.search, navigate, notify]);
+  }, [activePurpose, clearSearchOutcome, confirm, loc.search, navigate, notify]);
 
   const applyPurposeLane = useCallback((lane: CollectorPurposeLane) => {
     setActiveLaneKey(lane.key);
@@ -1414,7 +1446,9 @@ const UrlCollectorPage: React.FC = () => {
       format: lane.format,
     });
     setAiAssistRationale(lane.rationale);
-  }, []);
+    setError(null);
+    clearSearchOutcome();
+  }, [clearSearchOutcome]);
 
   return (
     <main className="uc-page space-y-6 pt-6 md:pt-8 pb-8">

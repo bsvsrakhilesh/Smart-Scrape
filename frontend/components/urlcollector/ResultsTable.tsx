@@ -578,6 +578,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 
   const saveRowsToPurpose = async (rows: SaveUrlsRequestRow[]) => {
     if (!rows.length) return;
+    if (!collectorPurposeId.trim()) {
+      pushNotice("error", "Select a research purpose before saving.");
+      return;
+    }
     setIsSaving(true);
     if (rows.length === 1) setRowSaving(rows[0].url);
 
@@ -978,21 +982,29 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           {selectable && (
             <button
               onClick={saveSelected}
-              disabled={selectedFilteredCount === 0 || isSaving}
+              disabled={
+                selectedFilteredCount === 0 ||
+                isSaving ||
+                !collectorPurposeId.trim()
+              }
               className="btn-primary rounded-full px-4 py-2 disabled:opacity-60"
               title={
-                selectedFilteredCount > 0
-                  ? `Save ${selectedFilteredCount} selected row${
-                      selectedFilteredCount === 1 ? "" : "s"
-                    } to ${collectorPurposeTitle}`
-                  : selectedHiddenCount > 0
-                    ? "Selected rows exist, but they are outside the current filters"
-                    : "Select rows to save to this purpose"
+                !collectorPurposeId.trim()
+                  ? "Select a research purpose before saving"
+                  : selectedFilteredCount > 0
+                    ? `Save ${selectedFilteredCount} selected row${
+                        selectedFilteredCount === 1 ? "" : "s"
+                      } to ${collectorPurposeTitle}`
+                    : selectedHiddenCount > 0
+                      ? "Selected rows exist, but they are outside the current filters"
+                      : "Select rows to save to this purpose"
               }
             >
               {isSaving
                 ? "Saving…"
-                : `Save to purpose (${selectedFilteredCount || 0})`}
+                : !collectorPurposeId.trim()
+                  ? "Select purpose"
+                  : `Save to purpose (${selectedFilteredCount || 0})`}
             </button>
           )}
 
@@ -1246,9 +1258,13 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                         e.stopPropagation();
                         saveSingle(r);
                       }}
-                      disabled={rowSaving === r.url}
+                      disabled={rowSaving === r.url || !collectorPurposeId.trim()}
                       className="btn-primary px-3 py-1.5 rounded-full"
-                      title={`Save to ${collectorPurposeTitle}`}
+                      title={
+                        collectorPurposeId.trim()
+                          ? `Save to ${collectorPurposeTitle}`
+                          : "Select a research purpose before saving"
+                      }
                     >
                       {rowSaving === r.url ? (
                         "Saving…"
@@ -1279,7 +1295,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                     </div>
                   )}
 
-                  {isSaved && (
+                  {isSaved && collectorPurposeId.trim() && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1289,6 +1305,17 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
                         );
                       }}
                       className="btn-ghost px-3 py-1.5"
+                    >
+                      Open in Saved URLs
+                    </button>
+                  )}
+
+                  {isSaved && !collectorPurposeId.trim() && (
+                    <button
+                      type="button"
+                      disabled
+                      className="btn-ghost px-3 py-1.5 opacity-60"
+                      title="Select a research purpose to open the matching Saved URLs view"
                     >
                       Open in Saved URLs
                     </button>

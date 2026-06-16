@@ -16,8 +16,8 @@ export default defineConfig({
   },
   webServer: {
     command: isWindows
-      ? "npm.cmd -w frontend run dev"
-      : "npm -w frontend run dev",
+      ? "npm.cmd -w frontend run preview:e2e"
+      : "npm -w frontend run preview:e2e",
     url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
     timeout: 120_000,

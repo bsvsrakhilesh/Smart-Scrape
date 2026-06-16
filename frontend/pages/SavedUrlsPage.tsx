@@ -489,6 +489,14 @@ const SavedUrlsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const clearActivePurposeSelection = useCallback(() => {
+    setActivePurposeId("");
+    setActivePurpose(null);
+    const params = new URLSearchParams(location.search);
+    params.delete("collectorPurposeId");
+    navigate({ search: params.toString() ? `?${params.toString()}` : "" }, { replace: true });
+  }, [location.search, navigate]);
+
   useEffect(() => {
     setActivePurposeId(purposeFromUrl);
   }, [purposeFromUrl]);
@@ -512,9 +520,10 @@ const SavedUrlsPage: React.FC = () => {
       return purpose;
     } catch {
       setActivePurpose(null);
+      clearActivePurposeSelection();
       return null;
     }
-  }, [activePurposeId]);
+  }, [activePurposeId, clearActivePurposeSelection]);
 
   useEffect(() => {
     void refreshActivePurposeSummary();

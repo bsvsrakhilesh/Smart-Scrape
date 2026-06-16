@@ -1,6 +1,6 @@
 # SmartScrape
 
-SmartScrape is a platform designed for governance and policy work and help in collecting, organizing, storing and analyzing web-based and personal documents for governance organizations or institutions so that we can have citations backend evidence for new decisions and searchable documents.
+SmartScrape is a research platform for collecting, organizing, preserving, and analyzing web-based and personal documents used in governance and policy work. It helps users build searchable, citation-backed evidence collections for reviewing past decisions, preparing new analyses, and preserving institutional knowledge.
 
 ## Overview
 
@@ -18,13 +18,17 @@ The goal is to make air-quality governance faster to review, easier to trace, an
 
 ## Statement of need
 
-Documents like orders, notices, compliance reports, meeting minutes, action-taken reports, court directions, and agency submissions from various governance bodies are either stored in their respective databases or in physical copies, which is often hard to access and requires permissions. Likewise, online newspaper articles become unavailable after a specific period. Although documents can be collected and searched manually, current workflows frequently break provenance across heterogeneous, changing sources, and existing LLM tools do not reliably support evidence-linked answers or grounded retrieval for relevant context. Therefore, the approach is to develop an LLM-backed tool that allows you to capture screenshots or extracted text of the required documents using their URLs or if available in PDF form , save them in the tool’s database with LLM-generated tags for better searchability, and create a metadata schema to structure the database. Then there is a notebook page where you can interact with the database, using cited answers and grounded document retrieval to cite from the tool’s database. This way, documents from various government agencies and newspaper articles are in one place, enabling efficient planning for future work.  The Governance Workspace enables officers to ask work-related questions; it automatically finds and surfaces relevant documents, provides evidence-backed answers with citations, and suggests follow-up actions for further review.
+Governance and policy work often depends on documents like orders, notices, compliance reports, meeting minutes, action-taken reports, court directions, and agency submissions from various governance bodies that are across institutional websites, in their respective databases or in physical copies, which is often difficult to access and requires permissions. Likewise, online newspaper articles become unavailable after a specific period. 
+
+Although analysts can collect and search documents manually, current workflows frequently break provenance across heterogeneous and changing sources. Existing LLM tools do not reliably support evidence-linked answers or grounded retrieval for relevant context. 
+
+Therefore, the approach is to develop an LLM-backed tool that allows you to extract text of the required documents if in text form using their URLs or if available in PDF form, download and save them in the tool’s database with LLM-generated tags for better searchability, and create a metadata schema to structure the database. SmartScrape also includes a Notebook workspace where users can interact directly with the evidence database, ask questions, and generate cited answers through grounded document retrieval. By bringing government records, agency documents, and news sources into a single searchable archive, the platform supports faster review, stronger evidence traceability, and more informed planning for future work. The Governance Workspace further enables officers and analysts to ask work-related questions, automatically surface relevant documents, receive evidence-backed answers with citations, and identify suggested follow-up actions for further review.
 
 ## Key features
 
 ### Research Impact & Evidence Integrity
 
-- **Evidence-Backed Policy Analysis** — Centralized repository for fragmented governance documents; prevents loss of sources that disappear from web (newspaper article, agency pages); enables reproducible research with cited evidence.
+- **Evidence-Backed Policy Analysis** — Centralizes fragmented governance documents, helps preserve sources that may disappear from the web, and supports reproducible analysis with cited evidence.
 - **Cross-Agency Pattern Discovery** — Trace policy decisions and their consequences within the organization or across multiple institutions ; identify timeline relationships and decision dependencies for comparative governance research and decisions.
 - **Grounded AI Analysis** — LLM-backed insights that don't hallucinate; all outputs anchored to source documents with citation links; reduces analyst time on manual review and categorization
 - **Provenance & Auditability** — Maintains citation links to original sources; records capture metadata (date, context, version); enables verification and supports institutional knowledge preservation

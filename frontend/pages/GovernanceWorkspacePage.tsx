@@ -97,6 +97,11 @@ type QuestionBuilderType =
   | "policy_order_comparison"
   | "field_action_prep";
 
+type WorkspaceNotice = {
+  tone: "success" | "info" | "warning";
+  message: string;
+};
+
 const workspaceIntentModeOptions: Array<{
   value: WorkspaceIntakeMode;
   label: string;
@@ -2857,6 +2862,8 @@ export default function GovernanceWorkspacePage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [workspaceIntentMode, setWorkspaceIntentMode] =
     useState<WorkspaceIntakeMode>("auto");
+  const [workspaceNotice, setWorkspaceNotice] =
+    useState<WorkspaceNotice | null>(null);
   const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [sourceScope, setSourceScope] =
     useState<GovernanceWorkspaceSourceScope>("all");
@@ -2992,7 +2999,15 @@ export default function GovernanceWorkspacePage() {
       Boolean(launchIntent?.anchorDocumentIds?.length) ||
       Boolean(launchIntent?.anchorUrlIds?.length);
 
-    if (!hasQuestion && !hasAnchors) return;
+    if (!hasQuestion && !hasAnchors) {
+      setWorkspaceNotice({
+        tone: "warning",
+        message:
+          "Enter a governance question or pin at least one source before finding evidence.",
+      });
+      return;
+    }
+    setWorkspaceNotice(null);
     setWorkspaceQueryRunKey((current) => current + 1);
   }, [
     workspaceQuestion,
@@ -3103,9 +3118,15 @@ export default function GovernanceWorkspacePage() {
 
   const clearAdvancedFilters = React.useCallback(() => {
     setDocumentInput("");
+    setActiveDocumentId(null);
+    setSelectedProvenance(null);
     setSourceScope("all");
     clearAnchorIntake();
     setShowAdvancedFilters(false);
+    setWorkspaceNotice({
+      tone: "info",
+      message: "Cleared exact document lookup, pinned anchors, and source scope.",
+    });
   }, [clearAnchorIntake]);
 
   useEffect(() => {
@@ -3706,10 +3727,20 @@ export default function GovernanceWorkspacePage() {
     [answerRun?.id, answerSessionQuery.refetch],
   );
 
-  const copyAnswer = React.useCallback(() => {
+  const copyAnswer = React.useCallback(async () => {
     const text = answerRun?.answer || answerDraft;
     if (!text.trim()) return;
-    void navigator.clipboard?.writeText(text);
+    setAnswerFeedbackMessage(null);
+    setAnswerError(null);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access is not available in this browser.");
+      }
+      await navigator.clipboard.writeText(text);
+      setAnswerFeedbackMessage("Answer copied to clipboard.");
+    } catch (err: any) {
+      setAnswerError(err?.message || "Could not copy the answer.");
+    }
   }, [answerDraft, answerRun?.answer]);
 
   const exportAnswerToNotebook = React.useCallback(async () => {
@@ -3745,6 +3776,7 @@ export default function GovernanceWorkspacePage() {
       });
 
       openNotebookWithTarget({ notebookId: notebook.id, noteId: note.id });
+      setAnswerFeedbackMessage("Governance answer exported to Notebook.");
     } catch (err: any) {
       setAnswerError(err?.message || "Could not export the governance answer to Notebook.");
     } finally {
@@ -4187,7 +4219,65 @@ export default function GovernanceWorkspacePage() {
     setSelectedIssueId(null);
     setSelectedAgencyId(null);
     setActiveDocumentId(next || null);
+    setWorkspaceNotice(
+      next
+        ? { tone: "info", message: "Loading governance dossier for the entered document id." }
+        : { tone: "info", message: "Cleared the active governance dossier." },
+    );
   }
+
+  const refreshWorkspaceData = React.useCallback(async () => {
+    setWorkspaceNotice(null);
+
+    const jobs: Array<Promise<any>> = [
+      issueDirectoryQuery.refetch(),
+      agencyDirectoryQuery.refetch(),
+    ];
+
+    if (workspaceQueryRunKey > 0) jobs.push(workspaceEvidenceQuery.refetch());
+
+    if (activeDocumentId) {
+      jobs.push(documentQuery.refetch());
+      if (selectedIssueId) {
+        jobs.push(timelineQuery.refetch());
+        jobs.push(relationsQuery.refetch());
+      }
+      if (selectedAgencyId) jobs.push(agencyLandscapeQuery.refetch());
+    }
+
+    const results = await Promise.allSettled(jobs);
+    const failed = results.filter(
+      (result) =>
+        result.status === "rejected" ||
+        Boolean((result as PromiseFulfilledResult<any>).value?.error),
+    ).length;
+
+    setWorkspaceNotice(
+      failed
+        ? {
+            tone: "warning",
+            message: `Refresh completed with ${failed} failed request${
+              failed === 1 ? "" : "s"
+            }. Stale panels may still be visible.`,
+          }
+        : {
+            tone: "success",
+            message: "Workspace data refreshed from the backend.",
+          },
+    );
+  }, [
+    activeDocumentId,
+    agencyDirectoryQuery,
+    agencyLandscapeQuery,
+    documentQuery,
+    issueDirectoryQuery,
+    relationsQuery,
+    selectedAgencyId,
+    selectedIssueId,
+    timelineQuery,
+    workspaceEvidenceQuery,
+    workspaceQueryRunKey,
+  ]);
 
   const landscape = agencyLandscapeQuery.data ?? null;
   const timeline = timelineQuery.data ?? null;
@@ -4907,20 +4997,7 @@ export default function GovernanceWorkspacePage() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        void issueDirectoryQuery.refetch();
-                        void agencyDirectoryQuery.refetch();
-                        if (workspaceQueryRunKey > 0)
-                          void workspaceEvidenceQuery.refetch();
-
-                        if (activeDocumentId) {
-                          void documentQuery.refetch();
-                          if (selectedIssueId) void timelineQuery.refetch();
-                          if (selectedIssueId) void relationsQuery.refetch();
-                          if (selectedAgencyId)
-                            void agencyLandscapeQuery.refetch();
-                        }
-                      }}
+                      onClick={() => void refreshWorkspaceData()}
                       className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/70 bg-white/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white"
                       title="Refresh workspace data"
                     >
@@ -4942,20 +5019,7 @@ export default function GovernanceWorkspacePage() {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      void issueDirectoryQuery.refetch();
-                      void agencyDirectoryQuery.refetch();
-                      if (workspaceQueryRunKey > 0)
-                        void workspaceEvidenceQuery.refetch();
-
-                      if (activeDocumentId) {
-                        void documentQuery.refetch();
-                        if (selectedIssueId) void timelineQuery.refetch();
-                        if (selectedIssueId) void relationsQuery.refetch();
-                        if (selectedAgencyId)
-                          void agencyLandscapeQuery.refetch();
-                      }
-                    }}
+                    onClick={() => void refreshWorkspaceData()}
                     className="inline-flex h-12 items-center justify-center rounded-2xl border border-white/70 bg-white/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white"
                     title="Refresh workspace data"
                   >
@@ -6717,6 +6781,35 @@ export default function GovernanceWorkspacePage() {
               </div>
             </SmartCard>
           )}
+
+          {workspaceNotice ? (
+            <SmartCard
+              className={[
+                "p-4 text-sm",
+                workspaceNotice.tone === "success"
+                  ? "border-emerald-200/80 bg-emerald-50/90 text-emerald-800"
+                  : workspaceNotice.tone === "warning"
+                    ? "border-amber-200/80 bg-amber-50/90 text-amber-800"
+                    : "border-sky-200/80 bg-sky-50/90 text-sky-800",
+              ].join(" ")}
+              tabIndex={-1}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>{workspaceNotice.message}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceNotice(null)}
+                  className="rounded-full p-1 transition hover:bg-white/70"
+                  aria-label="Dismiss workspace notice"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </SmartCard>
+          ) : null}
 
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/80 p-2 shadow-sm">
             <div className="text-sm text-slate-600">

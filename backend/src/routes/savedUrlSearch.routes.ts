@@ -21,6 +21,7 @@ const filterSchema = z.object({
   publishedTo: z.string().optional(),
 
   favoritesOnly: z.boolean(),
+  collectorPurposeId: z.string().min(1).nullable().optional(),
   snapshotStatus: z.enum(["all", "missing", "stale", "fresh"]).optional(),
   taggingStatus: z
     .enum(["all", "NONE", "PENDING", "RUNNING", "SUCCESS", "FAILED"])

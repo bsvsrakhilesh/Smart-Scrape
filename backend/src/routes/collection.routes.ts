@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import prisma from "../config/database";
 import { validate } from "../middlewares/validate";
+import { ownerIdForRequest } from "../utils/requestOwner";
 import {
   canonicalizeUrl,
   normalizedDomainFromUrl,
@@ -112,6 +113,12 @@ async function ensureUrlRow(params: {
 
 const r = Router();
 
+function collectionOwnerWhere(ownerId: string) {
+  return {
+    OR: [{ ownerId }, { ownerId: null }],
+  };
+}
+
 /* ------------------------ schemas ------------------------ */
 
 const createCollectionBody = z.object({
@@ -146,9 +153,11 @@ const urlMapBody = z.object({
 /* ------------------------ routes ------------------------ */
 
 // GET /api/collections
-r.get("/collections", async (_req, res, next) => {
+r.get("/collections", async (req, res, next) => {
   try {
+    const ownerId = ownerIdForRequest(req);
     const rows = await prisma.collection.findMany({
+      where: collectionOwnerWhere(ownerId),
       orderBy: { createdAt: "asc" },
       include: {
         _count: {
@@ -175,12 +184,13 @@ r.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof createCollectionBody>;
+      const ownerId = ownerIdForRequest(req);
       const created = await prisma.collection.create({
         data: {
           id: body.id,
           name: body.name.trim(),
           description: body.description ?? undefined,
-          ownerId: body.ownerId ?? undefined,
+          ownerId,
           visibility: body.visibility ?? "private",
         },
       });
@@ -198,7 +208,15 @@ r.patch(
   async (req, res, next) => {
     try {
       const id = String(req.params.id);
+      const ownerId = ownerIdForRequest(req);
       const body = req.body as z.infer<typeof renameCollectionBody>;
+      const existing = await prisma.collection.findFirst({
+        where: { id, ...collectionOwnerWhere(ownerId) },
+        select: { id: true },
+      });
+      if (!existing) {
+        return res.status(404).json({ message: "Collection not found." });
+      }
       const updated = await prisma.collection.update({
         where: { id },
         data: { name: body.name.trim() },
@@ -214,6 +232,14 @@ r.patch(
 r.delete("/collections/:id", async (req, res, next) => {
   try {
     const id = String(req.params.id);
+    const ownerId = ownerIdForRequest(req);
+    const existing = await prisma.collection.findFirst({
+      where: { id, ...collectionOwnerWhere(ownerId) },
+      select: { id: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ message: "Collection not found." });
+    }
     await prisma.collection.delete({ where: { id } });
     res.status(204).end();
   } catch (e) {
@@ -229,6 +255,7 @@ r.put(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof assignUrlCollectionsBody>;
+      const ownerId = ownerIdForRequest(req);
       const collectionIds = Array.from(
         new Set((body.collectionIds || []).filter(Boolean)),
       );
@@ -243,7 +270,10 @@ r.put(
       // Validate requested collections before mutating memberships
       if (collectionIds.length > 0) {
         const existingCollections = await prisma.collection.findMany({
-          where: { id: { in: collectionIds } },
+          where: {
+            id: { in: collectionIds },
+            ...collectionOwnerWhere(ownerId),
+          },
           select: { id: true },
         });
 
@@ -302,7 +332,15 @@ r.post(
   async (req, res, next) => {
     try {
       const collectionId = String(req.params.id);
+      const ownerId = ownerIdForRequest(req);
       const body = req.body as z.infer<typeof addUrlToCollectionBody>;
+      const collection = await prisma.collection.findFirst({
+        where: { id: collectionId, ...collectionOwnerWhere(ownerId) },
+        select: { id: true },
+      });
+      if (!collection) {
+        return res.status(404).json({ message: "Collection not found." });
+      }
 
       const urlRow = await ensureUrlRow({
         rawUrl: body.url,
@@ -328,9 +366,15 @@ r.post(
 r.delete("/collections/:id/urls", async (req, res, next) => {
   try {
     const collectionId = String(req.params.id);
+    const ownerId = ownerIdForRequest(req);
     const url = String(req.query.url || "");
     if (!url)
       return res.status(400).json({ message: "Missing url query param" });
+    const collection = await prisma.collection.findFirst({
+      where: { id: collectionId, ...collectionOwnerWhere(ownerId) },
+      select: { id: true },
+    });
+    if (!collection) return res.status(204).end();
 
     const urlRow = await findUrlByCanonicalOrRaw(url);
     if (!urlRow) return res.status(204).end();
@@ -345,9 +389,13 @@ r.delete("/collections/:id/urls", async (req, res, next) => {
 });
 
 // GET /api/collections/url-map  (all) OR POST /api/collections/url-map with { urls }
-r.get("/collections/url-map", async (_req, res, next) => {
+r.get("/collections/url-map", async (req, res, next) => {
   try {
+    const ownerId = ownerIdForRequest(req);
     const joins = await prisma.collectionUrl.findMany({
+      where: {
+        collection: collectionOwnerWhere(ownerId),
+      },
       include: { url: { select: { url: true } } },
     });
 
@@ -370,6 +418,7 @@ r.post(
   async (req, res, next) => {
     try {
       const body = req.body as z.infer<typeof urlMapBody>;
+      const ownerId = ownerIdForRequest(req);
       const rawUrls = body.urls || [];
       const canonicalUrls = rawUrls.map(canonicalize);
       if (!canonicalUrls.length) return res.json({ map: {} });
@@ -391,7 +440,10 @@ r.post(
       );
 
       const joins = await prisma.collectionUrl.findMany({
-        where: { urlId: { in: Array.from(idByUrl.values()) } },
+        where: {
+          urlId: { in: Array.from(idByUrl.values()) },
+          collection: collectionOwnerWhere(ownerId),
+        },
       });
 
       const map: Record<string, string[]> = {};

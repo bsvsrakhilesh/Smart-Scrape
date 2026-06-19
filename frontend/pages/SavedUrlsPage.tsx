@@ -91,6 +91,7 @@ type SavedUrlSearchPreset = {
   sortOrder: SortOrder;
   year: string;
   selectedCollectionId?: string;
+  collectorPurposeId?: string;
   queueId: SavedUrlQueueId;
 };
 
@@ -191,6 +192,7 @@ const DEFAULT_REVIEW_VIEW_SIGNATURE = JSON.stringify({
   sortOrder: DEFAULT_SORT_ORDER,
   year: DEFAULT_YEAR,
   selectedCollectionId: null,
+  collectorPurposeId: null,
   queueId: DEFAULT_QUEUE_ID,
 });
 
@@ -200,6 +202,7 @@ function buildSavedSearchSignature(input: {
   sortOrder: SortOrder;
   year: string;
   selectedCollectionId?: string | null;
+  collectorPurposeId?: string | null;
   queueId: SavedUrlQueueId;
 }) {
   return JSON.stringify({
@@ -208,6 +211,7 @@ function buildSavedSearchSignature(input: {
     sortOrder: input.sortOrder,
     year: input.year,
     selectedCollectionId: input.selectedCollectionId ?? null,
+    collectorPurposeId: input.collectorPurposeId ?? null,
     queueId: input.queueId,
   });
 }
@@ -219,21 +223,33 @@ function getSavedSearchPresetSignature(preset: SavedUrlSearchPreset) {
     sortOrder: preset.sortOrder,
     year: preset.year,
     selectedCollectionId: preset.selectedCollectionId,
+    collectorPurposeId: preset.collectorPurposeId,
     queueId: preset.queueId,
   });
+}
+
+function toUrlFilterState(raw: unknown): UrlFilterState {
+  const { collectorPurposeId: _collectorPurposeId, ...filter } =
+    (raw || {}) as UrlFilterState & { collectorPurposeId?: string | null };
+  return filter as UrlFilterState;
 }
 
 function toSavedUrlSearchPreset(
   row: BackendSavedUrlSearchPreset,
 ): SavedUrlSearchPreset {
+  const filter = toUrlFilterState(row.filter);
   return {
     id: row.id,
     name: row.name,
-    filter: row.filter as UrlFilterState,
+    filter,
     sortKey: row.sortKey,
     sortOrder: row.sortOrder,
     year: row.year,
     selectedCollectionId: row.selectedCollectionId ?? undefined,
+    collectorPurposeId:
+      typeof (row.filter as any)?.collectorPurposeId === "string"
+        ? (row.filter as any).collectorPurposeId
+        : undefined,
     queueId: row.queueId,
   };
 }
@@ -484,17 +500,20 @@ const SavedUrlsPage: React.FC = () => {
   const [collectorPurposes, setCollectorPurposes] = useState<CollectorPurpose[]>([]);
   const [activePurposeId, setActivePurposeId] = useState(purposeFromUrl);
   const [activePurpose, setActivePurpose] = useState<CollectorPurpose | null>(null);
+  const [purposeLoadError, setPurposeLoadError] = useState<string | null>(null);
   // Data
   const [urls, setUrls] = useState<UISavedUrl[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const clearActivePurposeSelection = useCallback(() => {
-    setActivePurposeId("");
-    setActivePurpose(null);
+  const updatePurposeQueryParam = useCallback((nextId: string, replace = true) => {
     const params = new URLSearchParams(location.search);
-    params.delete("collectorPurposeId");
-    navigate({ search: params.toString() ? `?${params.toString()}` : "" }, { replace: true });
+    if (nextId) params.set("collectorPurposeId", nextId);
+    else params.delete("collectorPurposeId");
+    navigate(
+      { search: params.toString() ? `?${params.toString()}` : "" },
+      { replace },
+    );
   }, [location.search, navigate]);
 
   useEffect(() => {
@@ -502,28 +521,49 @@ const SavedUrlsPage: React.FC = () => {
   }, [purposeFromUrl]);
 
   useEffect(() => {
-    void listCollectorPurposes().then(setCollectorPurposes).catch(() => undefined);
-  }, []);
+    void listCollectorPurposes()
+      .then((rows) => {
+        setCollectorPurposes(rows);
+        setPurposeLoadError(null);
+      })
+      .catch((e: any) => {
+        const message = e?.message ?? "Could not load purpose intake filters.";
+        setPurposeLoadError(message);
+        notify({
+          text: message,
+          kind: "warning",
+        });
+      });
+  }, [notify]);
 
   const refreshActivePurposeSummary = useCallback(async () => {
     if (!activePurposeId) {
       setActivePurpose(null);
+      setPurposeLoadError(null);
       return null;
     }
 
     try {
       const purpose = await getCollectorPurpose(activePurposeId);
       setActivePurpose(purpose);
+      setPurposeLoadError(null);
       setCollectorPurposes((current) =>
         current.map((row) => (row.id === purpose.id ? purpose : row)),
       );
       return purpose;
-    } catch {
+    } catch (e: any) {
       setActivePurpose(null);
-      clearActivePurposeSelection();
+      const message =
+        e?.message ??
+        "Could not load the selected purpose intake. The filter is still active.";
+      setPurposeLoadError(message);
+      notify({
+        text: message,
+        kind: "warning",
+      });
       return null;
     }
-  }, [activePurposeId, clearActivePurposeSelection]);
+  }, [activePurposeId, notify]);
 
   useEffect(() => {
     void refreshActivePurposeSummary();
@@ -1062,6 +1102,16 @@ const SavedUrlsPage: React.FC = () => {
     [refreshLibraryTotalCount, refreshSavedUrlsScope],
   );
 
+  const warnRefreshFailure = useCallback(
+    (context: string, e: any) => {
+      notify({
+        text: `${context} saved, but the visible list could not refresh: ${e?.message ?? "refresh failed"}`,
+        kind: "warning",
+      });
+    },
+    [notify],
+  );
+
   const refreshTaggingSummary = useCallback(async () => {
     try {
       const s = await getUrlTaggingSummary();
@@ -1159,7 +1209,10 @@ const SavedUrlsPage: React.FC = () => {
       try {
         await createSavedUrlSearchPreset({
           name: preset.name,
-          filter: preset.filter,
+          filter: {
+            ...preset.filter,
+            collectorPurposeId: preset.collectorPurposeId ?? null,
+          },
           sortKey: preset.sortKey,
           sortOrder: preset.sortOrder,
           year: preset.year,
@@ -1588,9 +1641,18 @@ const SavedUrlsPage: React.FC = () => {
         sortOrder,
         year,
         selectedCollectionId,
+        collectorPurposeId: activePurposeId || null,
         queueId: activeQueueId,
       }),
-    [filter, sortKey, sortOrder, year, selectedCollectionId, activeQueueId],
+    [
+      filter,
+      sortKey,
+      sortOrder,
+      year,
+      selectedCollectionId,
+      activePurposeId,
+      activeQueueId,
+    ],
   );
 
   const currentSavedSearchMatch = useMemo(
@@ -1686,16 +1748,20 @@ const SavedUrlsPage: React.FC = () => {
     setSortOrder(DEFAULT_SORT_ORDER);
     setYear(DEFAULT_YEAR);
     setSelectedCollectionId(undefined);
+    setActivePurposeId("");
+    setActivePurpose(null);
+    setPurposeLoadError(null);
+    updatePurposeQueryParam("");
     setActiveQueueId(DEFAULT_QUEUE_ID);
     setActiveSavedSearchId(null);
     setSelection(new Set());
     setDetailId(null);
 
     notify({
-      text: "Reset filters, queue, collection, saved search context, and sorting.",
+      text: "Reset filters, purpose intake, queue, collection, saved search context, and sorting.",
       kind: "success",
     });
-  }, [notify]);
+  }, [notify, updatePurposeQueryParam]);
 
   const markVisibleReviewed = useCallback(async () => {
     if (!sorted.length) return;
@@ -1706,7 +1772,6 @@ const SavedUrlsPage: React.FC = () => {
 
     try {
       await savedUrlReviewState.markReviewed.mutateAsync(ids);
-      await refreshRowsAndQueueSummary();
       notify({
         text:
           ids.length === 1
@@ -1714,13 +1779,24 @@ const SavedUrlsPage: React.FC = () => {
             : `Marked ${ids.length} visible URLs as reviewed.`,
         kind: "success",
       });
+      try {
+        await refreshRowsAndQueueSummary();
+      } catch (refreshError: any) {
+        warnRefreshFailure("Review state", refreshError);
+      }
     } catch (e: any) {
       notify({
         text: e?.message ?? "Failed to mark URLs reviewed.",
         kind: "error",
       });
     }
-  }, [notify, refreshRowsAndQueueSummary, savedUrlReviewState.markReviewed, sorted]);
+  }, [
+    notify,
+    refreshRowsAndQueueSummary,
+    savedUrlReviewState.markReviewed,
+    sorted,
+    warnRefreshFailure,
+  ]);
 
   const applySavedSearch = useCallback(
     (preset: SavedUrlSearchPreset) => {
@@ -1729,22 +1805,41 @@ const SavedUrlsPage: React.FC = () => {
       setSortOrder(preset.sortOrder);
       setYear(preset.year);
       setSelectedCollectionId(preset.selectedCollectionId);
+      setActivePurposeId(preset.collectorPurposeId ?? "");
+      updatePurposeQueryParam(preset.collectorPurposeId ?? "", false);
       setActiveQueueId(preset.queueId);
       setActiveSavedSearchId(preset.id);
       clearSelection();
     },
-    [clearSelection],
+    [clearSelection, updatePurposeQueryParam],
   );
 
   const upsertSavedSearch = useCallback(
     async (name: string) => {
-      const existing = savedSearches.find(
-        (preset) => preset.name.toLowerCase() === name.toLowerCase(),
+      const activeTarget = savedSearches.find(
+        (preset) => preset.id === activeSavedSearchId,
       );
+      const normalizedName = name.toLowerCase();
+      const existingWithName = savedSearches.find(
+        (preset) => preset.name.toLowerCase() === normalizedName,
+      );
+      const target =
+        activeTarget && activeTarget.name.toLowerCase() === normalizedName
+          ? activeTarget
+          : null;
+
+      if (existingWithName && existingWithName.id !== target?.id) {
+        throw new Error(
+          `A saved search named "${name}" already exists. Choose a different name or apply that saved search first.`,
+        );
+      }
 
       const body = {
         name,
-        filter: { ...filter },
+        filter: {
+          ...filter,
+          collectorPurposeId: activePurposeId || null,
+        },
         sortKey,
         sortOrder,
         year,
@@ -1752,24 +1847,31 @@ const SavedUrlsPage: React.FC = () => {
         queueId: activeQueueId,
       };
 
-      const saved = existing
-        ? await updateSavedUrlSearchPreset(existing.id, body)
+      const saved = target
+        ? await updateSavedUrlSearchPreset(target.id, body)
         : await createSavedUrlSearchPreset(body);
 
-      await refreshSavedSearchesFromBackend();
       setActiveSavedSearchId(saved.id);
+      try {
+        await refreshSavedSearchesFromBackend();
+      } catch (refreshError: any) {
+        warnRefreshFailure("Saved search", refreshError);
+      }
 
-      return existing ? "updated" : "created";
+      return target ? "updated" : "created";
     },
     [
+      activeSavedSearchId,
       savedSearches,
       filter,
       sortKey,
       sortOrder,
       year,
       selectedCollectionId,
+      activePurposeId,
       activeQueueId,
       refreshSavedSearchesFromBackend,
+      warnRefreshFailure,
     ],
   );
 
@@ -1798,18 +1900,36 @@ const SavedUrlsPage: React.FC = () => {
 
     if (!ok) return;
 
-    await deleteSavedUrlSearchPreset(displayedSavedSearch.id);
-    await refreshSavedSearchesFromBackend();
+    try {
+      await deleteSavedUrlSearchPreset(displayedSavedSearch.id);
 
-    setActiveSavedSearchId((prev) =>
-      prev === displayedSavedSearch.id ? null : prev,
-    );
+      setActiveSavedSearchId((prev) =>
+        prev === displayedSavedSearch.id ? null : prev,
+      );
 
-    notify({
-      text: `Deleted saved search "${displayedSavedSearch.name}".`,
-      kind: "success",
-    });
-  }, [displayedSavedSearch, confirm, notify, refreshSavedSearchesFromBackend]);
+      notify({
+        text: `Deleted saved search "${displayedSavedSearch.name}".`,
+        kind: "success",
+      });
+
+      try {
+        await refreshSavedSearchesFromBackend();
+      } catch (refreshError: any) {
+        warnRefreshFailure("Saved search deletion", refreshError);
+      }
+    } catch (e: any) {
+      notify({
+        text: e?.message ?? "Could not delete saved search.",
+        kind: "error",
+      });
+    }
+  }, [
+    displayedSavedSearch,
+    confirm,
+    notify,
+    refreshSavedSearchesFromBackend,
+    warnRefreshFailure,
+  ]);
 
   const openCollectionDialog = useCallback(() => {
     setTextDialog({
@@ -1906,25 +2026,35 @@ const SavedUrlsPage: React.FC = () => {
       if (textDialog.kind === "collection") {
         if (textDialog.mode === "create") {
           const created = await createCollection(name);
-          await refreshCollectionsFromServer();
           setSelectedCollectionId(created.id);
 
           notify({
             text: `Created collection "${created.name}".`,
             kind: "success",
           });
+
+          try {
+            await refreshCollectionsFromServer();
+          } catch (refreshError: any) {
+            warnRefreshFailure("Collection", refreshError);
+          }
         } else {
           if (!textDialog.collectionId) {
             throw new Error("Missing collection id for rename.");
           }
 
           await renameCollection(textDialog.collectionId, name);
-          await refreshCollectionsFromServer();
 
           notify({
             text: `Renamed collection to "${name}".`,
             kind: "success",
           });
+
+          try {
+            await refreshCollectionsFromServer();
+          } catch (refreshError: any) {
+            warnRefreshFailure("Collection", refreshError);
+          }
         }
       } else {
         const action = await upsertSavedSearch(name);
@@ -1953,6 +2083,7 @@ const SavedUrlsPage: React.FC = () => {
     notify,
     refreshCollectionsFromServer,
     upsertSavedSearch,
+    warnRefreshFailure,
   ]);
 
   const allPageRowsSelected =
@@ -2006,7 +2137,11 @@ const SavedUrlsPage: React.FC = () => {
       await patchUrl(idNum, { isFavorited: !u.isFavorited });
 
       if (shouldRefetchAfterFavoriteMutation) {
-        await refreshUrlsFromServer();
+        try {
+          await refreshUrlsFromServer();
+        } catch (refreshError: any) {
+          warnRefreshFailure("Favorite change", refreshError);
+        }
       }
     } catch {
       setUrls((prev) =>
@@ -2039,7 +2174,11 @@ const SavedUrlsPage: React.FC = () => {
       await patchUrl(idNum, { notes });
 
       if (shouldRefetchAfterNotesMutation) {
-        await refreshUrlsFromServer();
+        try {
+          await refreshUrlsFromServer();
+        } catch (refreshError: any) {
+          warnRefreshFailure("Notes", refreshError);
+        }
       }
     } catch (e) {
       setUrls((prev) =>
@@ -2076,7 +2215,6 @@ const SavedUrlsPage: React.FC = () => {
 
     try {
       await patchUrl(idNum, { tags: nextUserTags });
-      await refreshRowsAndFacetsAndQueue();
     } catch {
       setUrls((prev) =>
         prev.map((x) =>
@@ -2092,6 +2230,13 @@ const SavedUrlsPage: React.FC = () => {
         ),
       );
       notify({ text: "Failed to update tags.", kind: "error" });
+      return;
+    }
+
+    try {
+      await refreshRowsAndFacetsAndQueue();
+    } catch (refreshError: any) {
+      warnRefreshFailure("Tags", refreshError);
     }
   };
 
@@ -2119,7 +2264,11 @@ const SavedUrlsPage: React.FC = () => {
 
     if (failedIds.length === 0) {
       if (shouldRefetchAfterFavoriteMutation) {
-        await refreshUrlsFromServer();
+        try {
+          await refreshUrlsFromServer();
+        } catch (refreshError: any) {
+          warnRefreshFailure("Favorite changes", refreshError);
+        }
       }
 
       notify({
@@ -2149,7 +2298,11 @@ const SavedUrlsPage: React.FC = () => {
 
     if (successCount > 0) {
       if (shouldRefetchAfterFavoriteMutation) {
-        await refreshUrlsFromServer();
+        try {
+          await refreshUrlsFromServer();
+        } catch (refreshError: any) {
+          warnRefreshFailure("Favorite changes", refreshError);
+        }
       }
 
       notify({
@@ -2243,8 +2396,6 @@ const SavedUrlsPage: React.FC = () => {
     const successCount = ids.length - failedIds.length;
 
     if (failedIds.length === 0) {
-      await refreshRowsAndFacetsAndQueue();
-
       notify({
         text:
           successCount === 1
@@ -2252,6 +2403,12 @@ const SavedUrlsPage: React.FC = () => {
             : `Added tag "${tag}" to ${successCount} selected rows on this page.`,
         kind: "success",
       });
+
+      try {
+        await refreshRowsAndFacetsAndQueue();
+      } catch (refreshError: any) {
+        warnRefreshFailure("Tags", refreshError);
+      }
       return;
     }
 
@@ -2269,7 +2426,11 @@ const SavedUrlsPage: React.FC = () => {
     setSelection(new Set(failedIds));
 
     if (successCount > 0) {
-      await refreshRowsAndFacetsAndQueue();
+      try {
+        await refreshRowsAndFacetsAndQueue();
+      } catch (refreshError: any) {
+        warnRefreshFailure("Tags", refreshError);
+      }
     }
 
     const failedPreview = formatBulkFailurePreview(targetRows, failedIds);
@@ -2590,7 +2751,11 @@ const SavedUrlsPage: React.FC = () => {
 
       if (!savedRef?.id) {
         setPage(1);
-        await refreshSavedUrlsWorkspace(1);
+        try {
+          await refreshSavedUrlsWorkspace(1);
+        } catch (refreshError: any) {
+          warnRefreshFailure("URL", refreshError);
+        }
 
         notify({
           text:
@@ -2603,24 +2768,28 @@ const SavedUrlsPage: React.FC = () => {
         return true;
       }
 
-      let fresh = await getUrlById(savedRef.id);
-
       if (selectedCollectionId) {
-        const nextCollectionIds = Array.from(
-          new Set([...(fresh.collections || []), selectedCollectionId]),
-        );
+        try {
+          let fresh = await getUrlById(savedRef.id);
+          const nextCollectionIds = Array.from(
+            new Set([...(fresh.collections || []), selectedCollectionId]),
+          );
 
-        await setUrlCollections(fresh.url, nextCollectionIds, {
-          title: fresh.title,
-          snippet: fresh.snippet ?? null,
-        });
+          await setUrlCollections(fresh.url, nextCollectionIds, {
+            title: fresh.title,
+            snippet: fresh.snippet ?? null,
+          });
 
-        fresh = await getUrlById(savedRef.id);
+          await getUrlById(savedRef.id);
+        } catch (collectionError: any) {
+          notify({
+            text: `URL was saved, but it could not be added to "${selectedCollection?.name ?? "the selected collection"}": ${collectionError?.message ?? "collection update failed"}`,
+            kind: "warning",
+          });
+        }
       }
 
       setPage(1);
-      await refreshSavedUrlsWorkspace(1);
-
       notify({
         text: savedRef.isNew
           ? selectedCollection
@@ -2631,6 +2800,12 @@ const SavedUrlsPage: React.FC = () => {
             : "URL was already saved. Refreshed the existing record.",
         kind: savedRef.isNew ? "success" : "info",
       });
+
+      try {
+        await refreshSavedUrlsWorkspace(1);
+      } catch (refreshError: any) {
+        warnRefreshFailure("URL", refreshError);
+      }
 
       return true;
     } catch (e: any) {
@@ -2768,20 +2943,26 @@ const SavedUrlsPage: React.FC = () => {
             value={activePurposeId}
             onChange={(event) => {
               const nextId = event.target.value;
-              const params = new URLSearchParams(location.search);
-              if (nextId) params.set("collectorPurposeId", nextId);
-              else params.delete("collectorPurposeId");
-              navigate({ search: params.toString() ? `?${params.toString()}` : "" });
+              updatePurposeQueryParam(nextId, false);
               setPage(1);
             }}
           >
             <option value="">All saved URLs</option>
+            {activePurposeId &&
+              !collectorPurposes.some((purpose) => purpose.id === activePurposeId) && (
+                <option value={activePurposeId}>Selected purpose unavailable</option>
+              )}
             {collectorPurposes.map((purpose) => (
               <option key={purpose.id} value={purpose.id}>
                 {purpose.title}
               </option>
             ))}
           </select>
+          {purposeLoadError && (
+            <p className="mt-2 max-w-sm text-xs text-amber-700 dark:text-amber-300">
+              {purposeLoadError}
+            </p>
+          )}
         </div>
 
         {activePurpose && (

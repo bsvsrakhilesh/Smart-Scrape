@@ -146,6 +146,7 @@ r.get(
         getUrlFacets(opts),
         getUrlReviewQueueSummary(queueSummaryOpts),
         prisma.collection.findMany({
+          where: { OR: [{ ownerId }, { ownerId: null }] },
           orderBy: { createdAt: "asc" },
           include: { _count: { select: { urls: true } } },
         }),

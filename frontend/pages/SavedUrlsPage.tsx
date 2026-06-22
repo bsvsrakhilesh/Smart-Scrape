@@ -96,6 +96,8 @@ type SavedUrlSearchPreset = {
 };
 
 const LEGACY_SAVED_URLS_SEARCHES_KEY = "saved-urls:saved-searches";
+const SAVED_URLS_OPERATIONS_PANEL_HIDDEN_KEY =
+  "saved-urls:operations-panel-hidden";
 
 type SavedUrlsViewMode = "registry" | "cards";
 type SavedUrlsTextDialog =
@@ -490,6 +492,11 @@ function loadLegacySavedUrlSearchPresets(): SavedUrlSearchPreset[] {
   }
 }
 
+function getInitialOperationsPanelHidden(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(SAVED_URLS_OPERATIONS_PANEL_HIDDEN_KEY) === "true";
+}
+
 const SavedUrlsPage: React.FC = () => {
   const { notify } = useToast();
   const { confirm } = useConfirm();
@@ -573,6 +580,9 @@ const SavedUrlsPage: React.FC = () => {
   const [tagSummary, setTagSummary] = useState<UrlTaggingSummary | null>(null);
   const [tagSummaryLoading, setTagSummaryLoading] = useState(false);
   const [tagSummaryError, setTagSummaryError] = useState<string | null>(null);
+  const [operationsPanelHidden, setOperationsPanelHidden] = useState<boolean>(
+    getInitialOperationsPanelHidden,
+  );
 
   // Collections (left sidebar)
   const [collections, setCollections] =
@@ -828,6 +838,14 @@ const SavedUrlsPage: React.FC = () => {
       ),
     [savedUrlOperations.data?.items],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(
+      SAVED_URLS_OPERATIONS_PANEL_HIDDEN_KEY,
+      String(operationsPanelHidden),
+    );
+  }, [operationsPanelHidden]);
 
   const [savedSearches, setSavedSearches] = useState<SavedUrlSearchPreset[]>(
     [],
@@ -3271,35 +3289,54 @@ const SavedUrlsPage: React.FC = () => {
         </div>
       ) : null}
 
-      <SavedUrlsOperationsPanel
-        operations={savedUrlOperations.data?.items ?? []}
-        loading={savedUrlOperations.isLoading}
-        onCancel={(id) => {
-          savedUrlOperations.cancelOperation.mutate(id, {
-            onSuccess: () => {
-              notify({ text: "Operation cancellation requested.", kind: "info" });
-              void refreshRowsAndQueueSummary();
-            },
-            onError: (e: any) =>
-              notify({
-                text: e?.message ?? "Could not cancel operation.",
-                kind: "error",
-              }),
-          });
-        }}
-        onRetryFailed={(id) => {
-          savedUrlOperations.retryFailedOperation.mutate(id, {
-            onSuccess: () => {
-              notify({ text: "Queued retry for failed operation items.", kind: "success" });
-            },
-            onError: (e: any) =>
-              notify({
-                text: e?.message ?? "Could not retry failed items.",
-                kind: "error",
-              }),
-          });
-        }}
-      />
+      {operationsPanelHidden ? (
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setOperationsPanelHidden(false)}
+            className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/85 px-3 py-2 text-xs font-medium text-neutral-700 shadow-sm backdrop-blur transition hover:bg-white dark:border-white/10 dark:bg-neutral-950/70 dark:text-neutral-200 dark:hover:bg-neutral-900/80"
+          >
+            Show operations
+          </button>
+        </div>
+      ) : (
+        <SavedUrlsOperationsPanel
+          operations={savedUrlOperations.data?.items ?? []}
+          loading={savedUrlOperations.isLoading}
+          onDismiss={() => setOperationsPanelHidden(true)}
+          onCancel={(id) => {
+            savedUrlOperations.cancelOperation.mutate(id, {
+              onSuccess: () => {
+                notify({
+                  text: "Operation cancellation requested.",
+                  kind: "info",
+                });
+                void refreshRowsAndQueueSummary();
+              },
+              onError: (e: any) =>
+                notify({
+                  text: e?.message ?? "Could not cancel operation.",
+                  kind: "error",
+                }),
+            });
+          }}
+          onRetryFailed={(id) => {
+            savedUrlOperations.retryFailedOperation.mutate(id, {
+              onSuccess: () => {
+                notify({
+                  text: "Queued retry for failed operation items.",
+                  kind: "success",
+                });
+              },
+              onError: (e: any) =>
+                notify({
+                  text: e?.message ?? "Could not retry failed items.",
+                  kind: "error",
+                }),
+            });
+          }}
+        />
+      )}
 
       <div className="saved-urls-panel saved-urls-command-center p-4 sm:p-5">
         <div className="saved-urls-command-head">

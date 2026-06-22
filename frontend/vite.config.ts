@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     resolve: { alias: { "@": srcDir } },
     optimizeDeps: {
-      noDiscovery: true,
+      include: ["cookie", "set-cookie-parser"],
     },
 
     server: {

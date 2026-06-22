@@ -16,6 +16,7 @@ type Props = {
   loading?: boolean;
   onCancel: (id: string) => void;
   onRetryFailed: (id: string) => void;
+  onDismiss?: () => void;
 };
 
 const STATUS_LABEL: Record<SavedUrlOperationStatus, string> = {
@@ -83,6 +84,7 @@ const SavedUrlsOperationsPanel: React.FC<Props> = ({
   loading = false,
   onCancel,
   onRetryFailed,
+  onDismiss,
 }) => {
   if (!operations.length && !loading) return null;
 
@@ -92,9 +94,21 @@ const SavedUrlsOperationsPanel: React.FC<Props> = ({
   return (
     <section
       aria-label="Saved URLs operations"
-      className="overflow-hidden rounded-3xl border border-black/10 bg-white/85 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-neutral-950/75"
+      className="relative overflow-hidden rounded-3xl border border-black/10 bg-white/85 shadow-sm backdrop-blur-md dark:border-white/10 dark:bg-neutral-950/75"
     >
-      <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      {onDismiss ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white text-neutral-500 shadow-sm transition hover:bg-neutral-50 hover:text-neutral-900 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10"
+          aria-label="Close operations panel"
+          title="Hide operations"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      ) : null}
+
+      <div className="flex flex-col gap-3 px-4 py-3 pr-14 sm:flex-row sm:items-start sm:justify-between sm:pr-16">
         <div className="flex min-w-0 items-center gap-3">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700 dark:bg-sky-400/10 dark:text-sky-200">
             <Activity className="h-4 w-4" aria-hidden="true" />

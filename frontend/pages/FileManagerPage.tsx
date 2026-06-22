@@ -1436,6 +1436,16 @@ export default function FileManagerPage() {
     [],
   );
 
+  const patchLatestFileEverywhere = useCallback(
+    (fresh: FileItem | FileDetail | null | undefined) => {
+      const id = String((fresh as any)?.id ?? "");
+      if (!fresh || !id) return;
+
+      patchFileEverywhere(id, fresh as Partial<FileItem> & Partial<FileDetail>);
+    },
+    [patchFileEverywhere],
+  );
+
   const removeItemsEverywhere = useCallback((ids: string[]) => {
     const idSet = new Set(ids.map(String));
     if (!idSet.size) return;
@@ -2450,13 +2460,13 @@ export default function FileManagerPage() {
 
         settled.forEach((result) => {
           if (result.status !== "fulfilled") return;
-          upsertLatestFileEverywhere(result.value);
+          patchLatestFileEverywhere(result.value);
         });
       } finally {
         ids.forEach((id) => liveTagPollRef.current.delete(id));
       }
     },
-    [upsertLatestFileEverywhere],
+    [patchLatestFileEverywhere],
   );
 
   const pollLiveAiTagJobsForFiles = useCallback(
@@ -2521,7 +2531,7 @@ export default function FileManagerPage() {
 
               try {
                 const fresh = await getFileById(fileId);
-                applyLatestFileEverywhere(fresh);
+                patchLatestFileEverywhere(fresh);
               } catch {
                 // optimistic success is already visible
               }
@@ -2575,7 +2585,7 @@ export default function FileManagerPage() {
         );
       }
     },
-    [applyLatestFileEverywhere, patchFileEverywhere],
+    [patchLatestFileEverywhere, patchFileEverywhere],
   );
 
   useEffect(() => {

@@ -46,6 +46,7 @@ export type NotebookChatHistoryRun = {
   promptVersion: string | null;
   model: string | null;
   latencyMs: number | null;
+  scopedSourceIds?: string[];
   grounding?: GroundingReport | null;
   claimLinks?: ClaimCitationLink[];
 };
@@ -236,6 +237,7 @@ export async function listNotebookChatRuns(p: {
       promptVersion: true,
       model: true,
       latencyMs: true,
+      scopedSourceIds: true,
       grounding: true,
       claimLinks: true,
     },
@@ -260,6 +262,9 @@ export async function listNotebookChatRuns(p: {
     promptVersion: r.promptVersion ?? null,
     model: r.model ?? null,
     latencyMs: r.latencyMs ?? null,
+    scopedSourceIds: asArray<string>(r.scopedSourceIds).filter(
+      (x): x is string => typeof x === "string" && !!x,
+    ),
     grounding: (r.grounding ?? null) as GroundingReport | null,
     claimLinks: (r.claimLinks ?? []) as ClaimCitationLink[],
   }));

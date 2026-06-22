@@ -247,6 +247,7 @@ export type ChatHistoryRun = {
   promptVersion?: string | null;
   model?: string | null;
   latencyMs?: number | null;
+  scopedSourceIds?: string[];
 };
 
 export type PagedResult<T> = {

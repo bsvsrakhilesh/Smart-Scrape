@@ -45,7 +45,7 @@ function formatCitations(citations: Citation[]) {
 
     const page =
       c.pageStart != null
-        ? `p.${c.pageStart}${c.pageEnd != null && c.pageEnd !== c.pageStart ? `–${c.pageEnd}` : ""}`
+        ? `p.${c.pageStart}${c.pageEnd != null && c.pageEnd !== c.pageStart ? `-${c.pageEnd}` : ""}`
         : null;
 
     const head = `[${i + 1}] ${label}${page ? ` (${page})` : ""}`;

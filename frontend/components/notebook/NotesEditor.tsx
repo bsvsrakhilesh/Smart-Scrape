@@ -289,6 +289,13 @@ export default function NotesEditor({
     emitNotebookEvent("note-active", { noteId: activeNoteId });
   }, [activeNoteId]);
 
+  useEffect(() => {
+    emitNotebookEvent("note-save-state", {
+      saving: isSavingNote,
+      noteId: activeNoteId,
+    });
+  }, [activeNoteId, isSavingNote]);
+
   const saveM = useMutation({
     onMutate: async () => {
       setIsSavingNote(true);
@@ -598,7 +605,7 @@ export default function NotesEditor({
         </div>
         <div className="text-[11px] text-slate-500">
           {saveM.isPending
-            ? "Saving…"
+            ? "Saving..."
             : saveError
               ? `Save failed: ${saveError}`
               : lastSavedAt
@@ -613,7 +620,7 @@ export default function NotesEditor({
                         minute: "2-digit",
                       })}`
                     : "Draft"
-                  : "—"}
+                  : "-"}
         </div>
       </div>
 
@@ -698,7 +705,7 @@ export default function NotesEditor({
               className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
               title={artifact.model || artifact.promptVersion || undefined}
             >
-              {artifact.kind === "chat-answer" ? "Chat" : "Template"} ·{" "}
+              {artifact.kind === "chat-answer" ? "Chat" : "Template"} |{" "}
               {artifact.citations?.length ?? 0} citations
             </span>
           ))}
@@ -722,7 +729,7 @@ export default function NotesEditor({
         >
           <Save className="h-4 w-4" />
           {saveM.isPending
-            ? "Saving…"
+            ? "Saving..."
             : activeNoteId
               ? "Update note"
               : "Save note"}

@@ -192,6 +192,7 @@ export default function SourcePicker({
 
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   // Debounce search
@@ -322,6 +323,7 @@ export default function SourcePicker({
   const rowCount = rows.length + (hasMore ? 1 : 0);
 
   const toggle = (id: string) => {
+    if (attaching) return;
     if (attachedIds.has(id)) return;
     setSelected((prev) => {
       const next = new Set(prev);
@@ -404,6 +406,13 @@ export default function SourcePicker({
   };
 
   const attach = async () => {
+    if (attaching) {
+      emitNotebookEvent("toast", {
+        kind: "info",
+        text: "Attachment already in progress.",
+      });
+      return;
+    }
     if (!notebookId) {
       emitNotebookEvent("toast", {
         kind: "error",
@@ -422,6 +431,7 @@ export default function SourcePicker({
     }
 
     try {
+      setAttaching(true);
       const now = new Date().toISOString();
 
       const lookup = new Map(rows.map((r) => [String(r.id), r.raw]));
@@ -583,6 +593,8 @@ export default function SourcePicker({
 
       const msg = e?.message || "Failed to attach selected items.";
       emitNotebookEvent("toast", { kind: "error", text: msg });
+    } finally {
+      setAttaching(false);
     }
   };
 
@@ -591,14 +603,14 @@ export default function SourcePicker({
     if (!open) return;
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !attaching) onClose();
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") attach();
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selected, notebookId, kind, attachedIds, rows]);
+  }, [attach, attachedIds, attaching, kind, notebookId, onClose, open, rows, selected]);
 
   if (!open) return null;
 
@@ -611,7 +623,7 @@ export default function SourcePicker({
       className="fixed inset-0 bg-black/50 backdrop-blur-[1px] z-50 flex items-center justify-center"
       onMouseDown={(e) => {
         // click outside closes
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !attaching) onClose();
       }}
     >
       <div
@@ -627,16 +639,19 @@ export default function SourcePicker({
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={onClose}
+                disabled={attaching}
                 className="text-sm font-semibold px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50"
               >
                 Close
               </button>
               <button
                 onClick={attach}
-                disabled={!selectedCount}
+                disabled={!selectedCount || attaching}
                 className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60 disabled:hover:bg-slate-900"
               >
-                Attach{selectedCount ? ` (${selectedCount})` : ""}
+                {attaching
+                  ? "Attaching..."
+                  : `Attach${selectedCount ? ` (${selectedCount})` : ""}`}
               </button>
             </div>
           </div>
@@ -649,7 +664,7 @@ export default function SourcePicker({
               onChange={(e) => setQ(e.target.value)}
               placeholder={`Search ${kind === "url" ? "URLs" : "Files"}…`}
               className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200"
-              disabled={loadingInitial}
+              disabled={loadingInitial || attaching}
             />
             <div className="text-[12px] text-slate-500 shrink-0">
               {loadingInitial

@@ -29,6 +29,7 @@ type NotebookEventMap = {
   "open-note": NBNote;
   "new-note": undefined;
   "note-active": { noteId: string | null };
+  "note-save-state": { saving: boolean; noteId: string | null };
   "note-deleted": { noteId: string };
   "add-note": NotebookAddNoteDetail;
   "chat-prompt": NotebookChatPromptDetail;

@@ -39,6 +39,13 @@ function prettyTime(ts?: string | number | Date) {
   }
 }
 
+function emitNoteSaveBlockedToast() {
+  emitNotebookEvent("toast", {
+    kind: "info",
+    text: "Wait for the current note save to finish.",
+  });
+}
+
 type Tab = "guide" | "studio" | "recent";
 
 export default function RightPanel({
@@ -75,7 +82,7 @@ export default function RightPanel({
         </TabButton>
       </div>
 
-      {/* ✅ This is the scrollable region */}
+      {/* This is the scrollable region */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {tab === "guide" ? (
           <NotebookGuide sourceStats={sourceStats} />
@@ -182,7 +189,7 @@ function NotebookGuide({
                 <div className="mt-0.5 text-[12px] text-slate-500">{x.sub}</div>
               </div>
               <div className="shrink-0 text-[11px] font-semibold text-emerald-700 group-hover:text-emerald-800">
-                Send →
+                Send
               </div>
             </div>
           </button>
@@ -285,7 +292,7 @@ function NotebookStudio() {
                 </div>
               </div>
               <div className="shrink-0 text-[11px] font-semibold text-emerald-700 group-hover:text-emerald-800">
-                Generate →
+                Generate
               </div>
             </div>
           </button>
@@ -296,7 +303,7 @@ function NotebookStudio() {
         <div className="text-xs font-semibold text-slate-800">Tip</div>
         <div className="mt-1 text-[12px] text-slate-600 leading-relaxed">
           After generation, hit <span className="font-semibold">Save note</span>{" "}
-          in Notes (Ctrl/⌘+S) to persist the artifact.
+          in Notes (Ctrl/Cmd+S) to persist the artifact.
         </div>
       </div>
     </div>
@@ -313,11 +320,20 @@ function RecentNotes({
   const qc = useQueryClient();
   const { confirm } = useConfirm();
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [savingNoteId, setSavingNoteId] = useState<string | null>(null);
+  const [noteSaveLocked, setNoteSaveLocked] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     return subscribeNotebookEvent("note-active", ({ noteId }) => {
       setActiveNoteId(noteId);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeNotebookEvent("note-save-state", ({ saving, noteId }) => {
+      setNoteSaveLocked(saving);
+      setSavingNoteId(saving ? noteId : null);
     });
   }, []);
 
@@ -345,10 +361,20 @@ function RecentNotes({
           key={n.id}
           role="button"
           tabIndex={0}
-          onClick={() => emitNotebookEvent("open-note", n)}
+          onClick={() => {
+            if (noteSaveLocked) {
+              emitNoteSaveBlockedToast();
+              return;
+            }
+            emitNotebookEvent("open-note", n);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
+              if (noteSaveLocked) {
+                emitNoteSaveBlockedToast();
+                return;
+              }
               emitNotebookEvent("open-note", n);
             }
           }}
@@ -369,6 +395,11 @@ function RecentNotes({
                   Open
                 </span>
               ) : null}
+              {noteSaveLocked && savingNoteId === n.id ? (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                  Saving
+                </span>
+              ) : null}
             </div>
             <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">
               {String(n.content || "").trim() || "No content yet."}
@@ -381,9 +412,13 @@ function RecentNotes({
           <button
             type="button"
             className="text-[11px] text-red-600 hover:text-red-700 opacity-0 group-hover:opacity-100"
-            disabled={delM.isPending}
+            disabled={delM.isPending || noteSaveLocked}
             onClick={async (e) => {
               e.stopPropagation();
+              if (noteSaveLocked) {
+                emitNoteSaveBlockedToast();
+                return;
+              }
               const ok = await confirm({
                 title: "Delete note?",
                 description: "This removes the saved note from this notebook.",
@@ -396,7 +431,7 @@ function RecentNotes({
               delM.mutate(n.id);
             }}
           >
-            {deletingNoteId === n.id && delM.isPending ? "Deleting…" : "Delete"}
+            {deletingNoteId === n.id && delM.isPending ? "Deleting..." : "Delete"}
           </button>
         </div>
       ))}

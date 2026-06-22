@@ -36,6 +36,8 @@ type Msg = {
   latencyMs?: number | null;
   grounding?: GroundingReport | null;
   claimLinks?: ClaimCitationLink[];
+  scopeSnapshot?: SourceScopeSnapshot;
+  scopedSourceIds?: string[];
 };
 
 type SourceScopeSnapshot = {
@@ -44,6 +46,43 @@ type SourceScopeSnapshot = {
   readyCount: number;
   blockedCount: number;
 };
+
+function sameSourceScope(
+  left?: SourceScopeSnapshot | null,
+  right?: SourceScopeSnapshot | null,
+) {
+  if (!left || !right) return false;
+  return (
+    left.totalCount === right.totalCount &&
+    left.scopeCount === right.scopeCount &&
+    left.readyCount === right.readyCount &&
+    left.blockedCount === right.blockedCount
+  );
+}
+
+function sameScopedSourceIds(left?: string[] | null, right?: string[] | null) {
+  const a = Array.isArray(left) ? [...new Set(left.filter(Boolean))].sort() : [];
+  const b = Array.isArray(right)
+    ? [...new Set(right.filter(Boolean))].sort()
+    : [];
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
+function messageScopeDrifted(args: {
+  message: Msg;
+  currentScope: SourceScopeSnapshot;
+  currentSourceIds?: string[];
+}) {
+  const scopeMismatch =
+    !!args.message.scopeSnapshot &&
+    !sameSourceScope(args.message.scopeSnapshot, args.currentScope);
+  const sourceIdMismatch =
+    !!args.message.scopedSourceIds?.length &&
+    !sameScopedSourceIds(args.message.scopedSourceIds, args.currentSourceIds ?? []);
+
+  return scopeMismatch || sourceIdMismatch;
+}
 
 function uid() {
   // avoids crypto usage issues in some environments
@@ -254,6 +293,7 @@ function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
         promptVersion: run.promptVersion ?? undefined,
         model: run.model ?? null,
         latencyMs: run.latencyMs ?? null,
+        scopedSourceIds: run.scopedSourceIds ?? [],
         grounding: run.grounding ?? null,
         claimLinks: run.claimLinks ?? [],
       });
@@ -275,6 +315,7 @@ function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
       promptVersion: run.promptVersion ?? undefined,
       model: run.model ?? null,
       latencyMs: run.latencyMs ?? null,
+      scopedSourceIds: run.scopedSourceIds ?? [],
       grounding: run.grounding ?? null,
       claimLinks: run.claimLinks ?? [],
     });
@@ -414,6 +455,12 @@ export default function ChatPanel({
         : displayScope.readyCount === 0
           ? "Wait for at least one included source to become Ready."
           : null;
+  const currentScopeSnapshot: SourceScopeSnapshot = {
+    totalCount,
+    scopeCount,
+    readyCount,
+    blockedCount,
+  };
 
   // Load chat history from the backend for this notebook.
   useEffect(() => {
@@ -541,6 +588,27 @@ export default function ChatPanel({
     });
   };
 
+  const stageComposerPrompt = useCallback(
+    (nextPrompt: string, reason: string) => {
+      const trimmedCurrent = input.trim();
+      const trimmedNext = nextPrompt.trim();
+      if (!trimmedNext) return false;
+      if (!trimmedCurrent || trimmedCurrent === trimmedNext) {
+        setInput(trimmedNext);
+        composerRef.current?.focus();
+        return true;
+      }
+
+      emitNotebookEvent("toast", {
+        kind: "warning",
+        text: `Composer already has a draft. ${reason} was not inserted.`,
+      });
+      composerRef.current?.focus();
+      return false;
+    },
+    [input],
+  );
+
   const buildHistory = (maxMsgs = 12) => {
     const prior = messagesRef.current ?? [];
     const MAX_CHARS = 1400; // keep prompts bounded for latency + cost
@@ -552,7 +620,7 @@ export default function ChatPanel({
       .map((m) => ({
         role: m.role,
         content:
-          m.text.length > MAX_CHARS ? m.text.slice(0, MAX_CHARS) + "…" : m.text,
+          m.text.length > MAX_CHARS ? m.text.slice(0, MAX_CHARS) + "..." : m.text,
       }));
   };
 
@@ -587,6 +655,13 @@ export default function ChatPanel({
         role: "user",
         text: question,
       };
+      const runScopeSnapshot = {
+        totalCount,
+        scopeCount,
+        readyCount,
+        blockedCount,
+      };
+      const runScopedSourceIds = Array.isArray(sourceIds) ? [...sourceIds] : [];
 
       const assistantId = uid();
       let streamedText = "";
@@ -612,14 +687,11 @@ export default function ChatPanel({
           role: "assistant",
           text: "",
           displayText: "",
+          scopeSnapshot: runScopeSnapshot,
+          scopedSourceIds: runScopedSourceIds,
         },
       ]);
-      setActiveScopeSnapshot({
-        totalCount,
-        scopeCount,
-        readyCount,
-        blockedCount,
-      });
+      setActiveScopeSnapshot(runScopeSnapshot);
       setPending(true);
       setStreamStatus("Starting");
       setStreamMessageId(assistantId);
@@ -686,6 +758,8 @@ export default function ChatPanel({
                         latencyMs: answer.latencyMs ?? null,
                         grounding: answer.grounding ?? null,
                         claimLinks: answer.claimLinks ?? [],
+                        scopeSnapshot: runScopeSnapshot,
+                        scopedSourceIds: runScopedSourceIds,
                       }
                     : msg,
                 ),
@@ -712,6 +786,8 @@ export default function ChatPanel({
                     latencyMs: res.latencyMs ?? null,
                     grounding: res.grounding ?? null,
                     claimLinks: res.claimLinks ?? [],
+                    scopeSnapshot: runScopeSnapshot,
+                    scopedSourceIds: runScopedSourceIds,
                   }
                 : msg,
             ),
@@ -802,11 +878,7 @@ export default function ChatPanel({
       const noteMode: "append" | "replace" =
         (detailObj as any).noteMode === "replace" ? "replace" : "append";
 
-      setInput(prompt);
-      composerRef.current?.focus();
-
       if (autoSend && notebookId && !pending && canChat) {
-        setInput("");
         const note =
           saveToNotes && noteTitle
             ? ({
@@ -818,7 +890,10 @@ export default function ChatPanel({
         return;
       }
 
-      if (!autoSend) return;
+      if (!autoSend) {
+        stageComposerPrompt(prompt, "Suggested prompt");
+        return;
+      }
 
       const blockedMessage = quickActionBlockedMessage({
         notebookId,
@@ -826,14 +901,17 @@ export default function ChatPanel({
         canChat,
         sourceGuardMessage,
       });
+      const staged = stageComposerPrompt(prompt, "Quick action prompt");
       if (!blockedMessage) return;
 
       emitNotebookEvent("toast", {
         kind: canChat ? "info" : "error",
-        text: blockedMessage,
+        text: staged
+          ? blockedMessage
+          : `${blockedMessage} Your existing draft was kept.`,
       });
     });
-  }, [notebookId, pending, send, canChat, sourceGuardMessage]);
+  }, [canChat, notebookId, pending, send, sourceGuardMessage, stageComposerPrompt]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -854,6 +932,19 @@ export default function ChatPanel({
       .find(({ m }) => m.role === "user")?.j;
     if (prevUserIndex == null) return;
     const q = messages[prevUserIndex].text;
+    const answerScope = messages[i]?.scopeSnapshot ?? null;
+    const answerSourceIds = messages[i]?.scopedSourceIds ?? null;
+    if (
+      (answerScope && !sameSourceScope(answerScope, currentScopeSnapshot)) ||
+      (answerSourceIds &&
+        answerSourceIds.length > 0 &&
+        !sameScopedSourceIds(answerSourceIds, sourceIds ?? []))
+    ) {
+      emitNotebookEvent("toast", {
+        kind: "warning",
+        text: "Source scope changed since this answer. Regenerate will use the current ready sources.",
+      });
+    }
     if (q) send(q);
   };
 
@@ -898,14 +989,14 @@ export default function ChatPanel({
 
           {displayScope.totalCount > 0 && displayScope.scopeCount === 0 ? (
             <span className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1">
-              No sources selected — include sources to get cited answers.
+              No sources selected - include sources to get cited answers.
             </span>
           ) : null}
 
           {displayScope.scopeCount > 0 && displayScope.readyCount === 0 ? (
             <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
-              Sources are still indexing — chat will work once at least one is
-              “Ready”.
+              Sources are still indexing - chat will work once at least one is
+              "Ready".
             </span>
           ) : null}
 
@@ -988,7 +1079,7 @@ export default function ChatPanel({
               aria-label="Jump to latest"
               title="Jump to latest"
             >
-              ↓ New messages
+              New messages
             </button>
           )}
 
@@ -996,7 +1087,7 @@ export default function ChatPanel({
             <div className="h-full w-full grid place-items-center">
               <div className="rounded-2xl border border-white/30 bg-white/70 backdrop-blur px-4 py-3 shadow-[0_16px_50px_rgba(15,23,42,0.12)] text-sm text-slate-600 flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading notebook conversation…
+                Loading notebook conversation...
               </div>
             </div>
           )}
@@ -1070,6 +1161,13 @@ export default function ChatPanel({
               const prev = messages[i - 1];
               const next = messages[i + 1];
               const isUser = m.role === "user";
+              const isScopeDrifted =
+                m.role === "assistant" &&
+                messageScopeDrifted({
+                  message: m,
+                  currentScope: currentScopeSnapshot,
+                  currentSourceIds: sourceIds ?? [],
+                });
               const isFirstInGroup = !prev || prev.role !== m.role;
               const isLastInGroup = !next || next.role !== m.role;
 
@@ -1192,9 +1290,26 @@ export default function ChatPanel({
                         <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
                           Evidence blocks {m.evidence?.length ?? 0}
                         </span>
+                        {m.scopeSnapshot ? (
+                          <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
+                            Sources {m.scopeSnapshot.readyCount}/{Math.max(m.scopeSnapshot.scopeCount, 0)}
+                          </span>
+                        ) : m.scopedSourceIds?.length ? (
+                          <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
+                            Used {m.scopedSourceIds.length} sources
+                          </span>
+                        ) : null}
                         {m.model ? (
                           <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
                             {m.model}
+                          </span>
+                        ) : null}
+                        {isScopeDrifted ? (
+                          <span
+                            className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800"
+                            title="This answer used a different source boundary than the notebook's current ready scope."
+                          >
+                            Scope changed since answer
                           </span>
                         ) : null}
                       </div>
@@ -1209,6 +1324,13 @@ export default function ChatPanel({
                       >
                         <span className="font-semibold">Grounding check:</span>{" "}
                         {groundingSummary(m.grounding)}
+                      </div>
+                    ) : null}
+
+                    {isScopeDrifted ? (
+                      <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-900">
+                        This answer was generated from an older source scope.
+                        Regenerate or ask a follow-up to use the notebook's current ready sources.
                       </div>
                     ) : null}
 
@@ -1346,7 +1468,26 @@ export default function ChatPanel({
                         {m.suggested.map((s, sIdx) => (
                           <button
                             key={`${m.id}_s_${sIdx}`}
-                            onClick={() => setInput(s)}
+                            onClick={() => {
+                              if (
+                                (m.scopeSnapshot &&
+                                  !sameSourceScope(
+                                    m.scopeSnapshot,
+                                    currentScopeSnapshot,
+                                  )) ||
+                                (m.scopedSourceIds?.length &&
+                                  !sameScopedSourceIds(
+                                    m.scopedSourceIds,
+                                    sourceIds ?? [],
+                                  ))
+                              ) {
+                                emitNotebookEvent("toast", {
+                                  kind: "warning",
+                                  text: "Source scope changed since this answer. Follow-up will use the current ready sources.",
+                                });
+                              }
+                              stageComposerPrompt(s, "Follow-up prompt");
+                            }}
                             className="text-[12px] px-3 py-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 shadow-sm text-slate-700"
                           >
                             {s}
@@ -1429,7 +1570,7 @@ export default function ChatPanel({
 
                 <div className="mt-2 flex items-center justify-between">
                   <div className="text-[11px] text-slate-500">
-                    Enter to send · Shift+Enter for newline
+                    Enter to send | Shift+Enter for newline
                   </div>
 
                   <div className="flex items-center gap-2">

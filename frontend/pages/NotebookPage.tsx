@@ -54,9 +54,9 @@ function clampJobPct(value?: number | null) {
 }
 
 function formatRelativeTime(value?: string | null) {
-  if (!value) return "—";
+  if (!value) return "-";
   const ts = new Date(value).getTime();
-  if (!Number.isFinite(ts)) return "—";
+  if (!Number.isFinite(ts)) return "-";
   const deltaMs = Date.now() - ts;
   const deltaMin = Math.round(deltaMs / 60000);
 
@@ -304,6 +304,30 @@ function diagnosticsRecommendation(
   };
 }
 
+function optimisticJobRuntime(args: {
+  previous?: RuntimeJob | null;
+  statusMessage: string;
+  stage: string;
+}) {
+  const now = new Date().toISOString();
+  const prev = args.previous ?? null;
+  return {
+    status: "PENDING" as const,
+    error: null,
+    updatedAt: now,
+    attemptCount: (prev?.attemptCount ?? 0) + 1,
+    queueJobId: prev?.queueJobId ?? null,
+    stage: args.stage,
+    progressPct: 0,
+    statusMessage: args.statusMessage,
+    startedAt: prev?.startedAt ?? now,
+    finishedAt: null,
+    lastHeartbeatAt: prev?.lastHeartbeatAt ?? null,
+    lastErrorAt: null,
+    meta: prev?.meta ?? null,
+  };
+}
+
 function JobRuntimeCard({
   label,
   job,
@@ -346,7 +370,7 @@ function JobRuntimeCard({
       </div>
 
       <div className="mt-1 text-[12px] text-slate-600">
-        {job.stage ? `Stage: ${job.stage}` : "Stage not reported"} · Attempt{" "}
+        {job.stage ? `Stage: ${job.stage}` : "Stage not reported"} | Attempt{" "}
         {job.attemptCount ?? 0}
       </div>
 
@@ -584,7 +608,7 @@ export default function NotebookPage() {
       return;
     }
 
-    // No activeId yet → pick the first notebook if any exist
+  // No activeId yet; pick the first notebook if any exist
     if (list.length) setActiveId(list[0].id);
   }, [listQ.isLoading, notebookList, activeId]);
 
@@ -736,15 +760,44 @@ export default function NotebookPage() {
   const delSourceM = useMutation({
     mutationFn: (vars: { notebookId: string; sourceId: string }) =>
       api.deleteSource(vars.notebookId, vars.sourceId),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["nb:sources", vars.notebookId] });
+
+      const prevSources =
+        (qc.getQueryData(["nb:sources", vars.notebookId]) as NBSource[] | undefined) ||
+        [];
+
+      qc.setQueryData(
+        ["nb:sources", vars.notebookId],
+        prevSources.filter((source) => source.id !== vars.sourceId),
+      );
+
+      setExcludedSourceIds((prev) => {
+        if (!prev.has(vars.sourceId)) return prev;
+        const next = new Set(prev);
+        next.delete(vars.sourceId);
+        return next;
+      });
+
+      if (fixSourceId === vars.sourceId) {
+        setFixSourceId(null);
+      }
+
+      return { prevSources };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
       notify({ text: "Source removed from notebook.", kind: "success" });
     },
-    onError: (e: any) =>
+    onError: (e: any, vars, ctx) => {
+      if (ctx?.prevSources) {
+        qc.setQueryData(["nb:sources", vars.notebookId], ctx.prevSources);
+      }
       notify({
         text: e?.message || "Failed to remove source.",
         kind: "error",
-      }),
+      });
+    },
   });
 
   const removeSource = async (source: NBSource) => {
@@ -784,18 +837,82 @@ export default function NotebookPage() {
         "POST",
         `/notebooks/${vars.notebookId}/sources/${vars.sourceId}/retry-ingestion`,
       ),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["nb:sources", vars.notebookId] });
+      await qc.cancelQueries({
+        queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+      });
+
+      const prevSources =
+        (qc.getQueryData(["nb:sources", vars.notebookId]) as NBSource[] | undefined) ||
+        [];
+      const prevDiag = qc.getQueryData([
+        "nb:sourceDiag",
+        vars.notebookId,
+        vars.sourceId,
+      ]) as SourceDiagnostics | undefined;
+
+      qc.setQueryData(["nb:sources", vars.notebookId], (current: any) => {
+        const list = Array.isArray(current) ? (current as NBSource[]) : [];
+        return list.map((source) =>
+          source.id !== vars.sourceId
+            ? source
+            : {
+                ...source,
+                ingestionJob: optimisticJobRuntime({
+                  previous: source.ingestionJob,
+                  statusMessage: "Retry queued. Extraction will restart shortly.",
+                  stage: "queued",
+                }),
+                embeddingJob: null,
+              },
+        );
+      });
+
+      qc.setQueryData(
+        ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+        (current: any) => {
+          if (!current) return current;
+          const diag = current as SourceDiagnostics;
+          return {
+            ...diag,
+            jobs: {
+              ...diag.jobs,
+              ingestion: optimisticJobRuntime({
+                previous: diag.jobs.ingestion,
+                statusMessage: "Retry queued. Extraction will restart shortly.",
+                stage: "queued",
+              }),
+              embedding: null,
+            },
+          };
+        },
+      );
+
+      return { prevSources, prevDiag };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
       qc.invalidateQueries({
         queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
       });
-      notify({ text: "Retrying ingestion…", kind: "success" });
+      notify({ text: "Retrying ingestion...", kind: "success" });
     },
-    onError: (e: any) =>
+    onError: (e: any, vars, ctx) => {
+      if (ctx?.prevSources) {
+        qc.setQueryData(["nb:sources", vars.notebookId], ctx.prevSources);
+      }
+      if (ctx?.prevDiag) {
+        qc.setQueryData(
+          ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+          ctx.prevDiag,
+        );
+      }
       notify({
         text: e?.message || "Failed to retry ingestion",
         kind: "error",
-      }),
+      });
+    },
   });
 
   const retryEmbeddingM = useMutation({
@@ -804,15 +921,77 @@ export default function NotebookPage() {
         "POST",
         `/notebooks/${vars.notebookId}/sources/${vars.sourceId}/retry-embedding`,
       ),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["nb:sources", vars.notebookId] });
+      await qc.cancelQueries({
+        queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+      });
+
+      const prevSources =
+        (qc.getQueryData(["nb:sources", vars.notebookId]) as NBSource[] | undefined) ||
+        [];
+      const prevDiag = qc.getQueryData([
+        "nb:sourceDiag",
+        vars.notebookId,
+        vars.sourceId,
+      ]) as SourceDiagnostics | undefined;
+
+      qc.setQueryData(["nb:sources", vars.notebookId], (current: any) => {
+        const list = Array.isArray(current) ? (current as NBSource[]) : [];
+        return list.map((source) =>
+          source.id !== vars.sourceId
+            ? source
+            : {
+                ...source,
+                embeddingJob: optimisticJobRuntime({
+                  previous: source.embeddingJob,
+                  statusMessage: "Retry queued. Indexing will restart shortly.",
+                  stage: "queued",
+                }),
+              },
+        );
+      });
+
+      qc.setQueryData(
+        ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+        (current: any) => {
+          if (!current) return current;
+          const diag = current as SourceDiagnostics;
+          return {
+            ...diag,
+            jobs: {
+              ...diag.jobs,
+              embedding: optimisticJobRuntime({
+                previous: diag.jobs.embedding,
+                statusMessage: "Retry queued. Indexing will restart shortly.",
+                stage: "queued",
+              }),
+            },
+          };
+        },
+      );
+
+      return { prevSources, prevDiag };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
       qc.invalidateQueries({
         queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
       });
-      notify({ text: "Retrying indexing…", kind: "success" });
+      notify({ text: "Retrying indexing...", kind: "success" });
     },
-    onError: (e: any) =>
-      notify({ text: e?.message || "Failed to retry indexing", kind: "error" }),
+    onError: (e: any, vars, ctx) => {
+      if (ctx?.prevSources) {
+        qc.setQueryData(["nb:sources", vars.notebookId], ctx.prevSources);
+      }
+      if (ctx?.prevDiag) {
+        qc.setQueryData(
+          ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+          ctx.prevDiag,
+        );
+      }
+      notify({ text: e?.message || "Failed to retry indexing", kind: "error" });
+    },
   });
 
   const rebuildEmbeddingM = useMutation({
@@ -821,15 +1000,77 @@ export default function NotebookPage() {
         "POST",
         `/notebooks/${vars.notebookId}/sources/${vars.sourceId}/rebuild-embedding`,
       ),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["nb:sources", vars.notebookId] });
+      await qc.cancelQueries({
+        queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+      });
+
+      const prevSources =
+        (qc.getQueryData(["nb:sources", vars.notebookId]) as NBSource[] | undefined) ||
+        [];
+      const prevDiag = qc.getQueryData([
+        "nb:sourceDiag",
+        vars.notebookId,
+        vars.sourceId,
+      ]) as SourceDiagnostics | undefined;
+
+      qc.setQueryData(["nb:sources", vars.notebookId], (current: any) => {
+        const list = Array.isArray(current) ? (current as NBSource[]) : [];
+        return list.map((source) =>
+          source.id !== vars.sourceId
+            ? source
+            : {
+                ...source,
+                embeddingJob: optimisticJobRuntime({
+                  previous: source.embeddingJob,
+                  statusMessage: "Rebuild queued. Indexing will restart shortly.",
+                  stage: "queued",
+                }),
+              },
+        );
+      });
+
+      qc.setQueryData(
+        ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+        (current: any) => {
+          if (!current) return current;
+          const diag = current as SourceDiagnostics;
+          return {
+            ...diag,
+            jobs: {
+              ...diag.jobs,
+              embedding: optimisticJobRuntime({
+                previous: diag.jobs.embedding,
+                statusMessage: "Rebuild queued. Indexing will restart shortly.",
+                stage: "queued",
+              }),
+            },
+          };
+        },
+      );
+
+      return { prevSources, prevDiag };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
       qc.invalidateQueries({
         queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
       });
-      notify({ text: "Rebuilding index…", kind: "success" });
+      notify({ text: "Rebuilding index...", kind: "success" });
     },
-    onError: (e: any) =>
-      notify({ text: e?.message || "Failed to rebuild index", kind: "error" }),
+    onError: (e: any, vars, ctx) => {
+      if (ctx?.prevSources) {
+        qc.setQueryData(["nb:sources", vars.notebookId], ctx.prevSources);
+      }
+      if (ctx?.prevDiag) {
+        qc.setQueryData(
+          ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+          ctx.prevDiag,
+        );
+      }
+      notify({ text: e?.message || "Failed to rebuild index", kind: "error" });
+    },
   });
 
   const runOcrM = useMutation({
@@ -851,15 +1092,79 @@ export default function NotebookPage() {
         `/notebooks/${vars.notebookId}/sources/${vars.sourceId}/run-ocr`,
         vars.options ?? {},
       ),
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["nb:sources", vars.notebookId] });
+      await qc.cancelQueries({
+        queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+      });
+
+      const prevSources =
+        (qc.getQueryData(["nb:sources", vars.notebookId]) as NBSource[] | undefined) ||
+        [];
+      const prevDiag = qc.getQueryData([
+        "nb:sourceDiag",
+        vars.notebookId,
+        vars.sourceId,
+      ]) as SourceDiagnostics | undefined;
+
+      qc.setQueryData(["nb:sources", vars.notebookId], (current: any) => {
+        const list = Array.isArray(current) ? (current as NBSource[]) : [];
+        return list.map((source) =>
+          source.id !== vars.sourceId
+            ? source
+            : {
+                ...source,
+                ingestionJob: optimisticJobRuntime({
+                  previous: source.ingestionJob,
+                  statusMessage: "OCR queued. Extraction will restart shortly.",
+                  stage: "queued",
+                }),
+                embeddingJob: null,
+              },
+        );
+      });
+
+      qc.setQueryData(
+        ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+        (current: any) => {
+          if (!current) return current;
+          const diag = current as SourceDiagnostics;
+          return {
+            ...diag,
+            jobs: {
+              ...diag.jobs,
+              ingestion: optimisticJobRuntime({
+                previous: diag.jobs.ingestion,
+                statusMessage: "OCR queued. Extraction will restart shortly.",
+                stage: "queued",
+              }),
+              embedding: null,
+            },
+          };
+        },
+      );
+
+      return { prevSources, prevDiag };
+    },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["nb:sources", vars.notebookId] });
       qc.invalidateQueries({
         queryKey: ["nb:sourceDiag", vars.notebookId, vars.sourceId],
       });
-      notify({ text: "OCR started… (this can take a bit)", kind: "success" });
+      notify({ text: "OCR started... (this can take a bit)", kind: "success" });
     },
-    onError: (e: any) =>
-      notify({ text: e?.message || "Failed to start OCR", kind: "error" }),
+    onError: (e: any, vars, ctx) => {
+      if (ctx?.prevSources) {
+        qc.setQueryData(["nb:sources", vars.notebookId], ctx.prevSources);
+      }
+      if (ctx?.prevDiag) {
+        qc.setQueryData(
+          ["nb:sourceDiag", vars.notebookId, vars.sourceId],
+          ctx.prevDiag,
+        );
+      }
+      notify({ text: e?.message || "Failed to start OCR", kind: "error" });
+    },
   });
 
   const diag = diagQ.data as SourceDiagnostics | undefined;
@@ -885,6 +1190,7 @@ export default function NotebookPage() {
   const lastSavedTitleRef = useRef<string>("");
   const activeIdRef = useRef<string | null>(null);
   const titleReqSeqRef = useRef<number>(0);
+  const titleReqNotebookIdRef = useRef<string | null>(null);
 
   const normalizeTitle = (t: string) =>
     String(t ?? "")
@@ -908,12 +1214,18 @@ export default function NotebookPage() {
 
     // Sequence guard to prevent late responses from overwriting newer state
     const seq = ++titleReqSeqRef.current;
+    const requestNotebookId = activeId;
+    titleReqNotebookIdRef.current = requestNotebookId;
 
     updateTitle.mutate(
-      { id: activeId, title: next },
+      { id: requestNotebookId, title: next },
       {
         onSuccess: () => {
-          if (seq === titleReqSeqRef.current) {
+          if (
+            seq === titleReqSeqRef.current &&
+            titleReqNotebookIdRef.current === requestNotebookId &&
+            activeIdRef.current === requestNotebookId
+          ) {
             lastSavedTitleRef.current = next;
           }
         },
@@ -954,6 +1266,9 @@ export default function NotebookPage() {
 
     // Notebook switched
     if (activeIdRef.current !== activeId) {
+      // Invalidate any late title-save callbacks from the previous notebook.
+      titleReqSeqRef.current += 1;
+      titleReqNotebookIdRef.current = activeId;
       activeIdRef.current = activeId;
       setTitleDraft(serverTitle);
       pendingTitleRef.current = serverTitle;
@@ -1235,7 +1550,7 @@ export default function NotebookPage() {
                 disabled={!activeId}
                 onClick={() => setPicker("url")}
                 className="text-[12px] px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm disabled:opacity-60"
-                title="Add URL (Ctrl/⌘+K)"
+                title="Add URL (Ctrl/Cmd+K)"
               >
                 + URL
               </button>
@@ -1243,7 +1558,7 @@ export default function NotebookPage() {
                 disabled={!activeId}
                 onClick={() => setPicker("file")}
                 className="text-[12px] px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm disabled:opacity-60"
-                title="Add File (Ctrl/⌘+Shift+K)"
+                title="Add File (Ctrl/Cmd+Shift+K)"
               >
                 + File
               </button>
@@ -1486,7 +1801,7 @@ export default function NotebookPage() {
                       name="notebook-source-query"
                       value={sourceQuery}
                       onChange={(e) => setSourceQuery(e.target.value)}
-                      placeholder="Search sources…"
+                      placeholder="Search sources..."
                       className="w-full h-9 rounded-xl border border-slate-200 bg-white px-3 pr-9 text-[12px] text-slate-800 placeholder:text-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
                     />
                     {sourceQuery.trim() ? (
@@ -1497,7 +1812,7 @@ export default function NotebookPage() {
                         aria-label="Clear search"
                         title="Clear"
                       >
-                        ✕
+                        x
                       </button>
                     ) : null}
                   </div>
@@ -1533,10 +1848,10 @@ export default function NotebookPage() {
                     title={
                       sourceSort === "recent"
                         ? "Sorting: Recent"
-                        : "Sorting: A→Z"
+                        : "Sorting: A-Z"
                     }
                   >
-                    {sourceSort === "recent" ? "Recent" : "A→Z"}
+                    {sourceSort === "recent" ? "Recent" : "A-Z"}
                   </button>
                 </div>
               </div>
@@ -1742,7 +2057,7 @@ export default function NotebookPage() {
                               <div className="mt-2 text-[11px] text-slate-500 truncate">
                                 {liveRuntime.statusMessage ?? liveRuntime.stage}
                                 {typeof liveRuntime.progressPct === "number"
-                                  ? ` · ${Math.round(liveRuntime.progressPct)}%`
+                                  ? ` | ${Math.round(liveRuntime.progressPct)}%`
                                   : ""}
                               </div>
                             ) : null}
@@ -1759,7 +2074,7 @@ export default function NotebookPage() {
                             }}
                             className="opacity-0 translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition"
                           >
-                            ✕
+                            x
                           </PlusButton>
                         </SmartCard>
                       </StaggerItem>
@@ -1836,7 +2151,7 @@ export default function NotebookPage() {
                     normalizeTitle(titleDraft) !==
                     normalizeTitle(lastSavedTitleRef.current);
 
-                  if (updateTitle.isPending) return "Saving…";
+                  if (updateTitle.isPending) return "Saving...";
                   if (dirty) return "Unsaved";
 
                   return active
@@ -1917,7 +2232,7 @@ export default function NotebookPage() {
                 <div className="flex-1 min-h-0 overflow-auto p-4">
                   {diagQ.isLoading ? (
                     <div className="text-sm text-slate-600">
-                      Loading diagnostics…
+                      Loading diagnostics...
                     </div>
                   ) : diagQ.isError ? (
                     <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl p-3">
@@ -2113,7 +2428,7 @@ export default function NotebookPage() {
                                       {item.action.replace(/[._]/g, " ")}
                                     </div>
                                     <div className="mt-1 text-[11px] text-slate-500">
-                                      {item.status} ·{" "}
+                                      {item.status} |{" "}
                                       {formatRelativeTime(item.createdAt)}
                                     </div>
                                   </div>
@@ -2146,7 +2461,7 @@ export default function NotebookPage() {
                               </div>
                               {ocrMeta?.quality ? (
                                 <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-[11px] text-emerald-900">
-                                  {ocrMeta.quality.charCount ?? 0} chars ·{" "}
+                                  {ocrMeta.quality.charCount ?? 0} chars |{" "}
                                   {ocrMeta.quality.pageCount ?? 0} pages
                                 </div>
                               ) : null}
@@ -2155,16 +2470,16 @@ export default function NotebookPage() {
                             {scanMeta ? (
                               <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
                                 <div className="rounded-xl border border-slate-200 bg-white px-2 py-1.5">
-                                  Pages: {scanMeta.pageCount ?? "—"}
+                                  Pages: {scanMeta.pageCount ?? "-"}
                                 </div>
                                 <div className="rounded-xl border border-slate-200 bg-white px-2 py-1.5">
-                                  Native chars: {scanMeta.totalChars ?? "—"}
+                                  Native chars: {scanMeta.totalChars ?? "-"}
                                 </div>
                                 <div className="rounded-xl border border-slate-200 bg-white px-2 py-1.5">
                                   Avg/page:{" "}
                                   {typeof scanMeta.avgCharsPerPage === "number"
                                     ? Math.round(scanMeta.avgCharsPerPage)
-                                    : "—"}
+                                    : "-"}
                                 </div>
                               </div>
                             ) : null}
@@ -2360,7 +2675,7 @@ export default function NotebookPage() {
                                 Ingestion
                               </div>
                               <div className="mt-1 text-[12px] text-rose-800 whitespace-pre-wrap">
-                                {diag.jobs.ingestion?.error || "—"}
+                                {diag.jobs.ingestion?.error || "-"}
                               </div>
                             </div>
                             <div className="rounded-xl border border-rose-200 bg-rose-50 p-3">
@@ -2368,7 +2683,7 @@ export default function NotebookPage() {
                                 Indexing
                               </div>
                               <div className="mt-1 text-[12px] text-rose-800 whitespace-pre-wrap">
-                                {diag.jobs.embedding?.error || "—"}
+                                {diag.jobs.embedding?.error || "-"}
                               </div>
                             </div>
                           </div>
@@ -2413,7 +2728,7 @@ export default function NotebookPage() {
                                 className="rounded-xl border border-slate-200 bg-slate-50 p-3"
                               >
                                 <div className="text-[12px] font-semibold text-slate-900">
-                                  Page {p.pageNumber} ·{" "}
+                                  Page {p.pageNumber} |{" "}
                                   {p.charCount.toLocaleString()} chars
                                 </div>
                                 <div className="mt-1 text-[12px] text-slate-700 whitespace-pre-wrap">

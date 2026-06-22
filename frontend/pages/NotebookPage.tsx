@@ -70,7 +70,239 @@ function formatRelativeTime(value?: string | null) {
   return `${deltaDay}d ago`;
 }
 
-type RuntimeJob = SourceDiagnostics["jobs"]["ingestion"];
+type RuntimeJob = NonNullable<SourceDiagnostics["jobs"]["ingestion"]>;
+type SourceJobStatus = RuntimeJob["status"] | "NONE";
+type SourceReadinessSeverity = "ready" | "processing" | "repair" | "blocked";
+type SourceRepairAction =
+  | "none"
+  | "wait"
+  | "retry-ingestion"
+  | "retry-indexing"
+  | "rebuild-index"
+  | "open-repair"
+  | "run-ocr";
+
+type SourceReadinessRecommendation = {
+  severity: SourceReadinessSeverity;
+  label: string;
+  detail: string;
+  action: SourceRepairAction;
+  actionLabel?: string;
+};
+
+function jobMessage(job?: RuntimeJob | null) {
+  return job?.error || job?.statusMessage || job?.stage || "";
+}
+
+function sourceReadinessTone(severity: SourceReadinessSeverity) {
+  switch (severity) {
+    case "ready":
+      return "border-emerald-200 bg-emerald-50 text-emerald-900";
+    case "processing":
+      return "border-blue-200 bg-blue-50 text-blue-900";
+    case "repair":
+      return "border-rose-200 bg-rose-50 text-rose-900";
+    default:
+      return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+}
+
+function sourceReadinessPillTone(severity: SourceReadinessSeverity) {
+  switch (severity) {
+    case "ready":
+      return "border-emerald-200 bg-white text-emerald-800";
+    case "processing":
+      return "border-blue-200 bg-white text-blue-800";
+    case "repair":
+      return "border-rose-200 bg-white text-rose-800";
+    default:
+      return "border-amber-200 bg-white text-amber-800";
+  }
+}
+
+function sourceKindLooksLikePdf(s?: Pick<NBSource, "kind" | "file"> | null) {
+  if (!s || s.kind !== "FILE") return false;
+  const mime = (s.file?.mimeType || "").toLowerCase();
+  const name = (s.file?.fileName || "").toLowerCase();
+  return mime.includes("pdf") || name.endsWith(".pdf");
+}
+
+function sourceReadinessRecommendation(s: NBSource): SourceReadinessRecommendation {
+  const ing = (s.ingestionJob?.status || "NONE") as SourceJobStatus;
+  const emb = (s.embeddingJob?.status || "NONE") as SourceJobStatus;
+  const ingMsg = jobMessage(s.ingestionJob);
+  const embMsg = jobMessage(s.embeddingJob);
+
+  if (ing === "FAILED") {
+    const pdfHint = sourceKindLooksLikePdf(s)
+      ? " For scanned PDFs, open repair and try OCR if extraction produced little text."
+      : "";
+    return {
+      severity: "repair",
+      label: "Action needed: ingestion failed",
+      detail: `${ingMsg || "The source text could not be extracted."}${pdfHint}`,
+      action: sourceKindLooksLikePdf(s) ? "open-repair" : "retry-ingestion",
+      actionLabel: sourceKindLooksLikePdf(s) ? "Open OCR repair" : "Retry ingestion",
+    };
+  }
+
+  if (ing === "PENDING" || ing === "RUNNING") {
+    return {
+      severity: "processing",
+      label: ing === "PENDING" ? "Waiting to ingest" : "Ingestion in progress",
+      detail:
+        ingMsg ||
+        "Notebook is extracting source text. Chat will use it after indexing finishes.",
+      action: "wait",
+    };
+  }
+
+  if (ing !== "SUCCESS") {
+    return {
+      severity: "blocked",
+      label: "Not ingested yet",
+      detail:
+        "No completed ingestion job is attached to this source, so there is no text for chat to retrieve.",
+      action: "retry-ingestion",
+      actionLabel: "Start ingestion",
+    };
+  }
+
+  if (emb === "FAILED") {
+    return {
+      severity: "repair",
+      label: "Action needed: index failed",
+      detail:
+        embMsg ||
+        "Text was extracted, but semantic indexing failed. Chat cannot retrieve this source reliably.",
+      action: "retry-indexing",
+      actionLabel: "Retry indexing",
+    };
+  }
+
+  if (emb === "PENDING" || emb === "RUNNING") {
+    return {
+      severity: "processing",
+      label: emb === "PENDING" ? "Waiting to index" : "Indexing in progress",
+      detail:
+        embMsg ||
+        "Semantic index is being built. Chat will include this source when indexing completes.",
+      action: "wait",
+    };
+  }
+
+  if (emb !== "SUCCESS") {
+    return {
+      severity: "blocked",
+      label: "Not indexed yet",
+      detail:
+        "Source text exists but has not been embedded, so evidence-backed chat cannot use it.",
+      action: "retry-indexing",
+      actionLabel: "Start indexing",
+    };
+  }
+
+  return {
+    severity: "ready",
+    label: "Ready for chat",
+    detail: "Text extraction and semantic indexing are complete.",
+    action: "none",
+  };
+}
+
+function diagnosticsRecommendation(
+  diag: SourceDiagnostics,
+): SourceReadinessRecommendation {
+  const ing = (diag.jobs.ingestion?.status || "NONE") as SourceJobStatus;
+  const emb = (diag.jobs.embedding?.status || "NONE") as SourceJobStatus;
+  const ingMsg = jobMessage(diag.jobs.ingestion);
+  const embMsg = jobMessage(diag.jobs.embedding);
+  const isPdf =
+    diag.source.kind === "FILE" &&
+    (((diag.source.file?.mimeType || "").toLowerCase().includes("pdf")) ||
+      (diag.source.file?.fileName || "").toLowerCase().endsWith(".pdf"));
+
+  if (ing === "FAILED") {
+    return {
+      severity: "repair",
+      label: isPdf ? "Recommended: try OCR or retry ingestion" : "Recommended: retry ingestion",
+      detail:
+        ingMsg ||
+        (isPdf
+          ? "The source failed during extraction. If this is scanned, OCR is the highest-signal repair."
+          : "The source failed during extraction. Retry ingestion after checking the source."),
+      action: isPdf ? "run-ocr" : "retry-ingestion",
+      actionLabel: isPdf ? "Run OCR" : "Retry ingestion",
+    };
+  }
+
+  if (ing === "PENDING" || ing === "RUNNING") {
+    return {
+      severity: "processing",
+      label: "Recommended: wait for ingestion",
+      detail: ingMsg || "Extraction is still running. Repair actions are premature.",
+      action: "wait",
+    };
+  }
+
+  if (ing !== "SUCCESS") {
+    return {
+      severity: "blocked",
+      label: "Recommended: start ingestion",
+      detail: "No successful ingestion job exists for this source.",
+      action: "retry-ingestion",
+      actionLabel: "Start ingestion",
+    };
+  }
+
+  if (emb === "FAILED") {
+    return {
+      severity: "repair",
+      label: "Recommended: retry indexing",
+      detail:
+        embMsg ||
+        "Extraction succeeded but embeddings failed. Retry indexing before rebuilding.",
+      action: "retry-indexing",
+      actionLabel: "Retry indexing",
+    };
+  }
+
+  if (emb === "PENDING" || emb === "RUNNING") {
+    return {
+      severity: "processing",
+      label: "Recommended: wait for indexing",
+      detail: embMsg || "Embeddings are still being built.",
+      action: "wait",
+    };
+  }
+
+  if (emb !== "SUCCESS") {
+    return {
+      severity: "blocked",
+      label: "Recommended: start indexing",
+      detail: "Ingestion succeeded, but no completed embedding job exists.",
+      action: "retry-indexing",
+      actionLabel: "Start indexing",
+    };
+  }
+
+  if (diag.counts.chunkCount > 0 && diag.counts.embeddedCount < diag.counts.chunkCount) {
+    return {
+      severity: "repair",
+      label: "Recommended: rebuild index",
+      detail: `Only ${diag.counts.embeddedCount} of ${diag.counts.chunkCount} chunks are embedded.`,
+      action: "rebuild-index",
+      actionLabel: "Rebuild index",
+    };
+  }
+
+  return {
+    severity: "ready",
+    label: "No repair needed",
+    detail: "This source is ingested, indexed, and available to chat.",
+    action: "none",
+  };
+}
 
 function JobRuntimeCard({
   label,
@@ -378,6 +610,14 @@ export default function NotebookPage() {
     onSuccess: (nb) => {
       qc.invalidateQueries({ queryKey: ["nb:list"] });
       setActiveId(nb.id);
+      notify({ text: "Notebook created.", kind: "success" });
+    },
+    onError: (err: any) => {
+      autoCreateRef.current = false;
+      notify({
+        text: err?.message || "Could not create notebook.",
+        kind: "error",
+      });
     },
   });
 
@@ -464,6 +704,7 @@ export default function NotebookPage() {
       setConfirmDeleteId(null);
 
       const prev = (qc.getQueryData(["nb:list"]) as Notebook[]) || [];
+      const prevActiveId = activeId;
       const nextList = prev.filter((n) => n.id !== id);
       qc.setQueryData(["nb:list"], nextList);
 
@@ -474,10 +715,18 @@ export default function NotebookPage() {
         setActiveId(nextList[0]?.id ?? null);
       }
 
-      return { prev };
+      return { prev, prevActiveId };
     },
     onError: (_err, _id, ctx) => {
       if (ctx?.prev) qc.setQueryData(["nb:list"], ctx.prev);
+      if (ctx?.prevActiveId) setActiveId(ctx.prevActiveId);
+      notify({
+        text: "Could not delete notebook. Your workspace was restored.",
+        kind: "error",
+      });
+    },
+    onSuccess: () => {
+      notify({ text: "Notebook deleted.", kind: "success" });
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["nb:list"] });
@@ -614,6 +863,7 @@ export default function NotebookPage() {
   });
 
   const diag = diagQ.data as SourceDiagnostics | undefined;
+  const diagnosticReadiness = diag ? diagnosticsRecommendation(diag) : null;
   const ocrMeta = (diag?.jobs?.ingestion?.meta as any)?.ocr ?? null;
   const scanMeta =
     (diag?.jobs?.ingestion?.meta as any)?.scan ??
@@ -621,6 +871,10 @@ export default function NotebookPage() {
     null;
 
   const active: Notebook | null = detailQ.data?.notebook ?? null;
+  const notebookLoadError =
+    (listQ.error as Error | null) ||
+    (detailQ.error as Error | null) ||
+    (sourcesQ.error as Error | null);
 
   // ===== Notebook title editing (world-class UX) =====
   const TITLE_DEBOUNCE_MS = 650;
@@ -759,16 +1013,30 @@ export default function NotebookPage() {
 
   const includedCount = includedSourceIds.length;
   const excludedCount = Math.max(0, sources.length - includedCount);
+  const sourceReadinessCounts = useMemo(() => {
+    const counts: Record<SourceReadinessSeverity, number> = {
+      ready: 0,
+      processing: 0,
+      repair: 0,
+      blocked: 0,
+    };
+
+    for (const source of sources) {
+      counts[sourceReadinessRecommendation(source).severity] += 1;
+    }
+
+    return counts;
+  }, [sources]);
 
   // if sources change, drop exclusions that no longer exist
   useEffect(() => {
-    if (!sources.length) return;
+    if (!sourcesQ.isFetched) return;
     const all = new Set(sources.map((s) => s.id));
     setExcludedSourceIds((prev) => {
       const next = new Set([...prev].filter((id) => all.has(id)));
       return next;
     });
-  }, [sources]);
+  }, [sources, sourcesQ.isFetched]);
 
   const sourceTitle = (s: NBSource) =>
     s.kind === "URL"
@@ -983,6 +1251,34 @@ export default function NotebookPage() {
           </div>
         </div>
 
+        {notebookLoadError ? (
+          <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50/95 px-4 py-3 text-sm text-rose-800 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold text-rose-950">
+                  Notebook data could not be fully loaded
+                </div>
+                <div className="mt-1 text-rose-800/90">
+                  {notebookLoadError.message}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  void listQ.refetch();
+                  if (activeId) {
+                    void detailQ.refetch();
+                    void sourcesQ.refetch();
+                  }
+                }}
+                className="rounded-2xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition hover:bg-rose-50"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)_420px] items-stretch flex-1 min-h-0 gap-3 md:gap-4">
           {/* Left rail */}
           <div
@@ -1122,13 +1418,37 @@ export default function NotebookPage() {
               <div className={clsx(PANEL_STICKY, "sticky top-0 z-10 mb-2")}>
                 {/* Row 1: title + counts + add actions */}
                 <div className="px-2 pt-2 pb-2 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h3 className="text-xs font-semibold text-slate-800">
-                      Sources
-                    </h3>
-                    <span className="text-[11px] text-slate-600 bg-slate-100/80 border border-slate-200 rounded-full px-2 py-0.5 tabular-nums">
-                      Using {includedCount}/{sources.length}
-                    </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-semibold text-slate-800">
+                        Sources
+                      </h3>
+                      <span className="text-[11px] text-slate-600 bg-slate-100/80 border border-slate-200 rounded-full px-2 py-0.5 tabular-nums">
+                        Using {includedCount}/{sources.length}
+                      </span>
+                    </div>
+                    {sources.length ? (
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-800">
+                          Ready {sourceReadinessCounts.ready}
+                        </span>
+                        {sourceReadinessCounts.repair ? (
+                          <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 font-semibold text-rose-800">
+                            Repair {sourceReadinessCounts.repair}
+                          </span>
+                        ) : null}
+                        {sourceReadinessCounts.processing ? (
+                          <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-semibold text-blue-800">
+                            Processing {sourceReadinessCounts.processing}
+                          </span>
+                        ) : null}
+                        {sourceReadinessCounts.blocked ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-800">
+                            Blocked {sourceReadinessCounts.blocked}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex gap-2">
@@ -1272,6 +1592,9 @@ export default function NotebookPage() {
                         : s.embeddingJob && s.embeddingJob.status !== "SUCCESS"
                           ? s.embeddingJob
                           : null;
+                    const readiness = sourceReadinessRecommendation(s);
+                    const canOpenRepair =
+                      readiness.action !== "none" && readiness.action !== "wait";
 
                     return (
                       <StaggerItem as="div" key={s.id}>
@@ -1370,6 +1693,48 @@ export default function NotebookPage() {
                                   ? "Excluded"
                                   : "Included"}
                               </button>
+                            </div>
+
+                            <div
+                              className={clsx(
+                                "mt-2 rounded-2xl border px-3 py-2 text-[11px] leading-5",
+                                sourceReadinessTone(readiness.severity),
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-semibold">
+                                    {readiness.label}
+                                  </div>
+                                  <div className="mt-0.5 opacity-90">
+                                    {readiness.detail}
+                                  </div>
+                                </div>
+                                <span
+                                  className={clsx(
+                                    "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                                    sourceReadinessPillTone(readiness.severity),
+                                  )}
+                                >
+                                  {readiness.severity === "ready"
+                                    ? "Usable"
+                                    : readiness.severity === "processing"
+                                      ? "Wait"
+                                      : "Fix"}
+                                </span>
+                              </div>
+                              {canOpenRepair && activeId ? (
+                                <button
+                                  type="button"
+                                  onClick={(e: any) => {
+                                    e?.stopPropagation?.();
+                                    setFixSourceId(s.id);
+                                  }}
+                                  className="mt-2 rounded-full border border-white/70 bg-white/85 px-2.5 py-1 text-[11px] font-semibold shadow-sm transition hover:bg-white"
+                                >
+                                  {readiness.actionLabel || "Open repair"}
+                                </button>
+                              ) : null}
                             </div>
 
                             {liveRuntime?.statusMessage ||
@@ -1575,6 +1940,130 @@ export default function NotebookPage() {
                             ? diag.source.url?.url || ""
                             : diag.source.file?.mimeType || "file"}
                         </div>
+
+                        {diagnosticReadiness ? (
+                          <div
+                            className={clsx(
+                              "mt-3 rounded-2xl border p-4",
+                              sourceReadinessTone(diagnosticReadiness.severity),
+                            )}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-75">
+                                  Recommended next action
+                                </div>
+                                <div className="mt-1 text-sm font-semibold">
+                                  {diagnosticReadiness.label}
+                                </div>
+                                <div className="mt-1 text-[12px] leading-5 opacity-90">
+                                  {diagnosticReadiness.detail}
+                                </div>
+                              </div>
+                              <span
+                                className={clsx(
+                                  "rounded-full border px-3 py-1 text-[11px] font-semibold",
+                                  sourceReadinessPillTone(diagnosticReadiness.severity),
+                                )}
+                              >
+                                {diagnosticReadiness.severity === "ready"
+                                  ? "Ready"
+                                  : diagnosticReadiness.severity === "processing"
+                                    ? "Processing"
+                                    : "Repair"}
+                              </span>
+                            </div>
+
+                            {diagnosticReadiness.action !== "none" &&
+                            diagnosticReadiness.action !== "wait" ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {diagnosticReadiness.action === "run-ocr" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      runOcrM.mutate({
+                                        notebookId: activeId,
+                                        sourceId: fixSourceId,
+                                        options: {
+                                          langs: ocrLangs.trim() || "eng",
+                                          pages: ocrPages.trim() || undefined,
+                                          engine: ocrEngine,
+                                          deskew: ocrDeskew,
+                                          rotatePages: ocrRotatePages,
+                                          clean: ocrClean,
+                                          fallback: ocrFallback,
+                                        },
+                                      })
+                                    }
+                                    disabled={runOcrM.isPending}
+                                    className="rounded-xl border border-emerald-200 bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                  >
+                                    {runOcrM.isPending
+                                      ? "Starting OCR..."
+                                      : diagnosticReadiness.actionLabel || "Run OCR"}
+                                  </button>
+                                ) : null}
+                                {diagnosticReadiness.action ===
+                                "retry-ingestion" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      retryIngestionM.mutate({
+                                        notebookId: activeId,
+                                        sourceId: fixSourceId,
+                                      })
+                                    }
+                                    disabled={retryIngestionM.isPending}
+                                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+                                  >
+                                    {retryIngestionM.isPending
+                                      ? "Starting..."
+                                      : diagnosticReadiness.actionLabel ||
+                                        "Retry ingestion"}
+                                  </button>
+                                ) : null}
+                                {diagnosticReadiness.action ===
+                                "retry-indexing" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      retryEmbeddingM.mutate({
+                                        notebookId: activeId,
+                                        sourceId: fixSourceId,
+                                      })
+                                    }
+                                    disabled={retryEmbeddingM.isPending}
+                                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+                                  >
+                                    {retryEmbeddingM.isPending
+                                      ? "Starting..."
+                                      : diagnosticReadiness.actionLabel ||
+                                        "Retry indexing"}
+                                  </button>
+                                ) : null}
+                                {diagnosticReadiness.action ===
+                                "rebuild-index" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      rebuildEmbeddingM.mutate({
+                                        notebookId: activeId,
+                                        sourceId: fixSourceId,
+                                      })
+                                    }
+                                    disabled={rebuildEmbeddingM.isPending}
+                                    className="rounded-xl border border-rose-200 bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                                  >
+                                    {rebuildEmbeddingM.isPending
+                                      ? "Rebuilding..."
+                                      : diagnosticReadiness.actionLabel ||
+                                        "Rebuild index"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
 
                         <div className="mt-3 grid grid-cols-3 gap-2 text-[12px]">
                           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">

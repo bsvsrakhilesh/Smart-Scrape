@@ -6,7 +6,7 @@ import {
   notebookClient as api,
   type NoteProvenanceBundle,
 } from "../../lib/notebookClient";
-import { subscribeNotebookEvent } from "../../lib/notebookEvents";
+import { emitNotebookEvent, subscribeNotebookEvent } from "../../lib/notebookEvents";
 import { useConfirm } from "../providers/Confirm";
 
 function isNoteProvenanceBundle(value: unknown): value is NoteProvenanceBundle {
@@ -46,6 +46,63 @@ function mergeNoteProvenance(
     version: "note-provenance-v1",
     artifacts,
   };
+}
+
+function draftStorageBase(notebookId: string, noteId?: string | null) {
+  return noteId
+    ? `nb:noteDraft:${notebookId}:note:${noteId}`
+    : `nb:noteDraft:${notebookId}:new`;
+}
+
+function readDraftBundle(base: string) {
+  const title = localStorage.getItem(`${base}:title`) || "";
+  const content = localStorage.getItem(`${base}:content`) || "";
+  const savedAtRaw = localStorage.getItem(`${base}:savedAt`);
+  const citationsRaw = localStorage.getItem(`${base}:citations`);
+
+  let citations: NoteProvenanceBundle | null = null;
+  if (citationsRaw) {
+    try {
+      const parsed = JSON.parse(citationsRaw);
+      citations = isNoteProvenanceBundle(parsed) ? parsed : null;
+    } catch {
+      citations = null;
+    }
+  }
+
+  const savedAt =
+    savedAtRaw && !Number.isNaN(new Date(savedAtRaw).getTime())
+      ? new Date(savedAtRaw)
+      : null;
+
+  return { title, content, citations, savedAt };
+}
+
+function clearDraftBundle(base: string) {
+  localStorage.removeItem(`${base}:title`);
+  localStorage.removeItem(`${base}:content`);
+  localStorage.removeItem(`${base}:citations`);
+  localStorage.removeItem(`${base}:savedAt`);
+}
+
+function clearDraftBundlesForSavedNote(args: {
+  notebookId: string;
+  previousNoteId?: string | null;
+  savedNoteId: string;
+  mode: "create" | "update";
+}) {
+  const { notebookId, previousNoteId, savedNoteId, mode } = args;
+
+  if (mode === "create") {
+    clearDraftBundle(draftStorageBase(notebookId, null));
+    clearDraftBundle(draftStorageBase(notebookId, savedNoteId));
+    return;
+  }
+
+  clearDraftBundle(draftStorageBase(notebookId, previousNoteId ?? savedNoteId));
+  if (previousNoteId && previousNoteId !== savedNoteId) {
+    clearDraftBundle(draftStorageBase(notebookId, savedNoteId));
+  }
 }
 
 function renderInlineMarkdown(text: string) {
@@ -127,6 +184,7 @@ export default function NotesEditor({
 }) {
   const qc = useQueryClient();
   const { confirm } = useConfirm();
+  const lastSaveToastRef = useRef<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -156,6 +214,24 @@ export default function NotesEditor({
     setView("write");
   }, []);
 
+  const flushDraftNow = useCallback(
+    (targetNoteId?: string | null) => {
+      if (!notebookId) return;
+      const base = draftStorageBase(notebookId, targetNoteId ?? activeNoteId);
+      localStorage.setItem(`${base}:title`, title);
+      localStorage.setItem(`${base}:content`, content);
+      if (citationsPayload) {
+        localStorage.setItem(`${base}:citations`, JSON.stringify(citationsPayload));
+      } else {
+        localStorage.removeItem(`${base}:citations`);
+      }
+      const now = new Date();
+      localStorage.setItem(`${base}:savedAt`, now.toISOString());
+      setLastDraftAt(now);
+    },
+    [activeNoteId, citationsPayload, content, notebookId, title],
+  );
+
   const confirmDiscardIfDirty = useCallback(async () => {
     if (!dirty) return true;
     return confirm({
@@ -169,18 +245,36 @@ export default function NotesEditor({
 
   const startNewNote = useCallback(async () => {
     if (!(await confirmDiscardIfDirty())) return;
+    if (dirty || title.trim() || content.trim() || citationsPayload?.artifacts?.length) {
+      flushDraftNow();
+    }
     resetNote();
-  }, [confirmDiscardIfDirty, resetNote]);
+  }, [
+    citationsPayload?.artifacts?.length,
+    confirmDiscardIfDirty,
+    content,
+    dirty,
+    flushDraftNow,
+    resetNote,
+    title,
+  ]);
 
   // Switching notebooks should exit edit-mode cleanly
   useEffect(() => {
     setActiveNoteId(null);
+    setTitle("");
+    setContent("");
     setDirty(false);
     setSaveError(null);
     setLastSavedAt(null);
     setLastDraftAt(null);
     setCitationsPayload(null);
+    setView("write");
   }, [notebookId]);
+
+  useEffect(() => {
+    emitNotebookEvent("note-active", { noteId: activeNoteId });
+  }, [activeNoteId]);
 
   const saveM = useMutation({
     mutationFn: async (vars: {
@@ -209,14 +303,25 @@ export default function NotesEditor({
       setDirty(false);
       setSaveError(null);
 
-      // clear local draft for this mode
       if (notebookId) {
-        const base =
-          vars.mode === "update"
-            ? `nb:noteDraft:${notebookId}:note:${note.id}`
-            : `nb:noteDraft:${notebookId}:new`;
-        localStorage.removeItem(`${base}:title`);
-        localStorage.removeItem(`${base}:content`);
+        clearDraftBundlesForSavedNote({
+          notebookId,
+          previousNoteId: vars.noteId ?? activeNoteId,
+          savedNoteId: note.id,
+          mode: vars.mode,
+        });
+      }
+
+      const savedVersionKey = `${note.id}:${note.updatedAt}`;
+      if (lastSaveToastRef.current !== savedVersionKey) {
+        emitNotebookEvent("toast", {
+          kind: "success",
+          text:
+            vars.mode === "create"
+              ? "Note saved."
+              : "Note changes saved.",
+        });
+        lastSaveToastRef.current = savedVersionKey;
       }
 
       // After a successful save, keep the note open for editing.
@@ -236,13 +341,11 @@ export default function NotesEditor({
     if (!notebookId) return;
     if (activeNoteId) return;
 
-    const base = `nb:noteDraft:${notebookId}:new`;
-
-    const t = localStorage.getItem(`${base}:title`) || "";
-    const c = localStorage.getItem(`${base}:content`) || "";
-
-    if (t) setTitle(t);
-    if (c) setContent(c);
+    const draft = readDraftBundle(draftStorageBase(notebookId, null));
+    setTitle(draft.title);
+    setContent(draft.content);
+    setCitationsPayload(draft.citations);
+    setLastDraftAt(draft.savedAt);
   }, [notebookId, activeNoteId]);
 
   // persist drafts (debounced)
@@ -256,11 +359,18 @@ export default function NotesEditor({
     const id = setTimeout(() => {
       localStorage.setItem(`${base}:title`, title);
       localStorage.setItem(`${base}:content`, content);
-      setLastDraftAt(new Date());
+      if (citationsPayload) {
+        localStorage.setItem(`${base}:citations`, JSON.stringify(citationsPayload));
+      } else {
+        localStorage.removeItem(`${base}:citations`);
+      }
+      const now = new Date();
+      localStorage.setItem(`${base}:savedAt`, now.toISOString());
+      setLastDraftAt(now);
     }, 150);
 
     return () => clearTimeout(id);
-  }, [notebookId, activeNoteId, title, content]);
+  }, [notebookId, activeNoteId, title, content, citationsPayload]);
 
   // listen for Add-to-Notes events from Chat
   useEffect(() => {
@@ -269,6 +379,10 @@ export default function NotesEditor({
         const md = d;
         setContent((prev) => (prev ? prev + "\n\n" + md : md));
         setDirty(true);
+        emitNotebookEvent("toast", {
+          kind: "info",
+          text: "Added to note draft. Save the note to persist it.",
+        });
         return;
       }
 
@@ -297,6 +411,10 @@ export default function NotesEditor({
       }
 
       setDirty(true);
+      emitNotebookEvent("toast", {
+        kind: "info",
+        text: "Added to note draft. Save the note to persist it.",
+      });
     });
   }, []);
 
@@ -306,16 +424,34 @@ export default function NotesEditor({
       void (async () => {
         if (!n || !n.id) return;
         if (!(await confirmDiscardIfDirty())) return;
+        if (dirty || title.trim() || content.trim() || citationsPayload?.artifacts?.length) {
+          flushDraftNow();
+        }
+
+        const draft = notebookId
+          ? readDraftBundle(draftStorageBase(notebookId, n.id))
+          : { title: "", content: "", citations: null, savedAt: null };
+        const hasRecoveredDraft =
+          Boolean(draft.title || draft.content || draft.citations);
 
         setActiveNoteId(n.id);
-        setTitle(n.title || "");
-        setContent(n.content || "");
-        setDirty(false);
+        setTitle(hasRecoveredDraft ? draft.title : n.title || "");
+        setContent(hasRecoveredDraft ? draft.content : n.content || "");
+        setDirty(hasRecoveredDraft);
         setSaveError(null);
         setLastSavedAt(new Date(n.updatedAt));
-        setLastDraftAt(null);
-        setCitationsPayload(n.citations ?? null);
+        setLastDraftAt(hasRecoveredDraft ? draft.savedAt : null);
+        setCitationsPayload(
+          hasRecoveredDraft ? draft.citations : (n.citations ?? null),
+        );
         setView("write");
+
+        if (hasRecoveredDraft) {
+          emitNotebookEvent("toast", {
+            kind: "info",
+            text: "Recovered your local draft for this note.",
+          });
+        }
 
         editorRef.current?.scrollIntoView({
           behavior: "smooth",
@@ -323,13 +459,53 @@ export default function NotesEditor({
         });
       })();
     });
-  }, [confirmDiscardIfDirty]);
+  }, [
+    citationsPayload?.artifacts?.length,
+    confirmDiscardIfDirty,
+    content,
+    dirty,
+    flushDraftNow,
+    notebookId,
+    title,
+  ]);
 
   useEffect(() => {
     return subscribeNotebookEvent("new-note", () => {
       startNewNote();
     });
   }, [startNewNote]);
+
+  useEffect(() => {
+    return subscribeNotebookEvent("note-deleted", ({ noteId }) => {
+      if (!noteId || noteId !== activeNoteId) return;
+
+      const hasLocalEdits =
+        dirty ||
+        Boolean(title.trim()) ||
+        Boolean(content.trim()) ||
+        Boolean(citationsPayload?.artifacts?.length);
+
+      setActiveNoteId(null);
+      setLastSavedAt(null);
+      setSaveError(null);
+      setView("write");
+
+      if (hasLocalEdits) {
+        setDirty(true);
+        setLastDraftAt(new Date());
+        emitNotebookEvent("toast", {
+          kind: "info",
+          text: "Deleted the saved note. Kept your current edits as a local draft.",
+        });
+      } else {
+        setTitle("");
+        setContent("");
+        setDirty(false);
+        setLastDraftAt(null);
+        setCitationsPayload(null);
+      }
+    });
+  }, [activeNoteId, citationsPayload, content, dirty, title]);
 
   // Cmd/Ctrl+S quick save
   useEffect(() => {

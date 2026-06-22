@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notebookClient as api } from "../../lib/notebookClient";
-import { emitNotebookEvent } from "../../lib/notebookEvents";
+import {
+  emitNotebookEvent,
+  subscribeNotebookEvent,
+} from "../../lib/notebookEvents";
 import { useConfirm } from "../providers/Confirm";
 
 function clsx(...a: (string | false | null | undefined)[]) {
@@ -309,12 +312,29 @@ function RecentNotes({
 }) {
   const qc = useQueryClient();
   const { confirm } = useConfirm();
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return subscribeNotebookEvent("note-active", ({ noteId }) => {
+      setActiveNoteId(noteId);
+    });
+  }, []);
 
   const delM = useMutation({
     mutationFn: (noteId: string) => api.deleteNote(notebookId, noteId),
-    onSuccess: () => {
+    onSuccess: (_data, noteId) => {
       qc.invalidateQueries({ queryKey: ["nb:detail", notebookId] });
-      emitNotebookEvent("new-note", undefined);
+      emitNotebookEvent("note-deleted", { noteId });
+      emitNotebookEvent("toast", { kind: "success", text: "Note deleted." });
+      setDeletingNoteId(null);
+    },
+    onError: (err: any) => {
+      setDeletingNoteId(null);
+      emitNotebookEvent("toast", {
+        kind: "error",
+        text: err?.message || "Could not delete note.",
+      });
     },
   });
 
@@ -332,13 +352,28 @@ function RecentNotes({
               emitNotebookEvent("open-note", n);
             }
           }}
-          className="group border rounded-xl p-3 bg-white shadow-sm cursor-pointer hover:bg-slate-50 flex items-start justify-between gap-3"
+          className={clsx(
+            "group border rounded-xl p-3 shadow-sm cursor-pointer flex items-start justify-between gap-3 transition",
+            activeNoteId === n.id
+              ? "border-emerald-200 bg-emerald-50/70"
+              : "border-slate-200 bg-white hover:bg-slate-50",
+          )}
         >
           <div className="min-w-0">
-            <div className="text-xs font-semibold truncate">
-              {n.title || "Untitled"}
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-semibold truncate">
+                {n.title || "Untitled"}
+              </div>
+              {activeNoteId === n.id ? (
+                <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                  Open
+                </span>
+              ) : null}
             </div>
-            <div className="text-[11px] text-gray-500">
+            <div className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">
+              {String(n.content || "").trim() || "No content yet."}
+            </div>
+            <div className="mt-1 text-[11px] text-gray-500">
               {prettyTime(n.updatedAt)}
             </div>
           </div>
@@ -357,10 +392,11 @@ function RecentNotes({
                 danger: true,
               });
               if (!ok) return;
+              setDeletingNoteId(n.id);
               delM.mutate(n.id);
             }}
           >
-            {delM.isPending ? "Deleting…" : "Delete"}
+            {deletingNoteId === n.id && delM.isPending ? "Deleting…" : "Delete"}
           </button>
         </div>
       ))}

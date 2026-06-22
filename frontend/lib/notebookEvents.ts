@@ -28,6 +28,8 @@ type NotebookEventMap = {
   toast: NotebookToastDetail;
   "open-note": NBNote;
   "new-note": undefined;
+  "note-active": { noteId: string | null };
+  "note-deleted": { noteId: string };
   "add-note": NotebookAddNoteDetail;
   "chat-prompt": NotebookChatPromptDetail;
   "manage-sources": undefined;

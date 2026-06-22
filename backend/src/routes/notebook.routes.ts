@@ -122,17 +122,6 @@ r.delete(
   "/notebooks/:id/sources/:sourceId",
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
-    body: z
-      .object({
-        langs: z.string().min(1).max(80).optional(),
-        pages: z.string().min(1).max(120).optional(),
-        engine: z.enum(["auto", "ocrmypdf", "tesseract"]).optional(),
-        deskew: z.boolean().optional(),
-        rotatePages: z.boolean().optional(),
-        clean: z.boolean().optional(),
-        fallback: z.boolean().optional(),
-      })
-      .optional(),
   }),
   editorOrAbove,
   deleteNotebookSourceHandler,
@@ -164,6 +153,17 @@ r.post(
   "/notebooks/:id/sources/:sourceId/run-ocr",
   validate({
     params: z.object({ id: z.string().min(1), sourceId: z.string().min(1) }),
+    body: z
+      .object({
+        langs: z.string().min(1).max(80).optional(),
+        pages: z.string().min(1).max(120).optional(),
+        engine: z.enum(["auto", "ocrmypdf", "tesseract"]).optional(),
+        deskew: z.boolean().optional(),
+        rotatePages: z.boolean().optional(),
+        clean: z.boolean().optional(),
+        fallback: z.boolean().optional(),
+      })
+      .optional(),
   }),
   editorOrAbove,
   postNotebookSourceRunOcrHandler,

@@ -6,6 +6,7 @@ import { env } from "../config/env";
 import { openaiClient, defaultModel } from "./openaiClient";
 import { Prisma } from "../generated/prisma/client";
 import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
+import { assertSelectedNotebookSourcesAttached } from "./notebookChatGuards.service";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -1087,6 +1088,17 @@ export async function runNotebookChat(p: {
     const err: any = new Error("Notebook not found");
     err.status = 404;
     throw err;
+  }
+
+  if (Array.isArray(filterSourceIds) && filterSourceIds.length > 0) {
+    const attached = await prisma.notebookSource.findMany({
+      where: { notebookId, id: { in: filterSourceIds } },
+      select: { id: true },
+    });
+    assertSelectedNotebookSourcesAttached(
+      filterSourceIds,
+      attached.map((source) => source.id),
+    );
   }
 
   const run = await createNotebookChatRun({

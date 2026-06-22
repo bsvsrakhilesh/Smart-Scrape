@@ -10,7 +10,7 @@ import type {
   GroundingReport,
   ClaimCitationLink,
 } from "../../lib/notebookClient";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCcw } from "lucide-react";
 import {
   emitNotebookEvent,
   subscribeNotebookEvent,
@@ -36,6 +36,13 @@ type Msg = {
   latencyMs?: number | null;
   grounding?: GroundingReport | null;
   claimLinks?: ClaimCitationLink[];
+};
+
+type SourceScopeSnapshot = {
+  totalCount: number;
+  scopeCount: number;
+  readyCount: number;
+  blockedCount: number;
 };
 
 function uid() {
@@ -162,6 +169,59 @@ function groundingTone(g: GroundingReport) {
   return "border-rose-200 bg-rose-50 text-rose-800";
 }
 
+function groundingLabel(g?: GroundingReport | null) {
+  if (!g) return "Grounding not checked";
+  if (g.status === "verified") return "Verified";
+  if (g.status === "partially_supported") return "Needs review";
+  return "Unsupported";
+}
+
+function answerTrustTone(message: Msg) {
+  if (message.text.startsWith("Error:")) {
+    return "border-rose-200 bg-rose-50 text-rose-800";
+  }
+  if (message.grounding) return groundingTone(message.grounding);
+  if ((message.citations?.length ?? 0) > 0 || (message.evidence?.length ?? 0) > 0) {
+    return "border-sky-200 bg-sky-50 text-sky-800";
+  }
+  return "border-amber-200 bg-amber-50 text-amber-800";
+}
+
+function answerTrustSummary(message: Msg) {
+  if (message.text.startsWith("Error:")) return "Generation failed";
+  if (message.grounding) return groundingLabel(message.grounding);
+  if ((message.citations?.length ?? 0) > 0) return "Cited answer";
+  return "No citations returned";
+}
+
+function sourceTruthLabel(args: {
+  totalCount: number;
+  scopeCount: number;
+  readyCount: number;
+  blockedCount: number;
+}) {
+  if (args.totalCount === 0) return "No sources attached";
+  if (args.scopeCount === 0) return "No sources included";
+  if (args.readyCount === 0) return "Sources not ready";
+  if (args.blockedCount > 0) return "Partial source context";
+  return "Ready source context";
+}
+
+function sourceTruthTone(args: {
+  totalCount: number;
+  scopeCount: number;
+  readyCount: number;
+  blockedCount: number;
+}) {
+  if (args.totalCount === 0 || args.scopeCount === 0 || args.readyCount === 0) {
+    return "border-rose-200 bg-rose-50 text-rose-800";
+  }
+  if (args.blockedCount > 0) {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+  return "border-emerald-200 bg-emerald-50 text-emerald-800";
+}
+
 function claimLinkTone(status: ClaimCitationLink["status"]) {
   return status === "linked"
     ? "border-slate-200 bg-white/70"
@@ -223,6 +283,61 @@ function historyRunsToMessages(runs: ChatHistoryRun[]): Msg[] {
   return out;
 }
 
+function noteProvenanceFromAnswer(answer: {
+  runId?: string;
+  promptVersion?: string;
+  model?: string | null;
+  mode?: AnswerMode | null;
+  latencyMs?: number | null;
+  answer: string;
+  citations?: Citation[];
+  evidence?: EvidenceBlock[];
+  claimLinks?: ClaimCitationLink[];
+}): NoteProvenanceBundle {
+  return {
+    version: "note-provenance-v1",
+    artifacts: [
+      {
+        kind: "chat-answer",
+        runId: answer.runId ?? null,
+        promptVersion: answer.promptVersion ?? null,
+        model: answer.model ?? null,
+        answerMode: answer.mode ?? null,
+        createdAt: new Date().toISOString(),
+        latencyMs: answer.latencyMs ?? null,
+        answer: answer.answer,
+        citations: answer.citations ?? [],
+        evidence:
+          Array.isArray(answer.evidence) && answer.evidence.length
+            ? answer.evidence
+            : undefined,
+        claimLinks:
+          Array.isArray(answer.claimLinks) && answer.claimLinks.length
+            ? answer.claimLinks
+            : undefined,
+      },
+    ],
+  };
+}
+
+function quickActionBlockedMessage(args: {
+  notebookId: string | null;
+  pending: boolean;
+  canChat: boolean;
+  sourceGuardMessage: string | null;
+}) {
+  if (!args.notebookId) {
+    return "Select a notebook first. The prompt was added to the composer.";
+  }
+  if (args.pending) {
+    return "A response is already in progress. The prompt was added to the composer.";
+  }
+  if (!args.canChat) {
+    return `${args.sourceGuardMessage || "Chat is waiting on sources."} The prompt was added to the composer.`;
+  }
+  return null;
+}
+
 export default function ChatPanel({
   notebookId,
   sourceIds,
@@ -241,8 +356,13 @@ export default function ChatPanel({
   const [streamStatus, setStreamStatus] = useState("Thinking");
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [activeScopeSnapshot, setActiveScopeSnapshot] =
+    useState<SourceScopeSnapshot | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyReloadKey, setHistoryReloadKey] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const userStopRef = useRef(false);
 
   // Keep latest messages in a ref so we can build chat history without re-creating callbacks
   const messagesRef = useRef<Msg[]>([]);
@@ -277,6 +397,23 @@ export default function ChatPanel({
           ? "Wait for at least one included source to become Ready."
           : null;
   const canChat = !!notebookId && !sourceGuardMessage;
+  const displayScope =
+    pending && activeScopeSnapshot
+      ? activeScopeSnapshot
+      : {
+          totalCount,
+          scopeCount,
+          readyCount,
+          blockedCount,
+        };
+  const displaySourceGuardMessage =
+    displayScope.totalCount === 0
+      ? "Add a source before asking."
+      : displayScope.scopeCount === 0
+        ? "Include at least one source before asking."
+        : displayScope.readyCount === 0
+          ? "Wait for at least one included source to become Ready."
+          : null;
 
   // Load chat history from the backend for this notebook.
   useEffect(() => {
@@ -291,12 +428,16 @@ export default function ChatPanel({
 
       try {
         setLoadingHistory(true);
+        setHistoryError(null);
         const runs = await api.getChatHistory(notebookId, 80);
         if (!alive) return;
         setMessages(historyRunsToMessages(runs));
-      } catch {
+      } catch (err: any) {
         if (!alive) return;
         setMessages([]);
+        setHistoryError(
+          err?.message || "Could not load this notebook conversation.",
+        );
       } finally {
         if (alive) setLoadingHistory(false);
       }
@@ -307,7 +448,7 @@ export default function ChatPanel({
     return () => {
       alive = false;
     };
-  }, [notebookId]);
+  }, [notebookId, historyReloadKey]);
 
   // ===== Answer mode (Draft / Evidence / Briefing) =====
   const modeKey = notebookId ? `nb:chatMode:${notebookId}` : null;
@@ -449,6 +590,18 @@ export default function ChatPanel({
 
       const assistantId = uid();
       let streamedText = "";
+      let liveRunId: string | null = null;
+      let finalAnswerPayload: {
+        runId?: string;
+        promptVersion?: string;
+        model?: string | null;
+        mode?: AnswerMode | null;
+        latencyMs?: number | null;
+        answer: string;
+        citations?: Citation[];
+        evidence?: EvidenceBlock[];
+        claimLinks?: ClaimCitationLink[];
+      } | null = null;
 
       setMessages((m) => [
         ...m,
@@ -461,12 +614,19 @@ export default function ChatPanel({
           displayText: "",
         },
       ]);
+      setActiveScopeSnapshot({
+        totalCount,
+        scopeCount,
+        readyCount,
+        blockedCount,
+      });
       setPending(true);
       setStreamStatus("Starting");
       setStreamMessageId(assistantId);
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      userStopRef.current = false;
 
       try {
         const res = await api.chatStream(notebookId, question, {
@@ -481,6 +641,7 @@ export default function ChatPanel({
             }
 
             if (event.type === "run") {
+              liveRunId = event.runId || null;
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantId ? { ...msg, runId: event.runId } : msg,
@@ -507,13 +668,14 @@ export default function ChatPanel({
 
             if (event.type === "final") {
               const answer = event.answer;
+              finalAnswerPayload = answer;
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === assistantId
                     ? {
                         ...msg,
                         text: answer.answer,
-                        displayText: streamedText || answer.answer,
+                        displayText: answer.answer,
                         citations: answer.citations,
                         suggested: answer.suggested,
                         mode: answer.mode,
@@ -556,35 +718,14 @@ export default function ChatPanel({
           );
         }
 
+        const canonicalAnswer = finalAnswerPayload ?? res;
+
         if (saveToNotes?.title) {
           emitNotebookEvent("add-note", {
             title: saveToNotes.title,
-            content: res.answer,
+            content: canonicalAnswer.answer,
             mode: saveToNotes.mode,
-            citations: {
-              version: "note-provenance-v1",
-              artifacts: [
-                {
-                  kind: "chat-answer",
-                  runId: res.runId ?? null,
-                  promptVersion: res.promptVersion ?? null,
-                  model: res.model ?? null,
-                  answerMode: res.mode ?? null,
-                  createdAt: new Date().toISOString(),
-                  latencyMs: res.latencyMs ?? null,
-                  answer: res.answer,
-                  citations: res.citations ?? [],
-                  evidence:
-                    Array.isArray(res.evidence) && res.evidence.length
-                      ? res.evidence
-                      : undefined,
-                  claimLinks:
-                    Array.isArray(res.claimLinks) && res.claimLinks.length
-                      ? res.claimLinks
-                      : undefined,
-                },
-              ],
-            } as NoteProvenanceBundle,
+            citations: noteProvenanceFromAnswer(canonicalAnswer),
           });
         }
 
@@ -594,13 +735,16 @@ export default function ChatPanel({
           e?.name === "CanceledError" ||
           e?.name === "AbortError"
         ) {
+          const stoppedText = userStopRef.current
+            ? "Stopped by you."
+            : "Stopped.";
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantId
                 ? {
                     ...msg,
-                    text: streamedText || "Stopped.",
-                    displayText: streamedText || "Stopped.",
+                    text: streamedText || stoppedText,
+                    displayText: streamedText || stoppedText,
                   }
                 : msg,
             ),
@@ -621,15 +765,27 @@ export default function ChatPanel({
               : msg,
           ),
         );
+        if (liveRunId) setHistoryReloadKey((key) => key + 1);
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
+        userStopRef.current = false;
         setPending(false);
+        setActiveScopeSnapshot(null);
         setStreamStatus("Thinking");
         setStreamMessageId(null);
       }
     },
 
-    [notebookId, sourceIds, answerMode, sourceGuardMessage],
+    [
+      notebookId,
+      sourceIds,
+      answerMode,
+      sourceGuardMessage,
+      totalCount,
+      scopeCount,
+      readyCount,
+      blockedCount,
+    ],
   );
 
   // Notebook Guide / Studio can fire a "send this prompt" event.
@@ -659,9 +815,25 @@ export default function ChatPanel({
               } as { title: string; mode: "append" | "replace" })
             : undefined;
         send(prompt, note);
+        return;
       }
+
+      if (!autoSend) return;
+
+      const blockedMessage = quickActionBlockedMessage({
+        notebookId,
+        pending,
+        canChat,
+        sourceGuardMessage,
+      });
+      if (!blockedMessage) return;
+
+      emitNotebookEvent("toast", {
+        kind: canChat ? "info" : "error",
+        text: blockedMessage,
+      });
     });
-  }, [notebookId, pending, send, canChat]);
+  }, [notebookId, pending, send, canChat, sourceGuardMessage]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -691,30 +863,58 @@ export default function ChatPanel({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-white/10">
       <div className="px-4 md:px-6 py-3 border-b border-emerald-200/70 bg-white/60 backdrop-blur supports-[backdrop-filter]:bg-white/40">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={clsx(
+              "text-[11px] px-2.5 py-1 rounded-full border font-semibold",
+              sourceTruthTone({
+                totalCount: displayScope.totalCount,
+                scopeCount: displayScope.scopeCount,
+                readyCount: displayScope.readyCount,
+                blockedCount: displayScope.blockedCount,
+              }),
+            )}
+            title="This is the exact source boundary used for chat. Only ready, included sources are sent to the LLM."
+          >
+            {sourceTruthLabel({
+              totalCount: displayScope.totalCount,
+              scopeCount: displayScope.scopeCount,
+              readyCount: displayScope.readyCount,
+              blockedCount: displayScope.blockedCount,
+            })}
+          </span>
           <span className="text-[11px] px-2.5 py-1 rounded-full border border-slate-200 bg-white text-slate-700">
-            Using {readyCount}/{Math.max(scopeCount, 0)} ready sources
+            Using {displayScope.readyCount}/{Math.max(displayScope.scopeCount, 0)} ready sources
           </span>
 
-          {blockedCount > 0 ? (
+          {displayScope.blockedCount > 0 ? (
             <span
               className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1"
               title="These sources are included by scope but are still indexing or failed indexing, so they are excluded from chat for reliability."
             >
-              {blockedCount} not ready
+              {displayScope.blockedCount} not ready
             </span>
           ) : null}
 
-          {totalCount > 0 && scopeCount === 0 ? (
+          {displayScope.totalCount > 0 && displayScope.scopeCount === 0 ? (
             <span className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2.5 py-1">
               No sources selected — include sources to get cited answers.
             </span>
           ) : null}
 
-          {scopeCount > 0 && readyCount === 0 ? (
+          {displayScope.scopeCount > 0 && displayScope.readyCount === 0 ? (
             <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
               Sources are still indexing — chat will work once at least one is
               “Ready”.
+            </span>
+          ) : null}
+
+          {pending && activeScopeSnapshot ? (
+            <span
+              className="text-[11px] text-sky-800 bg-sky-50 border border-sky-200 rounded-full px-2.5 py-1"
+              title="Source scope is locked to the snapshot taken when this answer started."
+            >
+              Scope locked for this answer
             </span>
           ) : null}
 
@@ -801,8 +1001,29 @@ export default function ChatPanel({
             </div>
           )}
 
+          {!loadingHistory && historyError && messages.length === 0 ? (
+            <div className="h-full w-full grid place-items-center">
+              <div className="max-w-xl rounded-3xl border border-rose-200 bg-rose-50/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.14)]">
+                <div className="text-sm font-semibold text-rose-900">
+                  Conversation could not be loaded
+                </div>
+                <p className="mt-2 text-sm leading-6 text-rose-800">
+                  {historyError}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setHistoryReloadKey((key) => key + 1)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-800 shadow-sm transition hover:bg-rose-50"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Retry loading history
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {/* Empty state */}
-          {!loadingHistory && messages.length === 0 && (
+          {!loadingHistory && !historyError && messages.length === 0 && (
             <div className="h-full w-full grid place-items-center">
               <div className="max-w-xl w-full">
                 <div className="rounded-3xl border border-white/30 bg-white/70 backdrop-blur shadow-[0_24px_80px_rgba(15,23,42,0.18)] p-6 md:p-7">
@@ -953,6 +1174,31 @@ export default function ChatPanel({
                         m.text
                       )}
                     </div>
+
+                    {m.role === "assistant" ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={clsx(
+                            "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                            answerTrustTone(m),
+                          )}
+                          title="Trust is derived from backend grounding, citations, and evidence blocks returned with this answer."
+                        >
+                          {answerTrustSummary(m)}
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
+                          Citations {m.citations?.length ?? 0}
+                        </span>
+                        <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
+                          Evidence blocks {m.evidence?.length ?? 0}
+                        </span>
+                        {m.model ? (
+                          <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[11px] text-slate-600">
+                            {m.model}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     {m.role === "assistant" && m.grounding ? (
                       <div
@@ -1147,6 +1393,21 @@ export default function ChatPanel({
       {/* Composer */}
       <div className="border-t border-slate-200/70 bg-white/75 backdrop-blur supports-[backdrop-filter]:bg-white/60 px-3 md:px-4 py-3">
         <div className="mx-auto w-full max-w-[760px]">
+          {displaySourceGuardMessage ? (
+            <div className="mb-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-900">
+              <span className="font-semibold">Chat is waiting on sources.</span>{" "}
+              {displaySourceGuardMessage}
+              {displayScope.totalCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => emitNotebookEvent("manage-sources", undefined)}
+                  className="ml-2 font-semibold underline decoration-amber-700/40 underline-offset-2"
+                >
+                  Review source scope
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <div className="rounded-3xl border border-slate-200 bg-white shadow-[0_14px_40px_rgba(15,23,42,0.10)] px-3 py-2">
@@ -1158,10 +1419,10 @@ export default function ChatPanel({
                   onKeyDown={onKeyDown}
                   placeholder={
                     notebookId
-                      ? sourceGuardMessage || "Ask about your sources..."
+                      ? displaySourceGuardMessage || "Ask about your sources..."
                       : "Create/select a notebook to start"
                   }
-                  disabled={!notebookId || !!sourceGuardMessage}
+                  disabled={!notebookId || !!displaySourceGuardMessage}
                   className="w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-slate-400 disabled:text-slate-400"
                   rows={1}
                 />
@@ -1185,6 +1446,7 @@ export default function ChatPanel({
             <button
               onClick={() => {
                 if (pending) {
+                  userStopRef.current = true;
                   abortRef.current?.abort();
                   return;
                 }

@@ -1,4 +1,4 @@
-# SmartScrape — User Manual
+# SmartScrape - User Manual
 
 *Archive analysis tool for environmental governance*
 

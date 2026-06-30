@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose a focused improvement to a SmartScrape workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for user-facing workflow improvements, research-software capabilities, and maintainability improvements. Keep one request per issue where possible.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - URL Collector
+        - Saved URLs
+        - File Manager
+        - Notebook
+        - Governance Workspace
+        - AI tagger
+        - Backend API or worker
+        - Docker/deployment
+        - Documentation
+        - Testing/CI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Research or workflow problem
+      description: What is hard, slow, error-prone, or currently impossible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior change.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence, provenance, and citation impact
+      description: Explain how the change should preserve or improve source provenance, auditability, citations, or evidence verification.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include manual workarounds, existing tools, or simpler variants.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues before opening this request.
+          required: true
+        - label: This request does not require publishing private documents, secrets, or restricted data.
+          required: true

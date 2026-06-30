@@ -1,0 +1,76 @@
+name: Reproducibility or reviewer report
+description: Report a problem reproducing installation, tests, builds, smoke tests, or JOSS review checks.
+title: "[Reproducibility]: "
+labels:
+  - reproducibility
+  - joss
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for installation, test, build, smoke-test, citation, release, or JOSS-review issues. Do not include credentials or private data.
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Scenario
+      options:
+        - Docker Compose installation
+        - Local non-Docker installation
+        - Backend tests
+        - Frontend tests
+        - Python AI tagger tests
+        - Frontend/backend build
+        - Manual smoke test
+        - JOSS paper or metadata
+        - Release/Zenodo citation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands or workflow attempted
+      description: Paste exact commands, with secrets removed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: Include the final error, failed assertion, or unexpected behavior.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Commit or release:
+        - Operating system:
+        - Docker version:
+        - Node.js version:
+        - npm version:
+        - Python version:
+        - Browser, if applicable:
+    validations:
+      required: false
+  - type: checkboxes
+    id: integrations
+    attributes:
+      label: Credentials available during reproduction
+      options:
+        - label: Google Custom Search credentials were configured.
+        - label: Backend OpenAI credentials were configured.
+        - label: AI tagger OpenAI credentials were configured.
+        - label: No external API credentials were configured.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I used a disposable test database or local test data, not production research data.
+          required: true
+        - label: I removed secrets, private data, and restricted documents from this report.
+          required: true

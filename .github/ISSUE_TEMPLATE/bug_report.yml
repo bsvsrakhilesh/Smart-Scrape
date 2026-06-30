@@ -1,0 +1,109 @@
+name: Bug report
+description: Report a reproducible problem in SmartScrape.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include API keys, passwords, private documents, personal data, screenshots with secrets, or restricted governance material.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Choose the main area where the problem appears.
+      options:
+        - URL Collector
+        - Saved URLs
+        - File Manager
+        - Notebook
+        - Governance Workspace
+        - AI tagger
+        - Backend API or worker
+        - Docker/deployment
+        - Documentation
+        - Tests/CI
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: setup
+    attributes:
+      label: How are you running SmartScrape?
+      options:
+        - Docker Compose development stack
+        - Local services without Docker
+        - Production-like Docker Compose stack
+        - Hosted deployment
+        - Test suite or CI only
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the shortest workflow that triggers the problem.
+      placeholder: |
+        1. Open ...
+        2. Configure ...
+        3. Click ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include exact error text when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide versions and platform details relevant to the report.
+      value: |
+        - SmartScrape commit or version:
+        - Operating system:
+        - Browser:
+        - Docker version:
+        - Node.js version, if running locally:
+        - Python version, if running locally:
+    validations:
+      required: false
+  - type: checkboxes
+    id: integrations
+    attributes:
+      label: External integrations configured
+      description: Select only the integrations available in the failing run.
+      options:
+        - label: Google Custom Search credentials were configured.
+        - label: Backend OpenAI credentials were configured.
+        - label: AI tagger OpenAI credentials were configured.
+        - label: The issue also occurs without Google/OpenAI credentials.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste sanitized logs only. Remove API keys, cookies, file contents, personal data, and private URLs.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues before opening this report.
+          required: true
+        - label: I removed secrets, private documents, and personal data from this report.
+          required: true

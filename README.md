@@ -1,5 +1,7 @@
 # SmartScrape
 
+[![CI](https://github.com/bsvsrakhilesh/Smart-Scrape/actions/workflows/ci.yml/badge.svg)](https://github.com/bsvsrakhilesh/Smart-Scrape/actions/workflows/ci.yml)
+
 SmartScrape is a research platform for collecting, organizing, preserving, and analyzing web-based and personal documents used in governance and policy work. It helps users build searchable, citation-backed evidence collections for reviewing past decisions, preparing new analyses, and preserving institutional knowledge.
 
 The intended SmartScrape workflow uses **Google Programmable Search / Custom
@@ -629,11 +631,23 @@ The Docker development stack, automated tests, and manual smoke-test workflow in
 this README are the recommended ways to verify the current version. Interfaces,
 configuration options, and data models may change between early releases.
 
+## Contributing
+
+Contributions, bug reports, reproducibility reports, and documentation fixes are
+welcome through the GitHub issue tracker and pull requests. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, verification, and
+evidence-safety guidance.
+
+Use the repository's structured issue templates for bug reports, feature
+requests, documentation issues, and reproducibility or JOSS-review reports.
+Remove secrets, private documents, personal data, and restricted evidence before
+posting public issues or pull requests.
+
 ## Citation
 
 If you use SmartScrape in research, policy analysis, or institutional work,
-please cite the repository and the corresponding software release. A formal
-software citation file will be added before the first archived release.
+please cite the repository and the corresponding software release. Citation
+metadata is available in [CITATION.cff](CITATION.cff).
 
 Suggested citation format for now:
 

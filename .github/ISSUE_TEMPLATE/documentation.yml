@@ -1,0 +1,49 @@
+name: Documentation issue
+description: Report unclear, stale, missing, or incorrect documentation.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: dropdown
+    id: doc_area
+    attributes:
+      label: Documentation area
+      options:
+        - README installation or configuration
+        - README testing or reviewer instructions
+        - User manual
+        - JOSS paper
+        - Citation/release metadata
+        - Contributor documentation
+        - Environment variables
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: File, section, or link
+      placeholder: README.md#installation
+    validations:
+      required: false
+  - type: textarea
+    id: issue
+    attributes:
+      label: What should be fixed?
+      description: Describe what is incorrect, missing, ambiguous, or hard to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: suggested
+    attributes:
+      label: Suggested wording or evidence
+      description: Add proposed wording or supporting context if you have it.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I checked the README and user manual before opening this issue.
+          required: true

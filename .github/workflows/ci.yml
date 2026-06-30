@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Node build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://smart_scrape:smart_scrape@localhost:5432/smart_scrape_test
+      FILE_STORAGE_DIR: ${{ runner.temp }}/smart-scrape-storage
+      OPENAI_ENABLED: "false"
+      DEV_AUTH_ENABLED: "false"
+      SMARTSCRAPE_DISABLE_AUTO_TAG_QUEUE: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm -w backend run prisma:generate
+
+      - name: Run backend tests
+        run: npm -w backend test
+
+      - name: Run frontend tests
+        run: npm -w frontend test
+
+      - name: Build frontend and backend
+        run: npm run build
+
+  python-ai-tagger:
+    name: Python AI tagger tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ai-tagger
+    env:
+      OPENAI_API_KEY: ""
+      STRUCTURED_LLM_ENABLED: "false"
+      OCR_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai-tagger/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run AI tagger tests
+        run: python -m unittest discover -s tests
+
+  playwright-smoke:
+    name: Playwright landing-page smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs:
+      - node
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        run: npm -w frontend run build
+
+      - name: Run landing-page smoke test
+        run: npx playwright test e2e/landing-page.spec.ts

@@ -17,13 +17,13 @@ For detailed page-by-page usage instructions, see the [User Manual](docs/SmartSc
 
 The platform brings together four connected workflows:
 
-1. Collect material from the web through the URL Collector, where users can search, inspect, deduplicate, and capture high-signal pages as text or PDF. Collect source material from the web in a structured way, turning scattered links into preserved research inputs
+1. Discover and collect web sources with the URL Collector. Users can search, inspect, deduplicate, and save high-signal pages for later capture as text or PDF.
 
-2. Organize saved URLs, PDFs, uploads, and evidence with metadata and structured tags in a structured library.
+2. Organize saved URLs, PDFs, uploads, and other evidence in a searchable library with metadata and structured tags.
 
-3. Trace relationships across agencies, timelines, issues or past context in the Governance Workspace. It records across agencies and decisions so users can understand what happened, who acted, and what remains unresolved
+3. Trace relationships across agencies, decisions, timelines, issues, and unresolved questions in the Governance Workspace.
 
-4. Brief and analyze from the archive by assembling relevant sources into evidence-backed notes, summaries, and working drafts.
+4. Analyze archived evidence by assembling relevant sources into cited notes, summaries, and working drafts.
 
 The goal is to make air-quality governance faster to review, easier to trace, and more auditable across institutions such as CAQM and related state agencies. More broadly, SmartScrape is designed for any research or governance setting where documents are fragmented across websites, formats, and individual knowledge silos.
 
@@ -33,30 +33,30 @@ Governance and policy work often depends on documents like orders, notices, comp
 
 Although analysts can collect and search documents manually, current workflows frequently break provenance across heterogeneous and changing sources. Existing LLM tools do not reliably support evidence-linked answers or grounded retrieval for relevant context. 
 
-Therefore, the approach is to develop an LLM-backed tool that allows you to extract text of the required documents if in text form using their URLs or if available in PDF form, download and save them in the tool’s database with LLM-generated tags for better searchability, and create a metadata schema to structure the database. SmartScrape also includes a Notebook workspace where users can interact directly with the evidence database, ask questions, and generate cited answers through grounded document retrieval. By bringing government records, agency documents, and news sources into a single searchable archive, the platform supports faster review, stronger evidence traceability, and more informed planning for future work. The Governance Workspace further enables officers and analysts to ask work-related questions, automatically surface relevant documents, receive evidence-backed answers with citations, and identify suggested follow-up actions for further review.
+Therefore, the approach is to develop an LLM-backed tool that allows you to extract text of the required documents if in text form using their URLs or if available in PDF form, download and save them in the tool's database with LLM-generated tags for better searchability, and create a metadata schema to structure the database. SmartScrape also includes a Notebook workspace where users can interact directly with the evidence database, ask questions, and generate cited answers through grounded document retrieval. By bringing government records, agency documents, and news sources into a single searchable archive, the platform supports faster review, stronger evidence traceability, and more informed planning for future work. The Governance Workspace further enables officers and analysts to ask work-related questions, automatically surface relevant documents, receive evidence-backed answers with citations, and identify suggested follow-up actions for further review.
 
 ## Key features
 
 ### Research Impact & Evidence Integrity
 
-- **Evidence-Backed Policy Analysis** — Centralizes fragmented governance documents, helps preserve sources that may disappear from the web, and supports reproducible analysis with cited evidence.
-- **Cross-Agency Pattern Discovery** — Trace policy decisions and their consequences within the organization or across multiple institutions ; identify timeline relationships and decision dependencies for comparative governance research and decisions.
-- **Grounded AI Analysis** — LLM-backed insights that don't hallucinate; outputs are grounded in retrieved source passages and include citation links for verification; reduces analyst time on manual review and categorization
-- **Provenance & Auditability** — Maintains citation links to original sources; records capture metadata (date, context, version); enables verification and supports institutional knowledge preservation
-- **Institutional Continuity** — Archives ephemeral web content before it disappears; captures decision rationale and organizational context; supports longitudinal governance studies
+- **Evidence-Backed Policy Analysis** - Centralizes fragmented governance documents, helps preserve sources that may disappear from the web, and supports reproducible analysis with cited evidence.
+- **Cross-Agency Pattern Discovery** - Traces policy decisions and their consequences within an organization or across institutions; identifies timeline relationships and decision dependencies for comparative governance research.
+- **Grounded AI Analysis** - Supports LLM-backed analysis grounded in retrieved source passages, with citation links for verification; reduces analyst time on manual review and categorization while keeping evidence checks visible.
+- **Provenance & Auditability** - Maintains citation links to original sources; records capture metadata such as date, context, and version; enables verification and institutional knowledge preservation.
+- **Institutional Continuity** - Archives ephemeral web content before it disappears; captures decision rationale and organizational context; supports longitudinal governance studies.
 
 ### Data Collection & Organization
 
-- **URL Collector with Deduplication** — Search, inspect, and capture web pages as text or PDF; automatic deduplication prevents redundant data; structured capture of web-sourced evidence
-- **Flexible Multi-Format Support** — Handles web pages, PDFs, and text uploads with unified storage and searchable archive
-- **Intelligent Metadata & Tagging** — Automated deterministic tagging with a customizable taxonomy system (the CAQM taxonomy is included as an example), structured metadata extraction, and optional LLM-enhanced reranking; full-text search across documents and metadata
-- **Governance Workspace** — Map connections across agencies, decisions, timelines, and issues; track authorship and policy dependencies; create audit trails for governance decisions
+- **URL Collector with Deduplication** - Searches, inspects, and captures web pages as text or PDF; automatic deduplication prevents redundant records during source collection.
+- **Flexible Multi-Format Support** - Handles web pages, PDFs, and text uploads with unified storage and searchable archive workflows.
+- **Intelligent Metadata & Tagging** - Provides deterministic tagging with a customizable taxonomy system, structured metadata extraction, optional LLM-enhanced reranking, and full-text search across documents and metadata.
+- **Governance Workspace** - Maps connections across agencies, decisions, timelines, and issues; tracks authorship and policy dependencies; creates audit trails for governance decisions.
 
 ### Technical Architecture
 
-- **Reproducible & Scalable** — Docker-based deployment with containerized frontend, backend, and AI components; production and development configurations; Prisma ORM for database migrations
-- **Extensible Taxonomy System** — Composable taxonomy structure enabling domain-specific customization for different governance contexts
-- **Notebook Environment** — Interactive analysis and briefing interface for assembling evidence-backed notes, summaries, and working drafts from the archive
+- **Reproducible & Scalable** - Docker-based deployment with containerized frontend, backend, and AI components; production and development configurations; Prisma ORM for database migrations.
+- **Extensible Taxonomy System** - Composable taxonomy structure enabling domain-specific customization for different governance contexts.
+- **Notebook Environment** - Interactive analysis and briefing interface for assembling evidence-backed notes, summaries, and working drafts from the archive.
 
 ## Installation
 

@@ -2,6 +2,7 @@
   "name": "@smart-scrape/institutional-capture-node",
   "private": true,
   "version": "1.0.0",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "tsx watch src/app.ts",
     "start": "tsx src/app.ts",

@@ -1,4 +1,5 @@
-// frontend/App.tsx
+// SPDX-License-Identifier: Apache-2.0
+
 import React, { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 

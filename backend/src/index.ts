@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import app from './app';
 import { healthCheck } from "./services/pyTaggerClient";
 

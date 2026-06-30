@@ -8,6 +8,7 @@
     "allowImportingTsExtensions": false,
     "module": "CommonJS",
     "moduleResolution": "Node",
+    "ignoreDeprecations": "5.0",
     "esModuleInterop": true,
     "isolatedModules": false,
     "types": ["node"],

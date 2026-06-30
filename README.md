@@ -646,8 +646,8 @@ such as Zenodo to obtain a DOI.
 
 ## License
 
-SmartScrape is intended to be released under the Apache License 2.0. A full
-`LICENSE` file should be included before public release or journal submission.
+SmartScrape is licensed under the Apache License, Version 2.0. See
+[LICENSE](LICENSE).
 
 ## Contact / support
 

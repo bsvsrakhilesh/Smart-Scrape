@@ -11,7 +11,7 @@ analysis. Configure both integrations before evaluating the complete product.
 The AI tagger itself does not require OpenAI: it has a deterministic tagging,
 taxonomy, and structured-intelligence path, with optional LLM enhancement.
 
-For detailed page-by-page usage instructions, see the [User Manual](docs/SmartScrape_User_Manual.docx).
+For detailed page-by-page usage instructions, see the [User Manual](docs/SmartScrape_User_Manual.md).
 
 ## Overview
 

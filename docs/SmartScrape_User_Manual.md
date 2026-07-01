@@ -7,6 +7,7 @@
 1. [What SmartScrape does](#1-what-smartscrape-does)
 2. [Key concepts](#2-key-concepts)
 3. [Quick start](#3-quick-start)
+   - [Worked example case brief](#34-worked-example-case-brief)
 4. [Landing page](#4-landing-page)
 5. [URL Collector](#5-url-collector)
 6. [Saved URLs](#6-saved-urls)
@@ -172,6 +173,40 @@ The first build may take several minutes or longer depending on network speed an
 | AI-tagger OpenAI key | Optional LLM-assisted tag reranking and structured extraction | This key does not by itself enable Notebook, Governance, or Google search |
 | Institutional Capture Node (ICN) | Prototype demonstration of future authenticated capture | Not a supported production feature and not required for the core workflow |
 
+### 3.4 Worked example case brief
+
+The page chapters below include a continuing real-world example. Follow the sections headed **Continue the worked example** to carry one investigation from discovery to a cited governance review. The existing page instructions remain the general reference for controls and troubleshooting.
+
+**Scenario:** An environmental-governance analyst needs to determine how Commission for Air Quality Management (CAQM) directions translated into construction-and-demolition (C&D) dust enforcement and reporting in Delhi between January 2023 and December 2025.
+
+Use these values throughout the walkthrough:
+
+| Item | Worked-example value |
+| --- | --- |
+| Research Purpose | `Delhi C&D dust enforcement, 2023–2025` |
+| Research question | `How did CAQM directions translate into Delhi construction-and-demolition dust enforcement and reporting from January 2023 to December 2025?` |
+| Jurisdiction or area | `Delhi NCR, India` |
+| Desired output | `Cited enforcement timeline and agency-responsibility brief` |
+| Official sources or domains | `caqm.nic.in, dpcc.delhigovt.nic.in, cpcb.nic.in` |
+| Agencies, actors, or institutions | `CAQM, DPCC, CPCB, MCD, GNCTD` |
+| Saved URL collection | `Delhi C&D enforcement` |
+| File Manager folder | `Delhi C&D enforcement` |
+| File Manager subfolders | `Official directions` and `Implementation reports` |
+| Notebook | `Delhi C&D enforcement review` |
+| Core tags | `construction-dust`, `Delhi`, `enforcement`, plus the issuing agency name |
+
+The target evidence set contains at least three official-source records with different roles:
+
+1. A CAQM direction or order defining C&D dust-control obligations, such as Direction No. 79 dated 13 February 2024.
+2. A CAQM, DPCC, CPCB, MCD, or GNCTD implementation or enforcement record describing monitoring, closure, environmental compensation, prosecution, portal registration, or another follow-up action.
+3. A DPCC or CPCB report providing implementation, facility, inspection, or C&D waste-management evidence, such as the DPCC annual report for 2023–2024.
+
+Official websites, document addresses, and Google result ordering can change. Treat the named documents as search targets, not guaranteed search positions. When an exact item is unavailable, select an equivalent official document with the same evidence role and record the substitution in Notes. Do not substitute an unattributed summary for a primary official source.
+
+To complete the full walkthrough, the deployment needs Google Custom Search for discovery and backend OpenAI support for source indexing, Notebook chat, and Governance answers. Without Google credentials, add known official URLs through Saved URLs or upload authorised copies. Without OpenAI support, complete collection, capture, organisation, and evidence inspection, then stop before the generated-analysis steps.
+
+The walkthrough is complete when the purpose contains the selected official URLs, durable evidence is visible and inspected in File Manager, the Notebook contains a citation-checked table and recorded gaps, and Governance Workspace contains a retrieved investigation whose material claims have been checked against their citations. These are workflow checkpoints, not predetermined findings.
+
 ## 4. Landing page
 
 ![SmartScrape landing page showing the main workspace links](assets/manual/landing-page.png)
@@ -196,6 +231,14 @@ For a new investigation, choose **Open App**. Choose **Open Notebook** when the 
 6. Select the SmartScrape logo or the home link when available to return to the landing page.
 
 Opening a page does not create, save, capture, or analyse evidence. Those actions occur inside the relevant work surface and are described below.
+
+### 4.2 Continue the worked example: begin the investigation
+
+1. Read the case brief in [Section 3.4](#34-worked-example-case-brief) and confirm that the deployment has the capabilities needed for the stages you intend to complete.
+2. From the landing page, select **Open App**. Do not select **Open Notebook** for this first pass because the example begins with source discovery.
+3. Confirm that URL Collector opens. Use the application sidebar for every later page transition so the example remains one continuous workspace flow.
+
+**Checkpoint:** You are on URL Collector with the case question, date range, named artifacts, and official-source requirement available from the case brief. No evidence should have been created merely by opening the page.
 
 ## 5. URL Collector
 
@@ -237,6 +280,31 @@ URL Collector ties searches and saved links to a Research Purpose so the researc
 15. Open **Saved URLs** from the sidebar to add notes and tags, organise records, or create durable Text/PDF captures.
 
 Ordinary result rows do not directly create Text or PDF captures. Saving a result creates a URL registry record, not a durable copy of the page.
+
+### 5.2.1 Continue the worked example: discover and save official sources
+
+1. Create a Research Purpose using the values in Section 3.4:
+   - **Purpose title:** `Delhi C&D dust enforcement, 2023–2025`
+   - **Jurisdiction or area:** `Delhi NCR, India`
+   - **Research question:** `How did CAQM directions translate into Delhi construction-and-demolition dust enforcement and reporting from January 2023 to December 2025?`
+   - **Desired output:** `Cited enforcement timeline and agency-responsibility brief`
+   - **Official sources or domains:** `caqm.nic.in, dpcc.delhigovt.nic.in, cpcb.nic.in`
+   - **Agencies, actors, or institutions:** `CAQM, DPCC, CPCB, MCD, GNCTD`
+2. Keep that purpose selected. If **Generate search lanes** is available, generate lanes and retain only lanes that seek an official direction, implementation or enforcement evidence, or a reporting document.
+3. Run these focused searches separately rather than forcing every concept into one query:
+   - Website `caqm.nic.in`; Keywords `construction demolition, dust, Direction 79`; **Year from** `2023`; **Year to** `2025`; **Jurisdiction** `India`; **Area / region** `Delhi NCR`; format `PDF` when available.
+   - Website `caqm.nic.in`; Keywords `construction demolition, enforcement | closure | environmental compensation`; use the same years and area.
+   - Website `dpcc.delhigovt.nic.in`; Keywords `construction demolition, annual report | dust mitigation`; use the same years and area.
+   - If an evidence role remains missing, search `cpcb.nic.in` or the relevant Delhi government domain for `construction demolition, Delhi, action taken | implementation report`.
+4. Inspect the built query and Coverage check after each search. A missing source family is a reason to run another focused search, not evidence that the agency took no action.
+5. Open candidate results on their official sites. Confirm the issuing organisation, document title, date, geographic scope, and whether the item is a direction, implementation record, or report.
+6. Save at least one verified source for each of the three target evidence roles to the active purpose. Prefer the official document page or PDF over a search-result copy, repost, or news summary.
+7. If a named target is absent, save an equivalent official record and note what it replaces when you reach Saved URLs.
+8. Open **Saved URLs** from the sidebar.
+
+**Expected state:** The purpose shows at least three official-source URL records covering rule or direction, implementation or enforcement, and reporting. Search counts and titles may differ from this manual.
+
+**Checkpoint:** Every saved result has been opened and checked on its source site. None has yet been treated as a durable capture merely because its URL was saved. If discovery is unavailable, use the existing capability guidance and continue by adding known official URLs in Saved URLs.
 
 ### 5.3 Common issues on this page
 
@@ -283,6 +351,22 @@ Saved URLs is the source registry used after discovery. It supports purpose-scop
 12. For several records, select their checkboxes and use only the bulk actions offered by the toolbar. Available actions depend on selection and current view and may include export, collection assignment, favourite, tagging, capture, or deletion.
 13. Use **Capture missing text** or **Capture missing PDF** from snapshot-health controls only when the currently loaded missing records should all be captured using the chosen method.
 14. Open **File Manager** to inspect the resulting files, or add ready saved URLs directly to a Notebook when a separate capture is not required.
+
+### 6.2.1 Continue the worked example: curate and preserve the source set
+
+1. Select the Research Purpose `Delhi C&D dust enforcement, 2023–2025` so unrelated registry records are excluded from this review.
+2. Create the Saved URL collection `Delhi C&D enforcement`. Add the verified example records to it without removing their Research Purpose membership; a collection and a purpose serve different roles.
+3. Open each record’s **Details** view and confirm title, source domain, publication or issue date when available, and original URL.
+4. Add the core tags `construction-dust`, `Delhi`, and `enforcement`, plus the issuing agency name such as `CAQM` or `DPCC`. Add one concise note identifying the evidence role: `direction`, `implementation/enforcement`, or `reporting`.
+5. Capture the CAQM direction or order as PDF into `Delhi C&D enforcement/Official directions`. Use PDF because pagination, the issuing authority, and the original order format matter.
+6. Capture official explanatory or enforcement web pages as Text when searchable page content is the important evidence. Capture attached formal reports as PDF into `Delhi C&D enforcement/Implementation reports`.
+7. Wait for each capture to report success, then confirm its stored-file link. Do not count a queued, failed, or merely saved URL as preserved evidence.
+8. If an official server blocks capture, do not bypass the restriction. Download an authorised public copy through the browser, upload it in File Manager, preserve the source URL in the available metadata or notes, and record that it replaced the blocked automated capture.
+9. Open **File Manager** from the sidebar.
+
+**Expected state:** The purpose still contains the URL records, the collection groups the reviewed subset, and successful captures link to files in the two named File Manager subfolders.
+
+**Checkpoint:** At least one formal direction and one implementation or reporting document have durable copies, or a failed capture and its authorised-upload fallback are explicitly documented. Use the existing capture troubleshooting in Section 6.3 for blocked, timed-out, or missing captures.
 
 ### 6.3 Common issues on this page
 
@@ -339,6 +423,21 @@ The Evidence Inspector shows origin, capture method, SHA-256 state, revisions, A
 13. If an item was removed accidentally, open **Trash**, select it, and choose **Restore**. A short-lived **Undo** action may also appear immediately after moving an item to Trash.
 14. When a file is ready for analysis, use its Notebook action or open Notebook and choose **Add File**. Use the Governance Workspace action when the file should become pinned anchor evidence for an investigation.
 
+### 7.2.1 Continue the worked example: organise and inspect the evidence
+
+1. In the normal Drive view, create the folder `Delhi C&D enforcement` if the capture destination picker did not already create it.
+2. Inside it, confirm or create the subfolders `Official directions` and `Implementation reports`. Move only the corresponding example files into those locations.
+3. If a capture was blocked, open the correct subfolder, upload the authorised copy, and give it a descriptive name containing the issuing agency, document identifier or subject, and year. Do not imply that the uploaded file was captured automatically.
+4. Open each file’s **Properties** or **Evidence Inspector**. Check the source URL or recorded origin, capture method, date and title metadata, integrity or SHA-256 state, AI tags, and Notebook readiness.
+5. Correct organisation or descriptive metadata using only the controls available. Do not alter source content to make records agree with one another.
+6. Search the folder for `construction` and filter by agency or capture type to confirm that the example’s direction and implementation/reporting files are discoverable.
+7. Wait for the files required for analysis to become Notebook-ready. If a source fails, open diagnostics and follow the existing extraction, OCR, ingestion, or indexing guidance before continuing.
+8. Open Notebook and add files from these folders, or use an available file-level Notebook action.
+
+**Expected state:** The archive contains a traceable direction set and implementation/reporting set, with origin and integrity information visible and the analysis sources progressing to a ready state.
+
+**Checkpoint:** You can identify where each file came from, how it entered the archive, which evidence role it serves, and whether it is ready for grounded analysis. Use the existing Section 7.3 troubleshooting when upload, preview, hashing, tagging, or readiness fails.
+
 ### 7.3 Common issues on this page
 
 - **Upload is unavailable:** uploads and folder creation require the normal Drive view. Leave Trash, Favourites, or archive browsing and open the intended Drive folder.
@@ -392,6 +491,24 @@ Example prompt:
 
 If no included source is Ready, grounded chat cannot use it. A citation is an evidence pointer, not a guarantee that the passage supports the claim or that the source is accurate.
 
+### 8.2.1 Continue the worked example: build and verify the evidence table
+
+1. Create the Notebook `Delhi C&D enforcement review`.
+2. Add the formal direction and the implementation/reporting files from `Delhi C&D enforcement`. Add the corresponding Saved URL only when it contributes searchable content not already represented by the captured file.
+3. Wait until every essential source is **Ready**, then mark those sources **Included**. Exclude duplicates, unrelated results, and sources outside the example’s date or geographic scope.
+4. Choose **Evidence** mode and ask:
+
+   > Using only the included sources, build a dated table for Delhi from January 2023 through December 2025 with these columns: date; issuing or reporting agency; action or obligation; legal or administrative authority; responsible implementing body; evidence of implementation; and citation. Separate mandatory directions from advisory or reported actions. After the table, list contradictions and evidence gaps. Do not infer implementation merely because a direction was issued.
+
+5. Open every citation supporting a material table row. Confirm that the passage supports the date, actor, action, authority, and implementation statement attributed to it.
+6. Remove or mark as unverified any row whose citation is absent, irrelevant, or weaker than the claim. If evidence is missing, add a better official source rather than repeatedly prompting for a stronger conclusion.
+7. Copy the verified table, source substitutions, contradictions, and unresolved gaps into **Notes**. Label the note `Verified through [today’s date]` using the actual review date.
+8. Preserve a specific distinction in Notes between `direction issued` and `implementation evidenced`; the former does not prove the latter.
+
+**Expected state:** The Notebook contains a source-bounded table with openable citations and a durable note that separates verified findings from unresolved gaps. The actual findings depend on the selected evidence and are not supplied by this walkthrough.
+
+**Checkpoint:** Every retained material claim has been compared with its cited passage. If a source is not Ready, chat is unavailable, or citations are unsupported, stop and use the existing Section 8.3 troubleshooting before opening Governance Workspace.
+
 ### 8.3 Common issues on this page
 
 - **Add URL or Add File shows no expected source:** confirm that the URL exists in Saved URLs or the file exists in File Manager, then clear picker filters and search by its current title.
@@ -436,6 +553,25 @@ Governance Workspace retrieves official-source evidence before generating an ans
 10. Select **Generate answer from retrieved evidence** only after the included evidence set is suitable. The generated answer is limited to the retrieved and selected evidence.
 11. Inspect every material citation and its provenance. Distinguish statements present in sources from system-generated synthesis or inference.
 12. Revisit earlier investigation sessions through **Investigation Library**, and retain unresolved gaps and follow-up questions when continuing the analysis.
+
+### 9.2.1 Continue the worked example: trace responsibility and follow-up
+
+1. Launch Governance Workspace from the CAQM direction in File Manager or Saved URLs so that the direction appears as a pinned anchor. Confirm the anchor before retrieval.
+2. Enter this question in **Officer Question Builder**:
+
+   > Between January 2023 and December 2025, what construction-and-demolition dust-control duties did CAQM assign to DPCC and Delhi implementing bodies, what official evidence shows those duties were implemented, and what compliance or reporting gaps remain?
+
+3. Set **Question type** to **Compliance/follow-up**, **Time window** to **Any period**, **Issue hint** to `Construction`, and **Location hint** to `Delhi NCR`. The exact 2023–2025 limit remains in the question because the selector does not provide that custom range.
+4. Choose **Case tracing** and set **Source scope** to **Mixed anchors** so the investigation can use both captured files and saved official URLs.
+5. Select **Find evidence**. Review the ranked set and include only records that address an assigned duty, implementation action, enforcement result, or reporting gap within the question’s scope.
+6. Inspect coverage before generation. If an agency, time period, or evidence role is missing, refine retrieval or return to the archive; do not interpret retrieval silence as proof of non-compliance.
+7. Select **Generate answer from retrieved evidence** only after the included set is suitable.
+8. Open every citation supporting a claimed mandate, agency relationship, enforcement event, or gap. Compare those claims with the Notebook’s verified table and record genuine conflicts rather than forcing alignment.
+9. Reopen the investigation through **Investigation Library** and confirm that its question, source scope, retrieved evidence, citations, and follow-up gaps persist.
+
+**Expected state:** Governance Workspace shows a saved, evidence-first investigation connecting the pinned direction to retrieved implementation or reporting records. Any agency map, timeline, contradiction, or gap panel is an evidence-dependent output, not a guaranteed conclusion.
+
+**Checkpoint:** The purpose, Saved URL collection, File Manager folders, Notebook note, and Governance investigation form one traceable chain. Completion means the claims are reviewable through citations; it does not mean the system has proven compliance or non-compliance. Use the existing Section 9.3 troubleshooting when retrieval, coverage, generation, citation support, or investigation persistence fails.
 
 ### 9.3 Common issues on this page
 

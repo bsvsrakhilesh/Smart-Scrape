@@ -223,6 +223,10 @@ test("manual upload finalize stitches chunks and persists sanitized metadata", a
     ...args.create,
     id: record.id,
   }));
+  replaceMethod(t, prisma.folder, "findUnique", async ({ where }: any) => {
+    assert.equal(where.id, "folder-1");
+    return { id: "folder-1", deletedAt: null };
+  });
   mockDocumentRevisionPrisma(t, prisma);
 
   await withServer(async (server) => {

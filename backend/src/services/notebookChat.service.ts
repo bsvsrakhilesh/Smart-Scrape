@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import prisma from "../config/database";
 import { env } from "../config/env";
-import { openaiClient, defaultModel } from "./openaiClient";
+import { openaiClient, defaultModel, fastModel } from "./openaiClient";
 import { Prisma } from "../generated/prisma/client";
 import { embedQuery, toPgVectorLiteral } from "./embeddings.service";
 import { assertSelectedNotebookSourcesAttached } from "./notebookChatGuards.service";
@@ -546,7 +546,8 @@ async function rerankWithLLM(p: {
 
   const resp = await openaiClient().responses.parse(
     {
-      model: defaultModel(),
+      model: fastModel(),
+      max_output_tokens: env.OPENAI_FAST_MAX_OUTPUT_TOKENS,
       input: [
         { role: "system" as const, content: system },
         { role: "user" as const, content: user },
@@ -1025,7 +1026,7 @@ function formatContext(
         `SOURCE: ${sourceLabel}`,
         `CHUNK_INDEX: ${c.idx}`,
         "TEXT:",
-        (c.text ?? "").trim(),
+        (c.text ?? "").trim().slice(0, 6_000),
       ].join("\n");
     })
     .join("\n\n---\n\n");
@@ -1078,9 +1079,14 @@ export async function runNotebookChat(p: {
   onStreamEvent?: ChatStreamEmit;
 }) {
   const notebookId = p.notebookId;
-  const message = (p.message ?? "").trim();
+  const message = (p.message ?? "").trim().slice(0, 4_000);
   const mode: AnswerMode = p.answerMode ?? "draft";
-  const history = Array.isArray(p.history) ? p.history.slice(-12) : [];
+  const history = Array.isArray(p.history)
+    ? p.history.slice(-8).map((item) => ({
+        role: item.role,
+        content: String(item.content ?? "").slice(0, 4_000),
+      }))
+    : [];
   const filterSourceIds = p.sourceIds;
   const startedAtMs = Date.now();
 
@@ -1304,6 +1310,7 @@ export async function runNotebookChat(p: {
     const resp = await openaiClient().responses.parse(
       {
         model: defaultModel(),
+        max_output_tokens: env.OPENAI_CHAT_MAX_OUTPUT_TOKENS,
         input,
         text: {
           format: zodTextFormat(ChatAnswerSchema, "chat_answer"),

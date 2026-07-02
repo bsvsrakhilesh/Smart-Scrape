@@ -6,7 +6,7 @@ import { CaptureType, Prisma } from "../generated/prisma/client";
 import { canonicalizeUrl, normalizedDomainFromUrl } from "../utils/urlCanonical";
 import { scheduleAiTagForUrl } from "./aiTagUrlAuto.service";
 import { enrichUrlCreateRows, type CreateUrlInput } from "./url.service";
-import { defaultModel, openaiClient } from "./openaiClient";
+import { fastModel, openaiClient } from "./openaiClient";
 
 export type CollectorPurposeInput = {
   title: string;
@@ -649,7 +649,8 @@ export async function planCollectorPurpose(ownerId: string, purposeId: string) {
     try {
       const authoritySources = inferAuthoritySources(purpose);
       const response = await openaiClient().responses.parse({
-        model: defaultModel(),
+        model: fastModel(),
+        max_output_tokens: env.OPENAI_FAST_MAX_OUTPUT_TOKENS,
         input: [
           {
             role: "system",

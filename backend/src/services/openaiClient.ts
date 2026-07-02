@@ -19,3 +19,7 @@ export function openaiClient(): OpenAI {
 export function defaultModel(): string {
   return env.OPENAI_MODEL;
 }
+
+export function fastModel(): string {
+  return env.OPENAI_FAST_MODEL;
+}

@@ -13,13 +13,43 @@ const EnvSchema = z.object({
   // OpenAI (optional unless enabled)
   OPENAI_ENABLED: BoolFromEnv,
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().optional().default("gpt-5.2"),
+  // Cost-aware model routing. Keep focused classification/reranking work on
+  // the fast model and reserve the mini reasoning model for user-facing RAG.
+  OPENAI_MODEL: z.string().optional().default("gpt-5.4-mini"),
+  OPENAI_FAST_MODEL: z.string().optional().default("gpt-4o-mini"),
+  // Disabled by default so a long conversation cannot silently accumulate an
+  // unbounded bill through the Responses API's previous_response_id chain.
+  OPENAI_STATEFUL_RESPONSES: BoolFromEnv,
   OPENAI_TIMEOUT_MS: z.coerce.number().optional().default(30_000),
+  OPENAI_FAST_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(1_600),
+  OPENAI_CHAT_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(5_000),
 
   // Governance Workspace answer models
-  GOVERNANCE_ANSWER_MODEL: z.string().optional().default("gpt-5.5"),
-  GOVERNANCE_ASSIST_MODEL: z.string().optional().default("gpt-5.4-mini"),
-  GOVERNANCE_DEEP_REVIEW_MODEL: z.string().optional().default("gpt-5.5-pro"),
+  GOVERNANCE_ANSWER_MODEL: z.string().optional().default("gpt-5.4-mini"),
+  GOVERNANCE_ASSIST_MODEL: z.string().optional().default("gpt-4o-mini"),
+  GOVERNANCE_DEEP_REVIEW_MODEL: z.string().optional().default("gpt-5.4"),
+  GOVERNANCE_ANSWER_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(6_000),
+  GOVERNANCE_DEEP_REVIEW_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .default(10_000),
 
   // Embeddings. Current SourceChunk.embedding column is vector(1536).
   EMBEDDING_MODEL: z.string().optional().default("text-embedding-3-small"),

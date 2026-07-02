@@ -514,6 +514,12 @@ function modelForAssist() {
   return env.GOVERNANCE_ASSIST_MODEL;
 }
 
+function maxOutputTokensForAnswer(deepReview?: boolean) {
+  return deepReview
+    ? env.GOVERNANCE_DEEP_REVIEW_MAX_OUTPUT_TOKENS
+    : env.GOVERNANCE_ANSWER_MAX_OUTPUT_TOKENS;
+}
+
 function normalizeQuestion(value: string) {
   return String(value || "").trim().slice(0, 4000);
 }
@@ -2223,6 +2229,7 @@ async function maybeRerankEvidenceWithAssistModel(p: {
     const resp = await openaiClient().responses.parse(
       {
         model: modelForAssist(),
+        max_output_tokens: env.OPENAI_FAST_MAX_OUTPUT_TOKENS,
         input: [
           {
             role: "system" as const,
@@ -2272,7 +2279,7 @@ function formatEvidencePack(cards: EvidenceCard[], profile: AirQualityQueryProfi
         `AIR_QUALITY_SCORE: ${airQualityDomainScore(`${card.title}\n${card.text}`, profile)}`,
         `TITLE: ${card.title}`,
         "TEXT:",
-        card.text,
+        card.text.slice(0, 2_500),
       ].join("\n"),
     )
     .join("\n\n---\n\n");
@@ -2430,6 +2437,7 @@ async function generateAnswerOnce(p: {
   multiStepResearch?: MultiStepResearchResult | null;
   graphRagSummary?: GraphRagSummary | null;
   model: string;
+  maxOutputTokens: number;
   previousResponseId?: string | null;
   repairFrom?: GovernanceAnswerStructured | null;
   signal?: AbortSignal;
@@ -2490,14 +2498,20 @@ async function generateAnswerOnce(p: {
 
   const input = [
     { role: "system" as const, content: system },
-    ...p.history.slice(-10).map((item) => ({ role: item.role, content: item.content })),
+    ...p.history.slice(-6).map((item) => ({
+      role: item.role,
+      content: String(item.content ?? "").slice(0, 4_000),
+    })),
     { role: "user" as const, content: user },
   ];
 
   const resp = await openaiClient().responses.parse(
     {
       model: p.model,
-      previous_response_id: p.previousResponseId ?? undefined,
+      max_output_tokens: p.maxOutputTokens,
+      previous_response_id: env.OPENAI_STATEFUL_RESPONSES
+        ? p.previousResponseId ?? undefined
+        : undefined,
       input,
       text: { format: zodTextFormat(GovernanceAnswerSchema, "governance_answer") },
     } as any,
@@ -2638,6 +2652,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
   const requestedWorkflowMode = normalizeWorkflow(input.workflowMode);
   const officerFilters = normalizeAnswerOfficerFilters(input.officerFilters);
   const model = modelForAnswer(input.deepReview);
+  const maxOutputTokens = maxOutputTokensForAnswer(input.deepReview);
   const assistModel = modelForAssist();
   const officerQueryProfile = buildAirQualityQueryProfile(question, officerFilters);
 
@@ -2872,6 +2887,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
       multiStepResearch,
       graphRagSummary,
       model,
+      maxOutputTokens,
       previousResponseId,
       signal: input.signal,
     });
@@ -2891,6 +2907,7 @@ export async function runGovernanceWorkspaceAnswer(input: GovernanceAnswerInput)
         multiStepResearch,
         graphRagSummary,
         model,
+        maxOutputTokens,
         previousResponseId: openaiResponseId ?? previousResponseId,
         repairFrom: first.answer,
         signal: input.signal,

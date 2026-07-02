@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 import { env } from "../config/env";
-import { defaultModel, openaiClient } from "./openaiClient";
+import { fastModel, openaiClient } from "./openaiClient";
 
 export type SearchResultRow = {
   title: string;
@@ -265,7 +265,8 @@ async function refineWithOpenAI(
 
   try {
     const resp = await openaiClient().responses.parse({
-      model: defaultModel(),
+      model: fastModel(),
+      max_output_tokens: env.OPENAI_FAST_MAX_OUTPUT_TOKENS,
       input: [
         { role: "system", content: system },
         {
